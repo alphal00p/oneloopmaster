@@ -1,0 +1,18 @@
+[package]
+name = "oneloop"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Exact Symbolica expressions for one-loop integrals"
+publish = false # Development snapshot: dependency patches and licensing approval remain open.
+
+[dependencies]
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "0b57776bf911faeea7e28ea133706fb03740ffeb" }
+
+[patch.crates-io]
+graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "0b57776bf911faeea7e28ea133706fb03740ffeb" }
+numerica = { path = "../symbolica-dev/lib/numerica" }
+
+# Local evaluator and transcendental fixes; remove after upstream includes them.
+[patch."https://github.com/symbolica-dev/symbolica"]
+symbolica = { path = "../symbolica-dev" }

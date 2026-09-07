@@ -1,0 +1,193 @@
+diff --git a/lib/numerica/src/domains/float/complex.rs b/lib/numerica/src/domains/float/complex.rs
+index 50fba8b..cd3096c 100644
+--- a/lib/numerica/src/domains/float/complex.rs
++++ b/lib/numerica/src/domains/float/complex.rs
+@@ -772,6 +772,11 @@ impl<T: Real> Real for Complex<T> {
+ 
+     #[inline]
+     fn norm(&self) -> Self {
++        // Preserve exact absolute values on the real axis (and avoid squaring
++        // overflow/underflow). Symbolic sign predicates rely on |x| = +/-x.
++        if self.im.is_fully_zero() {
++            return Complex::new(self.re.norm(), self.im.zero());
++        }
+         Complex::new(self.norm_squared().sqrt(), self.im.zero())
+     }
+ 
+diff --git a/src/evaluate.rs b/src/evaluate.rs
+index 90bba4b..1f0e3c1 100644
+--- a/src/evaluate.rs
++++ b/src/evaluate.rs
+@@ -189,6 +189,38 @@ mod test {
+         assert_eq!(r, 54.761021719902196);
+     }
+ 
++    #[test]
++    fn noninline_constant_and_runtime_function_indices() {
++        let x = parse!("external_index_regression_x");
++        let f = symbol!("external_index_regression_f");
++        let body = parse!("pi + polylog(2, external_index_regression_x)");
++        let mut map = FunctionMap::new();
++        map.add_function_with_options(
++            f,
++            vec![symbol!("external_index_regression_x")],
++            body.clone(),
++            FunctionRegistrationOptions::new().inlining(InliningPolicy::Never),
++        )
++        .unwrap();
++        let expression = f.call((&x,));
++        let mut actual = expression
++            .evaluator(std::slice::from_ref(&x))
++            .function_map(map)
++            .build()
++            .unwrap()
++            .map_coeff(&|v| Complex::new(v.re.to_f64(), v.im.to_f64()));
++        let mut expected = body
++            .evaluator(std::slice::from_ref(&x))
++            .build()
++            .unwrap()
++            .map_coeff(&|v| Complex::new(v.re.to_f64(), v.im.to_f64()));
++        let args = [Complex::new(0.25, 0.0)];
++        assert_eq!(
++            actual.evaluate_single(&args),
++            expected.evaluate_single(&args)
++        );
++    }
++
+     #[test]
+     fn arb_prec() {
+         let x = symbol!("v1");
+diff --git a/src/evaluate/tree.rs b/src/evaluate/tree.rs
+index 8987d41..8023874 100644
+--- a/src/evaluate/tree.rs
++++ b/src/evaluate/tree.rs
+@@ -749,6 +749,28 @@ impl<'a> AtomView<'a> {
+             call_args.push(slot);
+         }
+ 
++        // Constant functions are lifted into the caller's argument list. The
++        // remaining instructions still refer to the old external-function
++        // indices, which must be remapped when those entries are removed.
++        let mut next_index = 0;
++        let external_indices = evaluator
++            .external_fns
++            .iter()
++            .map(|external| {
++                if external.constant_index.is_none() {
++                    let index = next_index;
++                    next_index += 1;
++                    Some(index)
++                } else {
++                    None
++                }
++            })
++            .collect::<Vec<_>>();
++        for (instruction, _) in &mut evaluator.instructions {
++            if let Instr::ExternalFun(_, index, _) = instruction {
++                *index = external_indices[*index].expect("runtime external function");
++            }
++        }
+         evaluator
+             .external_fns
+             .retain(|external| external.constant_index.is_none());
+diff --git a/src/transcendental.rs b/src/transcendental.rs
+index 91e9ec8..abae977 100644
+--- a/src/transcendental.rs
++++ b/src/transcendental.rs
+@@ -3632,11 +3632,13 @@ fn polylog_integer_numeric_eval(
+         return Some(polylog_negative_integer_numeric_eval(order, z, binary_prec));
+     }
+ 
+-    if z.im.to_f64() == 0.0 && z.re.to_f64() == 1.0 {
++    // Endpoint and branch predicates must preserve the input precision. Nearby
++    // arbitrary-precision values can round to exactly +/-1 when cast to f64.
++    if z.im.is_fully_zero() && z.re == Float::with_val(binary_prec, 1) {
+         return Some(zeta_integer_numeric_eval(order, binary_prec));
+     }
+ 
+-    if z.im.to_f64() == 0.0 && z.re.to_f64() == -1.0 {
++    if z.im.is_fully_zero() && z.re == Float::with_val(binary_prec, -1) {
+         let zeta = zeta_integer_numeric_eval(order, binary_prec);
+         let exponent = Complex::new(Float::with_val(binary_prec, 1 - order), zero.clone());
+         let factor = complex_one(binary_prec)
+@@ -3649,7 +3651,7 @@ fn polylog_integer_numeric_eval(
+     }
+ 
+     #[cfg(feature = "float-mpfr")]
+-    if order == 2 && z.im.to_f64() == 0.0 && z.re.to_f64() <= 1.0 {
++    if order == 2 && z.im.is_fully_zero() && z.re <= Float::with_val(binary_prec, 1) {
+         return Some(Complex::new(
+             z.re.clone().into_raw().li2().into(),
+             zero.clone(),
+@@ -3662,7 +3664,10 @@ fn polylog_integer_numeric_eval(
+     }
+ 
+     let log_z = z.log();
+-    if log_z.norm().re.to_f64().abs() < 1.0 {
++    // The logarithmic expansion converges for |log(z)| < 2*pi (DLMF 25.12.12).
++    // Cover the unit circle, where the direct power series converges too slowly
++    // to reach the requested precision before its iteration cap.
++    if log_z.norm().re.to_f64().abs() < 4.0 {
+         return Some(polylog_real_branch_fix(
+             z,
+             polylog_jonquiere_integer(order as u32, &log_z, binary_prec),
+@@ -3792,7 +3797,10 @@ fn polylog_jonquiere_integer(order: u32, mu: &Complex<Float>, binary_prec: u32)
+ 
+         let term_size = term.norm().re.to_f64().abs();
+         sum += term;
+-        if k > order + 8 && (term_size == 0.0 || term_size < threshold) {
++        // Zeta(-2n) vanishes identically. A structural zero is not a
++        // convergence estimate for the following nonzero term.
++        let trivial_zeta_zero = k > order && (k - order) % 2 == 0;
++        if k > order + 8 && !trivial_zeta_zero && (term_size == 0.0 || term_size < threshold) {
+             return sum;
+         }
+ 
+@@ -3826,7 +3834,7 @@ fn bernoulli_polynomial(n: u32, x: &Complex<Float>, binary_prec: u32) -> Complex
+ }
+ 
+ fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+-    if z.im.to_f64() == 0.0 && z.re.to_f64() > 0.0 {
++    if z.im.is_fully_zero() && z.re > Float::new(binary_prec) {
+         return z.log()
+             + Complex::new(
+                 Float::new(binary_prec),
+@@ -3838,7 +3846,10 @@ fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+ }
+ 
+ fn polylog_real_branch_fix(z: &Complex<Float>, value: Complex<Float>) -> Complex<Float> {
+-    if z.im.to_f64() == 0.0 && z.re.to_f64() > 1.0 && value.im.to_f64() > 0.0 {
++    if z.im.is_fully_zero()
++        && z.re > Float::with_val(z.re.prec(), 1)
++        && value.im > Float::new(value.im.prec())
++    {
+         return Complex::new(value.re, -value.im);
+     }
+ 
+@@ -4542,6 +4553,26 @@ mod tests {
+         assert!(Complex::<Float>::try_from(parse!("polylog(2,0.5)")).is_ok());
+     }
+ 
++    #[test]
++    fn polylog_unit_circle_precision() {
++        let mut previous: Option<Complex<Float>> = None;
++        for bits in [128, 256] {
++            let pi = Float::with_val(bits, Constant::Pi);
++            let z = Complex::new(
++                Float::with_val(bits, -1) / 2,
++                Float::with_val(bits, 3).sqrt() / 2,
++            );
++            let result = polylog_integer_numeric_eval(2, &z, bits, 0).unwrap();
++            // Re Li2(exp(2*pi*i/3)) = -pi^2/18, DLMF 25.12.8.
++            assert!((result.re.clone() + pi.pow(2) / 18).to_f64().abs() < 1e-28);
++            if let Some(old) = previous {
++                let delta = result.clone() - old;
++                assert!(delta.re.to_f64().hypot(delta.im.to_f64()) < 1e-28);
++            }
++            previous = Some(result);
++        }
++    }
++
+     #[test]
+     fn polylog_matches_ginac_for_dilog() {
+         if Command::new("ginsh").arg("--help").output().is_err() {
