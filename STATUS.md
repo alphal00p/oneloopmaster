@@ -4,6 +4,10 @@ The expression crate is independent of the unchanged Fortran wrapper and
 standalone numerical Rust port. Symbolica is its only direct dependency.
 It is not yet registered as a community Python extension.
 
+The requested public master Symbols with dedicated Symbolica `EvaluationInfo`
+hooks are also not implemented. Existing native sector function-map definitions
+are a different API; see [MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md).
+
 **Full scalar parity currently fails.** The expanded scalar-domain audit found
 44 coefficient disagreements over 342 accepted original-Fortran points. Known
 failures include the regular dB0 pseudothreshold, mixed-sign finite massless C0,

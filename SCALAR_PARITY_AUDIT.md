@@ -146,6 +146,106 @@ In particular, original `avh_olo_box.f90:199–213` retains the squared Q phase 
 the current native `box_two_opposite_15` loses. The cross-review ran no concurrent
 Symbolica evaluator and made no production changes.
 
+## Follow-up: three parallel mismatch investigations
+
+The follow-up assigned A0/B0/dB0, C0 and D0 to separate auditors. The bubble
+and triangle auditors cross-reviewed each other's proposed branch corrections;
+the lead independently inspected the original and native IR15/IR16 expressions.
+Production formulas were not changed in this follow-up. Independent ordinary-
+Python mathematical evaluations below are diagnostic checks of proposed
+corrections, not passing Rust regression tests or replacements for the oracle.
+
+| Group | Failing coefficients | Follow-up conclusion |
+| --- | ---: | --- |
+| A0 negative real mass | 1 | Proven signed-zero-dependent logarithmic lip. |
+| Small nonzero B0/dB0 momentum | 14 | Severe cancellation; independent Feynman-parameter checks support the Fortran values. |
+| dB0 regular pseudothreshold | 2 | Missing coincident-root analytic limit. |
+| Finite massless C0 | 4 | One wrong real-root/lip pairing, not four unrelated sectors. |
+| D0 IR15 | 11 | Lost continued product phases and wrong real-axis logarithmic lip. |
+| D0 IR16 | 11 | Same classes of continuation loss, affecting finite and pole terms. |
+| Finite four-mass D0 | 1 | Reproduced; a complete causal correction remains unproven. |
+
+### A0/B0/dB0
+
+The shared `physical_log` in `src/lib.rs:108` is `conj(log(conj(z)))`.
+Numerica's `Complex::conj` negates the imaginary component and its argument uses
+`atan2` (`lib/numerica/src/domains/float/complex.rs:114`, `:145`, `:790`).
+Consequently runtime `z=-2+0i` becomes `-2-0i` inside the log, and the outer
+conjugation produces the upper, not lower, lip. Original `tadp` explicitly uses
+`qonv(...,-1)` (`avh_olo_bub.f90:52`). Independent IEEE complex arithmetic
+reproduced the failure and the opposite result for `-2-0i`.
+
+A proposed exact native primitive is
+`if(z-conj(z), log(z), log(abs(z))-i*pi*if(z-abs(z),1,0))`.
+For nonzero real z this forces the intended axis value independently of signed
+zero; off-axis it leaves the principal log unchanged. At zero it remains
+singular. Because the helper is shared, a correction needs whole-suite testing,
+including literal versus substituted arguments, both zero signs, shrinking
+negative widths, and lazy conditional evaluation. The triangle auditor
+independently checked these semantics.
+
+Six B0 and eight dB0 failures occur at `p²=+/-1e-10`, covering equal, unequal,
+complex and one-massless masses. Independent Simpson integration with 10,000
+panels reproduced all eight pairs of Fortran values to about 1e-15, apart from
+an approximately 4e-13 difference in one equal-mass derivative. This supports
+the oracle and diagnoses the cancellation; it does not demonstrate that every
+native failing case has been repaired by a particular precision setting.
+The two exact pseudothreshold orders independently reproduce `3*log(2)-2`.
+
+### C0
+
+Every failing C0 is finite and fully massless, with `p1<0`, `p2,p3>0` and
+positive Källén discriminant. Fixture lines are 159, 321, 325 and 329.
+For the current root order, the proposed local change is
+`qx1=SheetAtom::with_sign(root_1,-sign(r23))` and
+`qx2=SheetAtom::with_sign(root_2,sign(r23))`, where `r23=-p1`.
+It belongs in `triangle_finite_massless` (`src/triangle.rs:114`), not in the
+shared quadratic solver. Original `trif0` (`avh_olo_tri.f90:293`) negates the
+oppositely ordered roots and derives their real-axis signs from `r23`.
+
+Independent continued-log/dilog evaluation with the corrected pairing matches
+all four Fortran values within 1.2e-15. Twelve additional Fortran controls cover
+positive-Källén Euclidean, all-timelike, mixed-sign and permuted inputs, also
+within 1.2e-15. The bubble auditor independently verified the root-order/sign
+argument for either sign of the quadratic coefficient. Nonreal roots keep
+their actual imaginary signs; exact zero-discriminant limits are not solved
+by this correction. These proposed changes still require Rust regression tests.
+
+### D0
+
+All 22 infrared disagreements are in fixture lines 655–685: IR15 and IR16 each
+contribute seven finite and four simple-pole failures. Unlike original
+`box15`/`box16`, native `src/box_integral.rs:577` and `:642` form raw products
+and quotients before applying principal continued logs/dilogs. The original
+retains `qmplx_type` sheets through these operations
+(`avh_olo_box.f90:101–130`, `:197–214`). Negative-real `r24` also exposes the
+same lower-lip problem identified in A0.
+
+An independent mathematical re-evaluation using explicit original-style sheet
+products and lower-lip logs matches all 16 IR15/IR16 fixture points (including
+their passing coefficients) within 5e-16, without changing the scalar roots.
+For IR16's displayed pole, using the lower lip gives
+`0.02898319954998221-0.1952626708662378i`; using the upper lip reproduces the
+current native disagreement. This isolates analytic continuation defects;
+higher precision alone cannot fix them.
+
+Original IR15 additionally orders by `abs(m2-p2)` and IR16 by `abs(m2)`
+(`avh_olo_box.f90:162`, `:77`). Those swaps are absent in the native functions.
+The diagnostic sheet expressions pass these samples both with and without
+the swaps, so the omission is a robustness/source-alignment issue, not a proven
+cause of these 22 failures. The single finite four-mass failure at line 587
+needs a separate `boxc`/root-continuation investigation; the infrared correction
+does not establish a remedy for it.
+
+For that finite point, independent evaluation of the existing four-mass formula
+with continued sheet arithmetic reproduces the wrong native value
+`0.29521879685976965+0.2343353762264191i`. The roots have imaginary parts of
+order 1e-4, not tiny real-axis roundoff. Four cyclic rotations give inconsistent
+values, so neither an isolated signed-zero fix nor an arbitrarily chosen
+rotation is an established repair. Original `avh_olo_d0.h90:199` routes these
+complex widths to `boxc`. This is evidence of an inadequate continuation
+representation in the port, rather than a Symbolica-only evaluation problem.
+
 ## Checks performed and remaining coverage
 
 The previously passing acceptance corpus contains 293 points / 879 coefficients

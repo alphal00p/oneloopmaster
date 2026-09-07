@@ -9,6 +9,23 @@ dependency-free numerical Rust core were not changed.
 points. See `SCALAR_PARITY_AUDIT.md` and its retained failing fixtures. The
 passing acceptance results below remain valid but are not comprehensive.
 
+The dedicated `oneloopmaster` checkout was revalidated after export: all 31
+acceptance tests pass, the new `cargo run --example basic` runs and checks its
+output, and all-target Clippy, formatting and warning-free rustdoc pass.
+The explicitly enabled 342-point exploratory test was rerun in this checkout
+and failed with the same 44 coefficient disagreements (exit status 101).
+README now includes setup, usage, conventions and credits to Andreas van Hameren
+with the original OneLOop references.
+
+Three follow-up auditors investigated the mismatches by family and cross-checked
+the proposed branch/limit corrections. See the follow-up section of
+[SCALAR_PARITY_AUDIT.md](SCALAR_PARITY_AUDIT.md). Those are diagnostic findings;
+no production formula was changed in this documentation/audit follow-up.
+An additional Symbolica-source/API audit found that the requested public master
+Symbols with dedicated `EvaluationInfo` hooks are missing. The distinction from
+native function-map definitions and the proposed design/tests are recorded in
+[MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md). This criterion remains open.
+
 ## Four independent auditors and cross-review
 
 | Auditor | Primary scope | Cross-review |
