@@ -30,7 +30,7 @@ fn bnlog_with_real_axis_lip(rank: usize, root: &Atom, upper_lip: bool) -> Atom {
     }
     let argument: Atom = 1 - Atom::num(1) / root;
     let logarithm = if upper_lip {
-        argument.log()
+        upper_log(&argument)
     } else {
         physical_log(&argument)
     };
@@ -117,7 +117,19 @@ pub(crate) fn db0_at_zero_momentum(mass_0: &Atom, mass_1: &Atom) -> Atom {
 
     let difference = mass_0 - mass_1;
     let ratio = mass_0 / mass_1;
-    let unequal = (Atom::num(1) / 2 - &ratio * ordinary_log3(&ratio)) / mass_1;
+    // Original dbub0 evaluates olog3(m0/m1,0) after ordering the masses.
+    // For opposite-sign real masses its logarithm is on the upper lip when
+    // the denominator is positive and on the lower lip when it is negative.
+    // Preserve that ratio convention explicitly and symmetrically under mass
+    // exchange; both forms are the same principal function off the axis.
+    let denominator_real = mass_1 + mass_1.conj();
+    let negative_denominator = &denominator_real - Symbol::ABS.call((&denominator_real,));
+    let continued_log3 = if_nonzero_else(
+        &negative_denominator,
+        ordinary_log3(&ratio),
+        ordinary_log3(&ratio.conj()).conj(),
+    );
+    let unequal = (Atom::num(1) / 2 - &ratio * continued_log3) / mass_1;
     let equal = Atom::num(1) / (Atom::num(6) * mass_1);
     let both_nonzero = if_nonzero_else(&difference, unequal, equal);
     let first_massless = Atom::num(1) / (Atom::num(2) * mass_1);
@@ -152,7 +164,8 @@ pub(crate) fn db0_with_two_masses(
 ) -> Atom {
     let mass_difference = mass_1 - mass_0;
     let linear = &mass_difference - momentum;
-    let discriminant = (&linear * &linear - Atom::num(4) * momentum * mass_0).sqrt();
+    let discriminant_squared = &linear * &linear - Atom::num(4) * momentum * mass_0;
+    let discriminant = discriminant_squared.sqrt();
     let denominator = Atom::num(2) * momentum;
     let root_plus = (-&linear + &discriminant) / &denominator;
     let root_minus = (-linear - &discriminant) / denominator;
@@ -161,7 +174,8 @@ pub(crate) fn db0_with_two_masses(
     // Inside the interval, the plus/minus roots require upper/lower lips.
     let plus_ratio = Atom::num(1) - Atom::num(1) / root_plus;
     let minus_ratio = Atom::num(1) - Atom::num(1) / root_minus;
-    let inverse_quadratic_integral = (plus_ratio.log() - physical_log(&minus_ratio)) / discriminant;
+    let inverse_quadratic_integral =
+        (upper_log(&plus_ratio) - physical_log(&minus_ratio)) / &discriminant;
     let momentum_squared = momentum * momentum;
     let logarithmic_term = &mass_difference
         * (physical_log(&(mass_1 / mu_squared)) - physical_log(&(mass_0 / mu_squared)))
@@ -170,9 +184,31 @@ pub(crate) fn db0_with_two_masses(
         - &mass_difference * &mass_difference)
         / (Atom::num(2) * momentum_squared);
 
-    -Atom::num(1) / momentum
+    let distinct_roots = -Atom::num(1) / momentum
         + logarithmic_term
-        + inverse_quadratic_coefficient * inverse_quadratic_integral
+        + inverse_quadratic_coefficient * inverse_quadratic_integral;
+    // Original dbub0's coincident-root convention. The regular pseudo-
+    // threshold is a genuine finite limit; at the normal threshold this
+    // instead reproduces OneLOop's prescribed value, not the divergent
+    // one-sided derivative limit. Root location cannot be classified solely
+    // by s-m0-m1 when real mass squares can be negative.
+    // The public Fortran wrapper orders the two masses by |Re(m)|+|Im(m)|
+    // before applying this prescription. Unlike the regular divided
+    // difference, its normal-threshold value is sensitive to the root's
+    // label, so preserve that ordering when choosing the coincident root.
+    let size = |mass: &Atom| {
+        Symbol::ABS.call((mass + mass.conj(),))
+            + Symbol::ABS.call(((mass - mass.conj()) / sheet_exact::i(),))
+    };
+    let size_difference = size(mass_1) - size(mass_0);
+    let swap = &size_difference - Symbol::ABS.call((&size_difference,));
+    let ordered_difference = if_nonzero_else(&swap, -&mass_difference, mass_difference.clone());
+    let root = (momentum + ordered_difference) / (Atom::num(2) * momentum);
+    let ratio = &root / (&root - 1);
+    let negative_momentum = momentum - Symbol::ABS.call((momentum,));
+    let logarithm = if_nonzero_else(&negative_momentum, upper_log(&ratio), physical_log(&ratio));
+    let coincident_roots = ((Atom::num(2) * root - 1) * logarithm - 2) / momentum;
+    if_nonzero_else(&discriminant_squared, distinct_roots, coincident_roots)
 }
 
 pub(crate) fn db0_regular_nonzero_momentum(
@@ -206,7 +242,10 @@ pub(crate) fn db0_at_nonzero_momentum(
     mu_squared: &Atom,
 ) -> LaurentSeries {
     let regular = db0_regular_nonzero_momentum(momentum, mass_0, mass_1, mu_squared);
-    let shell_finite = -(Atom::num(1) + physical_log(&(mu_squared / momentum)) / 2) / momentum;
+    // The original on-shell branch takes the logarithm of the reciprocal
+    // scale ratio on the upper lip, including negative real shell masses.
+    let shell_log = upper_log(&(mu_squared / momentum));
+    let shell_finite = -(Atom::num(1) + shell_log / 2) / momentum;
     let shell_pole = -Atom::num(1) / (Atom::num(2) * momentum);
 
     let finite = if_nonzero_else(
@@ -298,8 +337,9 @@ pub fn an(
 /// `momentum_squared` is real, the squared masses must have non-positive
 /// imaginary parts, and `mu_squared` is the renormalization scale squared.
 /// Numerical proximity branches from the standalone evaluator are deliberately
-/// omitted: the returned exact expression delegates numerical precision and
-/// stability to Symbolica.
+/// omitted. Evaluation uses the selected Symbolica numeric domain; fixed-f64
+/// evaluation can suffer severe cancellation. This crate supplies no automatic
+/// precision escalation.
 pub fn b0(
     momentum_squared: &Atom,
     mass_0_squared: &Atom,
@@ -332,6 +372,8 @@ pub fn b0(
 /// The regular nonzero-momentum branch uses an analytic derivative of B0.
 /// Explicit zero-momentum and massless on-shell limits preserve the full
 /// Laurent structure of OneLOop.
+/// At exact normal thresholds, the coincident-root branch reproduces OneLOop's
+/// prescribed value, not the divergent one-sided derivative limit.
 ///
 /// The fully scaleless point `p² = m0² = m1² = 0` is undefined and unsupported.
 /// Direct construction marks it indeterminate; substituting that point into a

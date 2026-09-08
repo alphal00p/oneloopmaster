@@ -1,5 +1,6 @@
 //! Triangle sectors and their native expressions.
 use super::*;
+use sheet_exact::sqrt_lower as physical_sqrt;
 
 pub(crate) fn negative_quadratic_roots(a: &Atom, b: &Atom, c: &Atom) -> (Atom, Atom) {
     let discriminant = physical_sqrt(&(b * b - Atom::num(4) * a * c));
@@ -92,8 +93,8 @@ pub(crate) fn triangle_ir_four(
     mass_3: &Atom,
     mu_squared: &Atom,
 ) -> LaurentSeries {
-    let sqrt_2 = mass_2.sqrt();
-    let sqrt_3 = mass_3.sqrt();
+    let sqrt_2 = physical_sqrt(mass_2);
+    let sqrt_3 = physical_sqrt(mass_3);
     let (r23, _) = r_function(&((mass_2 + mass_3 - momentum) / (&sqrt_2 * &sqrt_3)));
     let q23 = SheetAtom::lower(r23.clone());
     let coefficient = q23.log_over_one_minus() * &r23 / ((Atom::num(1) + &r23) * &sqrt_2 * &sqrt_3);
@@ -112,8 +113,12 @@ pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom 
     let a = &r34 * &r24;
     let b = &r24 + &r34 - &r23;
     let (root_1, root_2) = negative_quadratic_roots(&a, &b, &Atom::num(1));
-    let qx1 = SheetAtom::with_real_axis_sign(root_1.clone(), true);
-    let qx2 = SheetAtom::with_real_axis_sign(root_2.clone(), false);
+    // The real-axis lips follow r23=-p1 (as in the original trif0
+    // continuation), rather than being tied to the quadratic root label.
+    // This matters when the real roots swap order across mixed-sign sectors.
+    let r23_sign = sheet_exact::sign_nonnegative(&r23);
+    let qx1 = SheetAtom::with_sign(root_1.clone(), -&r23_sign);
+    let qx2 = SheetAtom::with_sign(root_2.clone(), r23_sign);
     let q23 = SheetAtom::lower(r23);
     let q24 = SheetAtom::lower(r24.clone());
     let q34 = SheetAtom::lower(r34.clone());
@@ -132,14 +137,47 @@ pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom 
 }
 
 pub(crate) fn square_root_magnitude(mass: &Atom) -> Atom {
-    (mass * mass.conj()).sqrt().sqrt()
+    // sqrt(|m²|) is manifestly real and avoids a complex fourth root.
+    Symbol::ABS.call((mass,)).sqrt()
+}
+
+fn triangle_one_mass_quadratic_limit(
+    p2: &Atom,
+    p3: &Atom,
+    mass: &Atom,
+    quadratic_coefficient: &Atom,
+) -> Atom {
+    let qmass = SheetAtom::lower(mass.clone());
+    let a = &SheetAtom::lower(mass - p3) / &qmass;
+    let b = &SheetAtom::lower(mass - p2) / &qmass;
+    let inverse_a = &qmass / &SheetAtom::lower(mass - p3);
+    let inverse_b = &qmass / &SheetAtom::lower(mass - p2);
+    let av = a.value();
+    let bv = b.value();
+    // At p1=-m*A*B, with A=(m-p3)/m and B=(m-p2)/m, the
+    // projective Feynman denominator factors as m*(1+A*x)*(1+B*y).
+    // Integrating against 1/(1+x+y) gives this finite dilogarithm limit.
+    let numerator =
+        a.log() * b.log() + inverse_a.dilog() + inverse_b.dilog() - Symbol::PI.to_atom().pow(2) / 6;
+    let denominator = &av + &bv - &av * &bv;
+    let regular = numerator / (mass * &denominator);
+    // When A+B=A*B, the apparent partial-fraction pole is removable.
+    let coincident = -(a.log() + (&av - 1) * b.log()) / (mass * &av);
+    let finite = if_nonzero_else(&denominator, regular, coincident);
+    // Two negative real factors pinch inside the integration domain. The
+    // regulated original can print a large finite number there, but the
+    // exact integral is singular and has no regulator-independent limit.
+    let both_negative =
+        sheet_exact::negative(&sheet_exact::re(&av)) * sheet_exact::negative(&sheet_exact::re(&bv));
+    let on_axis = if_nonzero_else(&sheet_exact::im(mass), Atom::num(0), both_negative);
+    if_nonzero_else(&on_axis, Atom::num(1) / quadratic_coefficient, finite)
 }
 
 pub(crate) fn triangle_finite_one_mass(p1: &Atom, p2: &Atom, p3: &Atom, mass: &Atom) -> Atom {
     let p2_internal = p1;
     let p3_internal = p2;
     let p23 = p3;
-    let sqrt_mass = mass.sqrt();
+    let sqrt_mass = physical_sqrt(mass);
     let sqrt_real = square_root_magnitude(mass);
     let r23 = -p2_internal / (&sqrt_real * &sqrt_real);
     let r24 = (mass - p23) / (&sqrt_real * &sqrt_mass);
@@ -178,7 +216,14 @@ pub(crate) fn triangle_finite_one_mass(p1: &Atom, p2: &Atom, p3: &Atom, mass: &A
         &r24,
         sheet_dilog_divided_difference(&x1_24, &x2_24) * &r24 * &sqrt_real,
     );
-    if_nonzero(&a, finite / (&a * &sqrt_real * &sqrt_real * sqrt_mass))
+    // Test the polynomial before its square-root normalization, preserving
+    // exact cancellation at rational inputs during runtime substitution.
+    let quadratic_coefficient = (mass - p2) * (mass - p3) + p1 * mass;
+    if_nonzero_else(
+        &quadratic_coefficient,
+        finite / (&a * &sqrt_real * &sqrt_real * sqrt_mass),
+        triangle_one_mass_quadratic_limit(p2, p3, mass, &quadratic_coefficient),
+    )
 }
 
 pub(crate) fn triangle_finite_two_masses(
@@ -193,9 +238,9 @@ pub(crate) fn triangle_finite_two_masses(
     let p23 = p2;
     let mass_2 = mass_3_input;
     let mass_4 = mass_2_input;
-    let sqrt_2 = mass_2.sqrt();
+    let sqrt_2 = physical_sqrt(mass_2);
     let sqrt_3 = square_root_magnitude(mass_2);
-    let sqrt_4 = mass_4.sqrt();
+    let sqrt_4 = physical_sqrt(mass_4);
     let r23 = (mass_2 - p2_internal) / (&sqrt_2 * &sqrt_3);
     let k24 = (mass_2 + mass_4 - p23) / (&sqrt_2 * &sqrt_4);
     let r34 = (mass_4 - p3_internal) / (&sqrt_3 * &sqrt_4);
@@ -251,9 +296,69 @@ pub(crate) fn triangle_finite_two_masses(
 }
 
 pub(crate) fn triangle_finite_three_masses(momenta: [&Atom; 3], masses: [&Atom; 3]) -> Atom {
-    let sqrt_1 = masses[0].sqrt();
-    let sqrt_2 = masses[1].sqrt();
-    let sqrt_3 = masses[2].sqrt();
+    three_mass_triangle_call("select", momenta, masses)
+}
+
+fn three_mass_triangle_call(stage: &str, p: [&Atom; 3], m: [&Atom; 3]) -> Atom {
+    let arguments = p.into_iter().chain(m).cloned().collect::<Vec<_>>();
+    symbolica::symbol!(format!("__olo_triangle_three_mass_{stage}")).call(&arguments)
+}
+
+fn register_three_mass_triangle(
+    map: &mut FunctionMap,
+    symbols: &[Symbol],
+    p: [&Atom; 3],
+    m: [&Atom; 3],
+) {
+    let rotated_p = [p[2], p[0], p[1]];
+    let rotated_m = [m[2], m[0], m[1]];
+    let u = m[2] - p[1];
+    let v = m[0] - p[0];
+    // Eliminate r13 using m1*R²-(m1+m3-p3)*R+m3=0 for
+    // R=r13*sqrt(m3/m1). This polynomial detects a zero leading
+    // coefficient before rounded square roots can lift its exact zero.
+    let resultant = m[0] * &u * &u - (m[0] + m[2] - p[2]) * &u * &v + m[2] * &v * &v;
+    let ordered = three_mass_triangle_call("ordered", p, m);
+    let ordered_rotated = three_mass_triangle_call("ordered", rotated_p, rotated_m);
+    let second = if_nonzero_else(&resultant, ordered.clone(), ordered_rotated);
+    let first = if_nonzero_else(
+        &resultant,
+        ordered,
+        three_mass_triangle_call("second", rotated_p, rotated_m),
+    );
+    // Match trif3's cyclic relabeling when the middle propagator has the
+    // largest width, including an equality of widths on the real axis.
+    let middle_largest = (1 - sheet_exact::negative(&sheet_exact::im(&(m[0] - m[1]))))
+        * (1 - sheet_exact::negative(&sheet_exact::im(&(m[2] - m[1]))));
+    let select = if_nonzero_else(
+        &middle_largest,
+        three_mass_triangle_call("first", rotated_p, rotated_m),
+        three_mass_triangle_call("first", p, m),
+    );
+    // A zero leading coefficient can be a degeneration of this particular
+    // projective parametrization. Try the remaining cyclic labels at exact
+    // zero. Each stage has formal arguments and calls the next native
+    // definition, avoiding recursive expansion of selected mass expressions.
+    for (stage, body) in [
+        ("ordered", triangle_finite_three_masses_ordered(p, m)),
+        ("second", second),
+        ("first", first),
+        ("select", select),
+    ] {
+        map.add_function_with_options(
+            symbolica::symbol!(format!("__olo_triangle_three_mass_{stage}")),
+            symbols.to_vec(),
+            body,
+            native_function_options(),
+        )
+        .expect("unique finite three-mass triangle stage");
+    }
+}
+
+fn triangle_finite_three_masses_ordered(momenta: [&Atom; 3], masses: [&Atom; 3]) -> Atom {
+    let sqrt_1 = physical_sqrt(masses[0]);
+    let sqrt_2 = physical_sqrt(masses[1]);
+    let sqrt_3 = physical_sqrt(masses[2]);
     let k12 = (masses[0] + masses[1] - momenta[0]) / (&sqrt_1 * &sqrt_2);
     let k13 = (masses[0] + masses[2] - momenta[2]) / (&sqrt_1 * &sqrt_3);
     let k23 = (masses[1] + masses[2] - momenta[1]) / (&sqrt_2 * &sqrt_3);
@@ -262,8 +367,14 @@ pub(crate) fn triangle_finite_three_masses(momenta: [&Atom; 3], masses: [&Atom; 
     let (r23, _) = r_function(&k23);
     let a = &sqrt_2 / &sqrt_3 - &k23 + &r13 * (&k12 - &sqrt_2 / &sqrt_1);
     let b = &d13 / &sqrt_2 + &k12 / &sqrt_3 - &k23 / &sqrt_1;
-    let c = (&sqrt_1 / &sqrt_3 - Atom::num(1) / &r13) / (&sqrt_1 * &sqrt_2);
-    let (root_1, root_2) = negative_quadratic_roots(&a, &b, &c);
+    // Algebraically b²-4ac = lambda/(m1*m2*m3). Evaluating this
+    // polynomial identity keeps exact Gram-zero roots coincident instead
+    // of introducing an artificial split through roundoff in r13.
+    let lambda =
+        (momenta[2] - momenta[0] - momenta[1]).pow(2) - Atom::num(4) * momenta[0] * momenta[1];
+    let discriminant = physical_sqrt(&(lambda / (masses[0] * masses[1] * masses[2])));
+    let root_1 = (&b + &discriminant) / (Atom::num(2) * &a);
+    let root_2 = (&b - discriminant) / (Atom::num(2) * &a);
 
     use sheet_exact::{SheetAtom as Q, divided_difference as dd};
     let qx1 = Q::upper(root_1.clone());
@@ -453,8 +564,8 @@ pub(crate) fn with_triangle_normalization(series: LaurentSeries) -> LaurentSerie
 /// Constructs a scalar triangle with its transparent native function definitions.
 /// Momenta are [p1²,p2²,(p1+p2)²]; masses follow propagator order.
 ///
-/// Exact quadratic/Gram-degenerate limits are not generally supported. In
-/// particular, `p=[-4,-1,-1], m=[0,0,1]` currently returns an incorrect zero.
+/// Exact one-mass quadratic limits are supported. Other quadratic/Gram
+/// degeneracies are not generally supported.
 /// See STATUS.md for the development implementation's coverage limitations.
 pub fn c0(p: [&Atom; 3], m: [&Atom; 3], mu_squared: &Atom) -> MappedLaurentSeries {
     let expressions = OneLoopExpressions::new();
@@ -475,6 +586,7 @@ pub(crate) fn register_triangles(map: &mut FunctionMap) {
     let x = symbols.map(Symbol::to_atom);
     let p = [&x[0], &x[1], &x[2]];
     let m = [&x[3], &x[4], &x[5]];
+    register_three_mass_triangle(map, &symbols[..6], p, m);
     let lambda = (p[2] - p[0] - p[1]).pow(2) - Atom::num(4) * p[0] * p[1];
     let generic = if_nonzero_else(
         &sheet_exact::negative(&lambda),
@@ -524,7 +636,10 @@ pub(crate) fn register_triangles(map: &mut FunctionMap) {
 
 fn triangle_vacuum(m: [&Atom; 3]) -> Atom {
     let pair = |a: &Atom, b: &Atom, c: &Atom| {
-        (log_over_one_minus(&(c / a)) - log_over_one_minus(&(c / b))) / (a - b)
+        // Continue each mass before forming a ratio. A principal ratio log
+        // loses the lower lip when its denominator is negative real.
+        let [qa, qb, qc] = [a, b, c].map(|mass| SheetAtom::lower(mass.clone()));
+        ((&qc / &qa).log_over_one_minus() - (&qc / &qb).log_over_one_minus()) / (a - b)
     };
     let unequal = if_nonzero_else(
         &(m[0] - m[1]),

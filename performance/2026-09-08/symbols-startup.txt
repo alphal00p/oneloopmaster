@@ -1,0 +1,7 @@
+all-family eager initialization 5.160238693s
+survey route=Symbols; all three Laurent outputs; warmup=256; interpreted hooks are scalar-only
+route=symbols A0 public master expressions + native FunctionMap JIT compilation 3.646377762s
+route=symbols B0 public master expressions + native FunctionMap JIT compilation 3.574349085s
+route=symbols dB0 public master expressions + native FunctionMap JIT compilation 3.644503078s
+route=symbols C0 public master expressions + native FunctionMap JIT compilation 3.897240199s
+route=symbols D0 public master expressions + native FunctionMap JIT compilation 8.984492654s

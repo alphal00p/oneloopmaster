@@ -24,6 +24,11 @@ pub(crate) fn im(z: &Atom) -> Atom {
     symbolica::symbol!("__olo_imaginary_part").call((z,))
 }
 
+/// Lower-lip square root with a bound argument, shared by C0/D0 formulas.
+pub(crate) fn sqrt_lower(z: &Atom) -> Atom {
+    symbolica::symbol!("__olo_sqrt_lower").call((z,))
+}
+
 fn zero(x: &Atom) -> Atom {
     choose(x, Atom::num(0), Atom::num(1))
 }
@@ -96,6 +101,14 @@ fn dilog_symbol() -> Symbol {
 pub(crate) fn register(function_map: &mut FunctionMap) {
     let sign_arg = symbolica::symbol!("__olo_sign_argument");
     let x = sign_arg.to_atom();
+    function_map
+        .add_function_with_options(
+            symbolica::symbol!("__olo_sqrt_lower"),
+            vec![sign_arg],
+            super::physical_sqrt(&x),
+            super::native_function_options(),
+        )
+        .unwrap();
     function_map
         .add_function(
             symbolica::symbol!("__olo_real_part"),

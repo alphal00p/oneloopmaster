@@ -1,0 +1,22 @@
+test_all_three_original_laurent_coefficients_are_checked (test_compare_performance.ComparisonTests.test_all_three_original_laurent_coefficients_are_checked) ... ok
+test_both_finite_checksum_components_are_checked (test_compare_performance.ComparisonTests.test_both_finite_checksum_components_are_checked) ... ok
+test_call_counts_and_workload_names_must_match (test_compare_performance.ComparisonTests.test_call_counts_and_workload_names_must_match) ... ok
+test_cli_exit_status_and_no_partial_pass_output_for_invalid_data (test_compare_performance.ComparisonTests.test_cli_exit_status_and_no_partial_pass_output_for_invalid_data) ... ok
+test_complete_inventory_and_independent_medians (test_compare_performance.ComparisonTests.test_complete_inventory_and_independent_medians) ... ok
+test_explicit_family_and_batch_selection (test_compare_performance.ComparisonTests.test_explicit_family_and_batch_selection) ... ok
+test_invalid_selection_and_ratio_arguments (test_compare_performance.ComparisonTests.test_invalid_selection_and_ratio_arguments) ... ok
+test_missing_entire_native_batch_is_not_silently_ignored (test_compare_performance.ComparisonTests.test_missing_entire_native_batch_is_not_silently_ignored) ... ok
+test_native_headers_and_row_dimensions_are_strict (test_compare_performance.ComparisonTests.test_native_headers_and_row_dimensions_are_strict) ... ok
+test_native_missing_or_duplicate_repetitions (test_compare_performance.ComparisonTests.test_native_missing_or_duplicate_repetitions) ... ok
+test_nonfinite_and_nonpositive_timings_are_rejected (test_compare_performance.ComparisonTests.test_nonfinite_and_nonpositive_timings_are_rejected) ... ok
+test_original_missing_entire_repetition_or_duplicate_sample (test_compare_performance.ComparisonTests.test_original_missing_entire_repetition_or_duplicate_sample) ... ok
+test_original_missing_workload_summary (test_compare_performance.ComparisonTests.test_original_missing_workload_summary) ... ok
+test_original_schema_and_success_record_are_required (test_compare_performance.ComparisonTests.test_original_schema_and_success_record_are_required) ... ok
+test_original_summary_must_match_sample_median (test_compare_performance.ComparisonTests.test_original_summary_must_match_sample_median) ... ok
+test_original_warmup_must_be_exactly_256 (test_compare_performance.ComparisonTests.test_original_warmup_must_be_exactly_256) ... ok
+test_ratio_threshold_is_inclusive_and_workload_specific (test_compare_performance.ComparisonTests.test_ratio_threshold_is_inclusive_and_workload_specific) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.606s
+
+OK

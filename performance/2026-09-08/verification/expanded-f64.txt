@@ -1,0 +1,79 @@
+
+running 1 test
+test audit_extra_fortran_fixtures ... Compiling Fortran audit evaluators at f64
+┌────────────────────────────────────────────────────────┐
+│ You are running a restricted Symbolica instance.       │
+│                                                        │
+│ This mode is only permitted for non-commercial use and │
+│ is limited to one Symbolica thread per user.           │
+│                                                        │
+│ Hobbyists can easily acquire a free license key        │
+│ that unlocks all cores and removes this banner:        │
+│                                                        │
+│   from symbolica import *                              │
+│   request_hobbyist_license('YOUR_NAME', 'YOUR_EMAIL')  │
+│                                                        │
+│ All other users can obtain a free 30-day trial key:    │
+│                                                        │
+│   from symbolica import *                              │
+│   request_trial_license('NAME', 'EMAIL', 'EMPLOYER')   │
+│                                                        │
+│ See https://symbolica.io/docs/get_started.html#license │
+└────────────────────────────────────────────────────────┘
+2026-09-08T12:08:07.273668Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:08:07.273741Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:08:07.274107Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:08:07.274118Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:08:07.274593Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:08:07.274607Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:08:07.274784Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:08:07.274793Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:08:07.275101Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:08:07.275109Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:08:07.275265Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:08:07.275273Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+Compiled A0/B0/dB0/C0; compiling D0
+Audit progress: 25 points; 7 mismatches so far
+Audit progress: 50 points; 14 mismatches so far
+Audit progress: 75 points; 14 mismatches so far
+Audit progress: 100 points; 14 mismatches so far
+Audit progress: 125 points; 14 mismatches so far
+Audit progress: 150 points; 14 mismatches so far
+Audit progress: 175 points; 14 mismatches so far
+Audit progress: 200 points; 14 mismatches so far
+Audit progress: 225 points; 14 mismatches so far
+Audit progress: 250 points; 14 mismatches so far
+Audit progress: 275 points; 14 mismatches so far
+Audit progress: 300 points; 14 mismatches so far
+Audit progress: 325 points; 14 mismatches so far
+Family points [A0,B0,dB0,C0,D0]: [13, 49, 50, 100, 130]; with poles: [13, 49, 0, 28, 32]
+Checked 1026 Fortran coefficients; 14 failures
+
+thread '<unnamed>' (3887934) panicked at tests/parity.rs:286:5:
+line=21 kind=-2 coefficient=0 actual=(0.17064285278320313+0.0i) expected=[0.16666666666289962, 0.0] normalized_error=3.97618612030351e-3
+line=23 kind=2 coefficient=0 actual=(-0.38629441862114766+0.0i) expected=[-0.38629436113126103, -0.0] normalized_error=5.748988662901411e-8
+line=25 kind=-2 coefficient=0 actual=(2073509135360.0+0.0i) expected=[0.1137056388785528, 0.0] normalized_error=4.1470182707197725e12
+line=27 kind=2 coefficient=0 actual=(-0.03095789777598984+0.05157776866812112i) expected=[-0.030958098596678866, 0.05157776933287291] normalized_error=2.008217892456217e-7
+line=29 kind=-2 coefficient=0 actual=(8750379172864.0+-435953047552.0i) expected=[0.16200594518456848, 0.008337779189033697] normalized_error=1.2265725165190023e13
+line=31 kind=2 coefficient=0 actual=(0.30685215584935577+0.0i) expected=[0.3068528194150547, 0.0] normalized_error=6.635656989439909e-7
+line=33 kind=-2 coefficient=0 actual=(-6635.406988143921+0.0i) expected=[0.24999999999166667, 0.0] normalized_error=1.3271313976287825e4
+line=53 kind=-2 coefficient=0 actual=(0.16666603088378906+6.12323399583882e-7i) expected=[0.16666666666999996, -0.0] normalized_error=8.827026972030383e-7
+line=55 kind=2 coefficient=0 actual=(-0.38629441832114764+0.0i) expected=[-0.3862943611085201, -0.0] normalized_error=5.721262752445e-8
+line=57 kind=-2 coefficient=0 actual=(2063509138432.0+0.0i) expected=[0.11370563888166617, 0.0] normalized_error=4.1270182768637725e12
+line=59 kind=2 coefficient=0 actual=(-0.03095884562799761+0.0515778213862113i) expected=[-0.030958098564277888, 0.05157776933454048] normalized_error=7.488748745693794e-7
+line=61 kind=-2 coefficient=0 actual=(-1029638177792.0+68548241408.0i) expected=[0.1620059451908727, 0.008337779189683437] normalized_error=1.4446844401432073e12
+line=63 kind=2 coefficient=0 actual=(0.30685215584935577+0.0i) expected=[0.3068528194650547, 0.0] normalized_error=6.636156989481279e-7
+line=65 kind=-2 coefficient=0 actual=(6636.406988143921+0.0i) expected=[0.25000000000833333, 0.0] normalized_error=1.3272313976287825e4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'audit_extra_fortran_fixtures' (3887933) panicked at tests/parity.rs:86:10:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+FAILED
+
+failures:
+
+failures:
+    audit_extra_fortran_fixtures
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 26.71s
+

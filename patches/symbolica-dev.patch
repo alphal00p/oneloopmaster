@@ -1,3 +1,28 @@
+diff --git a/build.rs b/build.rs
+index e344f00..ef9ae0a 100644
+--- a/build.rs
++++ b/build.rs
+@@ -23,6 +23,19 @@ fn main() {
+     };
+ 
+     println!("cargo:rustc-env=SYMBOLICA_VERSION=symbolica-{}", version);
+-    println!("cargo:rerun-if-changed=.git/HEAD");
++    // In a linked worktree `.git` is a file; watching `.git/HEAD` then watches a
++    // nonexistent path and forces the entire library to rebuild on every run.
++    // Ask Git for the real metadata locations, including loose/packed refs.
++    for entry in ["HEAD", "refs", "packed-refs"] {
++        if let Ok(output) = Command::new("git")
++            .args(["rev-parse", "--git-path", entry])
++            .output()
++            && output.status.success()
++            && let Ok(path) = String::from_utf8(output.stdout)
++            && std::path::Path::new(path.trim()).exists()
++        {
++            println!("cargo:rerun-if-changed={}", path.trim());
++        }
++    }
+     println!("cargo:rerun-if-changed=build.rs");
+ }
 diff --git a/lib/numerica/src/domains/float/complex.rs b/lib/numerica/src/domains/float/complex.rs
 index 50fba8b..cd3096c 100644
 --- a/lib/numerica/src/domains/float/complex.rs
@@ -15,10 +40,10 @@ index 50fba8b..cd3096c 100644
      }
  
 diff --git a/src/evaluate.rs b/src/evaluate.rs
-index 90bba4b..1f0e3c1 100644
+index 061b59d..fad5f45 100644
 --- a/src/evaluate.rs
 +++ b/src/evaluate.rs
-@@ -189,6 +189,38 @@ mod test {
+@@ -189,6 +189,198 @@ mod test {
          assert_eq!(r, 54.761021719902196);
      }
  
@@ -54,20 +79,632 @@ index 90bba4b..1f0e3c1 100644
 +        );
 +    }
 +
++    #[test]
++    fn noninline_repeated_calls_preserve_captures_tags_and_constants() {
++        use crate::domains::float::RealLike;
++
++        let x = symbol!("reuse_capture_x");
++        let y = symbol!("reuse_capture_y");
++        let t = symbol!("reuse_capture_t");
++        let f = symbol!("reuse_capture_f");
++        let g = symbol!("reuse_capture_g");
++        let body = parse!(
++            "2/3*reuse_capture_t + reuse_capture_y + pi + polylog(2,1/4) + polylog(2,reuse_capture_t)"
++        );
++        let other_body = parse!("reuse_capture_y - reuse_capture_t + pi");
++        let options = FunctionRegistrationOptions::new().inlining(InliningPolicy::Never);
++        let mut map = FunctionMap::new();
++        map.add_tagged_function_with_options(f, vec![Atom::num(0)], vec![t], body, options.clone())
++            .unwrap();
++        map.add_tagged_function_with_options(f, vec![Atom::num(1)], vec![t], other_body, options)
++            .unwrap();
++        // This inline function shadows the ambient y captured by f. Reusing f
++        // must retain each call's current capture slots, not its first call's.
++        map.add_function(g, vec![y], f.call((0, y))).unwrap();
++        let expression = f.call((0, x))
++            + f.call((0, x.to_atom() + Atom::num(1) / 4))
++            + f.call((1, x))
++            + g.call((x.to_atom() / 2,))
++            + crate::atom::Symbol::IF.call((
++                x,
++                f.call((0, x.to_atom() + Atom::num(1) / 2)),
++                f.call((0, x.to_atom() + Atom::num(3) / 4)),
++            ));
++        let reference = parse!(
++            "2/3*reuse_capture_x + reuse_capture_y + pi + polylog(2,1/4) + polylog(2,reuse_capture_x)
++             + 2/3*(reuse_capture_x+1/4) + reuse_capture_y + pi + polylog(2,1/4) + polylog(2,reuse_capture_x+1/4)
++             + reuse_capture_y-reuse_capture_x+pi
++             + 5/6*reuse_capture_x + pi + polylog(2,1/4) + polylog(2,reuse_capture_x/2)
++             + if(reuse_capture_x,
++               2/3*(reuse_capture_x+1/2)+reuse_capture_y+pi+polylog(2,1/4)+polylog(2,reuse_capture_x+1/2),
++               2/3*(reuse_capture_x+3/4)+reuse_capture_y+pi+polylog(2,1/4)+polylog(2,reuse_capture_x+3/4))"
++        );
++        let params = [x.to_atom(), y.to_atom()];
++        let actual = expression
++            .evaluator(&params)
++            .function_map(map)
++            .direct_translation(true)
++            .build()
++            .unwrap();
++        let expected = reference
++            .evaluator(&params)
++            .direct_translation(true)
++            .build()
++            .unwrap();
++        let convert = |v: &Complex<Rational>| Complex::new(v.re.to_f64(), v.im.to_f64());
++        let mut actual_double = actual.clone().map_coeff(&convert);
++        let mut expected_double = expected.clone().map_coeff(&convert);
++        for x in [0., 0.125] {
++            let input = [Complex::new(x, 0.), Complex::new(0.75, 0.)];
++            let difference =
++                actual_double.evaluate_single(&input) - expected_double.evaluate_single(&input);
++            assert!(difference.re.hypot(difference.im) < 1e-12);
++        }
++        for bits in [128, 256] {
++            let convert = |v: &Complex<Rational>| {
++                Complex::new(
++                    v.re.to_multi_prec_float(bits),
++                    v.im.to_multi_prec_float(bits),
++                )
++            };
++            let mut actual = actual.clone().map_coeff_with_prec(&convert, bits);
++            let mut expected = expected.clone().map_coeff_with_prec(&convert, bits);
++            for x in [0., 0.125] {
++                let input =
++                    [x, 0.75].map(|v| Complex::new(Float::with_val(bits, v), Float::new(bits)));
++                let difference = actual.evaluate_single(&input) - expected.evaluate_single(&input);
++                assert!(difference.re.to_f64().hypot(difference.im.to_f64()) < 1e-32);
++            }
++        }
++    }
++
++    #[test]
++    fn nested_noninline_calls_reuse_their_definitions() {
++        let x = symbol!("reuse_nested_argument");
++        let y = parse!("reuse_nested_parameter");
++        let mut map = FunctionMap::new();
++        let mut previous = symbol!("reuse_nested_0");
++        let options = FunctionRegistrationOptions::new().inlining(InliningPolicy::Never);
++        map.add_function_with_options(
++            previous,
++            vec![x],
++            x.to_atom() + Atom::num(1) / 3,
++            options.clone(),
++        )
++        .unwrap();
++        // Without early reuse, compiling this compact chain recursively builds
++        // both dependency subtrees before discovering they are identical.
++        for level in 1..=12 {
++            let current = symbol!(format!("reuse_nested_{level}"));
++            let body = previous.call((x,)) + previous.call((x.to_atom() + 1,));
++            map.add_function_with_options(current, vec![x], body, options.clone())
++                .unwrap();
++            previous = current;
++        }
++        let mut evaluator = previous
++            .call((&y,))
++            .evaluator(&[y])
++            .function_map(map)
++            .direct_translation(true)
++            .build()
++            .unwrap()
++            .map_coeff(&|c| c.re.to_f64());
++        let result = evaluator.evaluate_single(&[0.25]);
++        assert!((result - 4096. * (0.25 + 6. + 1. / 3.)).abs() < 1e-9);
++    }
++
++    #[test]
++    fn noninline_capture_identity_survives_unused_capture_stripping() {
++        let x = symbol!("capture_identity_x");
++        let y = symbol!("capture_identity_y");
++        let z = symbol!("capture_identity_z");
++        let f = symbol!("capture_identity_f");
++        let gy = symbol!("capture_identity_gy");
++        let gz = symbol!("capture_identity_gz");
++        let mut map = FunctionMap::new();
++        map.add_aliases([(y.to_atom(), Atom::num(10)), (z.to_atom(), Atom::num(7))])
++            .unwrap();
++        map.add_function_with_options(
++            f,
++            Vec::<crate::atom::Symbol>::new(),
++            y.to_atom() + z.to_atom(),
++            FunctionRegistrationOptions::new().inlining(InliningPolicy::Never),
++        )
++        .unwrap();
++        // These inline scopes each leave one live capture in f, but with different names.
++        // One body is y+7 and the other is 10+z: equal arities do not imply equal definitions.
++        map.add_function(gy, vec![y], f.call(())).unwrap();
++        map.add_function(gz, vec![z], f.call(())).unwrap();
++        let expressions = [
++            gy.call((x,)),
++            gy.call((x.to_atom() + 1,)),
++            gz.call((x,)),
++            gz.call((x.to_atom() + 1,)),
++        ];
++        let evaluator = Atom::evaluator_multiple(&expressions, &[x.to_atom()])
++            .function_map(map)
++            .direct_translation(true)
++            .build()
++            .unwrap();
++        assert_eq!(evaluator.external_fns.len(), 2);
++        for external in &evaluator.external_fns {
++            // One live capture and one lifted constant; the ambient x was stripped.
++            assert_eq!(external.sub_evaluator.as_ref().unwrap().param_count, 2);
++        }
++        let mut evaluator = evaluator.map_coeff(&|c| c.re.to_f64());
++        let mut out = [0.; 4];
++        evaluator.evaluate(&[2.], &mut out);
++        assert_eq!(out, [9., 10., 12., 13.]);
++        evaluator.evaluate(&[5.], &mut out);
++        assert_eq!(out, [12., 13., 15., 16.]);
++    }
++
      #[test]
      fn arb_prec() {
          let x = symbol!("v1");
+@@ -405,7 +597,7 @@ mod test {
+         assert_eq!(exported.output_count, 4);
+         assert_eq!(exported.sub_evaluators.len(), 3);
+         assert!(
+-            exported
++            !exported
+                 .sub_evaluators
+                 .iter()
+                 .find(|sub| sub.symbol == symbol!("symbolica::sub_eval::large"))
+@@ -419,8 +611,8 @@ mod test {
+                 .iter()
+                 .find(|sub| sub.symbol == symbol!("symbolica::sub_eval::tagged"))
+                 .unwrap()
+-                .tags,
+-            ["1"]
++                .tags[0],
++            "1"
+         );
+         assert_eq!(
+             execute_exported(&exported, &[2.], exported.output_count),
+diff --git a/src/evaluate/backend.rs b/src/evaluate/backend.rs
+index ada06ef..3c90ede 100644
+--- a/src/evaluate/backend.rs
++++ b/src/evaluate/backend.rs
+@@ -427,12 +427,46 @@ impl ExpressionEvaluator<Complex<Rational>> {
+         settings: JITCompilationSettings,
+     ) -> Result<JITCompiledEvaluator<T>, String> {
+         let exported = self.export_instructions();
+-        let constants = exported
++        let mut constants = exported
+             .constants
+             .into_iter()
+             .map(|c| symjit::Complex::new(c.re.to_f64(), c.im.to_f64()))
+             .collect::<Vec<_>>();
+ 
++        // Exact evaluators contain placeholders for registered constants and constant function
++        // calls. Resolve them just as coefficient mapping does before exporting numeric code.
++        let binary_prec = T::FIXED_PRECISION.unwrap_or(53);
++        for external in &self.external_fns {
++            let Some(index) = external.constant_index else {
++                continue;
++            };
++            let info = external.symbol.get_evaluation_info().ok_or_else(|| {
++                format!(
++                    "External constant '{}' does not have evaluation info",
++                    external
++                )
++            })?;
++            let tags = external.tag_views();
++            let value = if external.fixed_args.is_empty() {
++                T::try_from_complex_float(info.evaluate_constant(&tags, binary_prec)?)?
++            } else {
++                let args = external
++                    .fixed_args
++                    .iter()
++                    .map(|c| {
++                        T::try_from_complex_float(Complex::new(
++                            c.re.to_multi_prec_float(binary_prec),
++                            c.im.to_multi_prec_float(binary_prec),
++                        ))
++                    })
++                    .collect::<Result<Vec<_>, _>>()?;
++                T::resolve_function(&tags, info).ok_or_else(|| {
++                    format!("External constant '{}' has no implementation", external)
++                })?(&args)
++            };
++            constants[index] = value.to_complex_f64()?;
++        }
++
+         let external_fns = self
+             .external_fns
+             .iter()
+@@ -585,7 +619,11 @@ fn translate_to_symjit(
+ }
+ 
+ fn function_export_name(symbol: crate::atom::Symbol, tags: &[String]) -> Option<String> {
+-    let mut name = symbol.get_ascii_name()?;
++    let mut name = if symbol == Symbol::CONJ {
++        "symbolica_conjugate".to_string()
++    } else {
++        symbol.get_ascii_name()?
++    };
+     for tag in tags {
+         name.push('_');
+         name.push_str(tag);
+@@ -748,7 +786,19 @@ pub struct JITCompiledEvaluator<T> {
+ }
+ 
+ impl<T> JITCompiledEvaluator<T> {
++    /// Number of logical input arguments, excluding SIMD lanes. A complex argument counts once.
++    pub fn input_count(&self) -> usize {
++        self.code.count_params / if self.code.config.is_complex() { 2 } else { 1 }
++    }
++
++    /// Number of logical outputs, excluding SIMD lanes. A complex output counts once.
++    pub fn output_count(&self) -> usize {
++        self.code.count_obs / if self.code.config.is_complex() { 2 } else { 1 }
++    }
++
+     /// Return the serialized SymJIT application used by this evaluator.
++    /// This does not include external function definitions. Use
++    /// `export_portable` with the `bincode` feature to include those definitions.
+     pub fn as_bytes(&self) -> &[u8] {
+         &self.compressed_ir
+     }
+@@ -759,6 +809,43 @@ impl<T> JITCompiledEvaluator<T> {
+     }
+ }
+ 
++#[cfg(feature = "bincode")]
++impl<T: bincode::Encode> JITCompiledEvaluator<T> {
++    /// Serialize portable intermediate code and its external function definitions.
++    ///
++    /// The result uses Symbolica's existing bincode representation, not native machine code.
++    /// It is intended for trusted artifacts using matching Symbolica and SymJIT versions.
++    pub fn export_portable(&self) -> Result<Vec<u8>, String> {
++        bincode::encode_to_vec(self, bincode::config::standard()).map_err(|e| e.to_string())
++    }
++}
++
++#[cfg(feature = "bincode")]
++impl<T: JITCompiledNumber + EvaluationDomain + Clone + bincode::Decode<()>>
++    JITCompiledEvaluator<T>
++{
++    /// Restore intermediate code and external definitions created by `export_portable`.
++    ///
++    /// Register any custom numerical symbol implementations before importing. Callbacks are
++    /// resolved from those registrations; process-specific function pointers are not serialized.
++    /// The top-level code retains its saved compilation settings. Supply the same settings here
++    /// for nested, non-inlined evaluators, which are recompiled during restoration.
++    pub fn import_portable(bytes: &[u8], settings: JITCompilationSettings) -> Result<Self, String> {
++        // Decode the payload, not Self: its ordinary Decode implementation immediately compiles
++        // nested evaluators with default settings, before the caller's settings could be applied.
++        let ((external_functions, compressed_ir), consumed) =
++            bincode::decode_from_slice::<(Vec<ExternalFunctionContainer<T>>, Vec<u8>), _>(
++                bytes,
++                bincode::config::standard(),
++            )
++            .map_err(|e| e.to_string())?;
++        if consumed != bytes.len() {
++            return Err("Trailing bytes in portable JIT evaluator".to_string());
++        }
++        Self::load_with_settings(compressed_ir, external_functions, settings)
++    }
++}
++
+ #[cfg(feature = "serde")]
+ impl<T: serde::Serialize> serde::Serialize for JITCompiledEvaluator<T> {
+     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+@@ -834,8 +921,20 @@ impl<T: JITCompiledNumber + Clone> JITCompiledEvaluator<T> {
+         compressed_ir: Vec<u8>,
+         external_functions: Vec<ExternalFunctionContainer<T>>,
+     ) -> Result<Self, String> {
+-        let settings = JITCompilationSettings::default();
++        Self::load_with_settings(
++            compressed_ir,
++            external_functions,
++            JITCompilationSettings::default(),
++        )
++    }
++
++    fn load_with_settings(
++        compressed_ir: Vec<u8>,
++        external_functions: Vec<ExternalFunctionContainer<T>>,
++        settings: JITCompilationSettings,
++    ) -> Result<Self, String> {
+         let mut config = Config::default();
++        settings.apply_to_config(&mut config)?;
+         config.set_defuns(T::convert_external_functions(
+             &external_functions,
+             &settings,
+@@ -899,7 +998,9 @@ impl JITCompiledNumber for wide::f64x4 {
+         let mut defuns = Defuns::new();
+         for f in external_functions {
+             if f.constant_index.is_some()
+-                || f.symbol.is_builtin() && f.symbol.get_evaluation_info().is_none()
++                || f.sub_evaluator.is_none()
++                    && f.symbol.is_builtin()
++                    && f.symbol.get_evaluation_info().is_none()
+             {
+                 continue;
+             }
+@@ -1084,7 +1185,9 @@ impl JITCompiledNumber for Complex<f64> {
+ 
+         for f in external_functions {
+             if f.constant_index.is_some()
+-                || f.symbol.is_builtin() && f.symbol.get_evaluation_info().is_none()
++                || f.sub_evaluator.is_none()
++                    && f.symbol.is_builtin()
++                    && f.symbol.get_evaluation_info().is_none()
+             {
+                 continue;
+             }
+@@ -1230,7 +1333,9 @@ impl JITCompiledNumber for Complex<wide::f64x4> {
+ 
+         for f in external_functions {
+             if f.constant_index.is_some()
+-                || f.symbol.is_builtin() && f.symbol.get_evaluation_info().is_none()
++                || f.sub_evaluator.is_none()
++                    && f.symbol.is_builtin()
++                    && f.symbol.get_evaluation_info().is_none()
+             {
+                 continue;
+             }
+@@ -3147,3 +3252,97 @@ impl Default for InlineASM {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod portable_tests {
++    use super::*;
++    use crate::{parse, symbol};
++
++    #[test]
++    fn jit_conjugate_uses_symjit_intrinsic() {
++        let evaluator = parse!("conj(jit_conjugate_x)")
++            .evaluator(&[parse!("jit_conjugate_x")])
++            .build()
++            .unwrap();
++        let mut compiled = evaluator
++            .jit_compile::<Complex<f64>>(JITCompilationSettings::new().optimization_level(2))
++            .unwrap();
++        let mut out = [Complex::new(0., 0.)];
++        compiled.evaluate(&[Complex::new(2., 3.)], &mut out);
++        assert_eq!(out, [Complex::new(2., -3.)]);
++    }
++
++    #[cfg(feature = "bincode")]
++    #[test]
++    fn portable_jit_restores_nested_complex_callbacks() {
++        let x = parse!("portable_jit_x");
++        let leaf = symbol!("portable_jit_leaf");
++        let outer = symbol!("portable_jit_outer");
++        let mut map = FunctionMap::new();
++        let options = FunctionRegistrationOptions::new().inlining(InliningPolicy::Never);
++        map.add_function_with_options(
++            leaf,
++            vec![symbol!("portable_jit_t")],
++            parse!("polylog(2,portable_jit_t) + polylog(2,1/4) + conj(portable_jit_t) + pi"),
++            options.clone(),
++        )
++        .unwrap();
++        map.add_function_with_options(
++            outer,
++            vec![symbol!("portable_jit_u")],
++            parse!("portable_jit_leaf(portable_jit_u) + portable_jit_leaf(portable_jit_u/2)"),
++            options,
++        )
++        .unwrap();
++        let evaluator = outer
++            .call((&x,))
++            .evaluator(std::slice::from_ref(&x))
++            .function_map(map)
++            .build()
++            .unwrap();
++        let settings = JITCompilationSettings::new().optimization_level(2);
++        let compiled = evaluator
++            .jit_compile::<Complex<f64>>(settings.clone())
++            .unwrap();
++        assert_eq!(compiled.input_count(), 1);
++        assert_eq!(compiled.output_count(), 1);
++        let bytes = compiled.export_portable().unwrap();
++        assert!(compiled.has_external_functions());
++        drop(compiled);
++        let mut restored =
++            JITCompiledEvaluator::<Complex<f64>>::import_portable(&bytes, settings.clone())
++                .unwrap();
++        assert_eq!(restored.input_count(), 1);
++        assert_eq!(restored.output_count(), 1);
++        assert_eq!(restored.code.config.opt_level(), 2);
++        // Applet/Defuns must own callbacks even after the wrapper holding their original copies
++        // is dropped, including after cloning a restored evaluator.
++        let mut cloned = restored.clone();
++        let mut reference = evaluator.map_coeff(&|c| Complex::new(c.re.to_f64(), c.im.to_f64()));
++        let mut out = [Complex::new(0., 0.)];
++        for input in [Complex::new(0.25, 0.), Complex::new(0.125, -0.25)] {
++            let expected = reference.evaluate_single(&[input]);
++            restored.evaluate(&[input], &mut out);
++            let difference = out[0] - expected;
++            assert!(difference.re.hypot(difference.im) < 1e-13);
++        }
++        drop(restored);
++        let input = Complex::new(-0.125, 0.25);
++        cloned.evaluate(&[input], &mut out);
++        let difference = out[0] - reference.evaluate_single(&[input]);
++        assert!(difference.re.hypot(difference.im) < 1e-13);
++        let mut trailing = bytes.clone();
++        trailing.push(0);
++        assert!(
++            JITCompiledEvaluator::<Complex<f64>>::import_portable(&trailing, settings.clone())
++                .is_err()
++        );
++        assert!(
++            JITCompiledEvaluator::<Complex<f64>>::import_portable(
++                &bytes[..bytes.len() / 2],
++                settings
++            )
++            .is_err()
++        );
++    }
++}
 diff --git a/src/evaluate/tree.rs b/src/evaluate/tree.rs
-index 8987d41..8023874 100644
+index 4bcd331..20c86a5 100644
 --- a/src/evaluate/tree.rs
 +++ b/src/evaluate/tree.rs
-@@ -749,6 +749,28 @@ impl<'a> AtomView<'a> {
+@@ -667,7 +667,7 @@ impl<'a> AtomView<'a> {
+         params: &HashMap<AtomView<'_>, Vec<Slot>>,
+         settings: &OptimizationSettings,
+         symbol: Symbol,
+-        tags: Vec<Atom>,
++        mut tags: Vec<Atom>,
+         arg_spec: &[Indeterminate],
+         arg_slots: Vec<Slot>,
+         body: &Atom,
+@@ -690,6 +690,68 @@ impl<'a> AtomView<'a> {
+             .collect::<Vec<_>>();
+         captures.sort_by_cached_key(|(parameter, _)| parameter.to_canonical_string());
+ 
++        // A function can be called in different lexical scopes, even with equally many captures.
++        // Keep the names (not their current argument slots) in its private definition identity.
++        let mut signature = std::collections::hash_map::DefaultHasher::new();
++        symbol.hash(&mut signature);
++        tags.hash(&mut signature);
++        for (parameter, _) in &captures {
++            parameter.hash(&mut signature);
++        }
++        for argument in arg_spec {
++            argument.as_view().hash(&mut signature);
++        }
++        body.hash(&mut signature);
++        tags.push(Atom::num(signature.finish()));
++
++        // Retained capture indices follow the private discriminator in a completed definition.
++        // Reuse it before recursively building dependencies, binding this call's current slots.
++        if let Some(external) = external_functions.iter().find(|external| {
++            external.symbol == symbol
++                && external.tags.starts_with(&tags)
++                && external.sub_evaluator.is_some()
++        }) {
++            let mut call_args = captures
++                .iter()
++                .enumerate()
++                .filter(|(index, _)| external.tags[tags.len()..].contains(&Atom::num(*index)))
++                .map(|(_, (_, slot))| *slot)
++                .collect::<Vec<_>>();
++            call_args.extend_from_slice(&arg_slots);
++            let tag_strings: Vec<_> = external
++                .tags
++                .iter()
++                .map(|tag| tag.to_canonical_string())
++                .collect();
++            let constant_args = instr.iter().rev().find_map(|instruction| {
++                if let Instruction::Fun(_, function, _) = instruction
++                    && function.0 == symbol
++                    && function.1 == tag_strings
++                {
++                    function.2.get(call_args.len()..).map(<[_]>::to_vec)
++                } else {
++                    None
++                }
++            });
++            if let Some(constant_args) = constant_args {
++                debug_assert!(
++                    constant_args
++                        .iter()
++                        .all(|slot| matches!(slot, Slot::Const(_)))
++                );
++                call_args.extend(constant_args);
++                let result = Slot::Temp(instr.len());
++                instr.push(Instruction::Fun(
++                    result,
++                    Box::new((symbol, tag_strings, call_args)),
++                    false,
++                ));
++                return Ok(result);
++            }
++            // Constant-condition simplification can discard an earlier call but retain its
++            // definition. Reconstruct the constants normally when its argument slots are gone.
++        }
++
+         let build_evaluator = |captures: &[(Atom, Slot)]| {
+             let mut sub_params = captures
+                 .iter()
+@@ -741,13 +803,72 @@ impl<'a> AtomView<'a> {
+             mark_used(result);
+         }
+ 
++        tags.extend(
++            used_captures
++                .iter()
++                .enumerate()
++                .filter_map(|(index, used)| used.then_some(Atom::num(index))),
++        );
+         if used_captures.iter().any(|used| !used) {
++            // Compact the already-built evaluator instead of recursively building it a second
++            // time. Rebuilding at every nesting level is exponential even with call-site reuse.
++            let mut next_index = 0;
++            let indices = (0..evaluator.stack.len())
++                .map(|index| {
++                    if index < used_captures.len() && !used_captures[index] {
++                        None
++                    } else {
++                        let mapped = next_index;
++                        next_index += 1;
++                        Some(mapped)
++                    }
++                })
++                .collect::<Vec<_>>();
++            let remap = |index: &mut usize| {
++                *index = indices[*index].expect("unused captures must not be read");
++            };
++            for (instruction, _) in &mut evaluator.instructions {
++                match instruction {
++                    Instr::Add(out, args)
++                    | Instr::Mul(out, args)
++                    | Instr::ExternalFun(out, _, args) => {
++                        remap(out);
++                        args.iter_mut().for_each(&remap);
++                    }
++                    Instr::Pow(out, base, _) | Instr::BuiltinFun(out, _, base) => {
++                        remap(out);
++                        remap(base);
++                    }
++                    Instr::Powf(out, base, exponent) => {
++                        remap(out);
++                        remap(base);
++                        remap(exponent);
++                    }
++                    Instr::Join(out, condition, if_true, if_false) => {
++                        remap(out);
++                        remap(condition);
++                        remap(if_true);
++                        remap(if_false);
++                    }
++                    Instr::IfElse(condition, _) => remap(condition),
++                    Instr::Goto(_) | Instr::Label(_) => {}
++                }
++            }
++            evaluator.result_indices.iter_mut().for_each(remap);
++            let mut index = 0;
++            evaluator.stack.retain(|_| {
++                let retain = indices[index].is_some();
++                index += 1;
++                retain
++            });
++            let removed = used_captures.iter().filter(|used| !**used).count();
++            evaluator.param_count -= removed;
++            evaluator.reserved_indices -= removed;
+             captures = captures
+                 .into_iter()
+                 .zip(used_captures)
+                 .filter_map(|(capture, used)| used.then_some(capture))
+                 .collect();
+-            evaluator = build_evaluator(&captures)?;
+         }
+ 
+         let mut call_args = captures
+@@ -784,6 +905,26 @@ impl<'a> AtomView<'a> {
              call_args.push(slot);
          }
  
-+        // Constant functions are lifted into the caller's argument list. The
-+        // remaining instructions still refer to the old external-function
-+        // indices, which must be remapped when those entries are removed.
++        // Lifting constant functions changes the runtime external-function indices.
 +        let mut next_index = 0;
 +        let external_indices = evaluator
 +            .external_fns
@@ -91,10 +728,161 @@ index 8987d41..8023874 100644
              .external_fns
              .retain(|external| external.constant_index.is_none());
 diff --git a/src/transcendental.rs b/src/transcendental.rs
-index 91e9ec8..abae977 100644
+index 6461e5c..3d6483f 100644
 --- a/src/transcendental.rs
 +++ b/src/transcendental.rs
-@@ -3632,11 +3632,13 @@ fn polylog_integer_numeric_eval(
+@@ -559,10 +559,16 @@ impl SpecialSymbols {
+                         })
+                     })
+                     .register_tagged(|tags| {
++                        if tags.len() == 1 && tags[0] == 2 {
++                            return Box::new(dilog_eval_f64);
++                        }
+                         let order = complex_float_tag("polylog", tags, 53).ok();
+                         Box::new(move |args: &[f64]| polylog_eval_f64(order.clone(), args))
+                     })
+                     .register_tagged(|tags| {
++                        if tags.len() == 1 && tags[0] == 2 {
++                            return Box::new(dilog_eval_complex_f64);
++                        }
+                         let order = complex_float_tag("polylog", tags, 53).ok();
+                         Box::new(move |args: &[Complex<f64>]| {
+                             polylog_eval_complex_f64(order.clone(), args)
+@@ -2930,6 +2936,133 @@ fn polylog_eval_complex_f64(order: Option<Complex<Float>>, args: &[Complex<f64>]
+         .unwrap_or_else(|| Complex::new(f64::NAN, f64::NAN))
+ }
+ 
++fn dilog_eval_f64(args: &[f64]) -> f64 {
++    match args {
++        [z] if z.is_finite() => dilog_complex_f64(Complex::new(*z, 0.0)).re,
++        [_] => polylog_eval_f64(
++            Some(Complex::new(Float::with_val(53, 2), Float::new(53))),
++            args,
++        ),
++        _ => f64::NAN,
++    }
++}
++
++fn dilog_eval_complex_f64(args: &[Complex<f64>]) -> Complex<f64> {
++    match args {
++        [z] if z.re.is_finite() && z.im.is_finite() => dilog_complex_f64(*z),
++        [_] => polylog_eval_complex_f64(
++            Some(Complex::new(Float::with_val(53, 2), Float::new(53))),
++            args,
++        ),
++        _ => Complex::new(f64::NAN, f64::NAN),
++    }
++}
++
++// B(2k)/(2k+1)!, k=1..14, rounded once from exact rational numbers. The
++// generating function t/(exp(t)-1) is DLMF 24.2.1. These coefficients are also
++// reconstructed with exact Rational arithmetic in the state-free unit test.
++const DILOG_BERNOULLI_F64: [f64; 14] = [
++    0.027777777777777776,    // 1/36
++    -0.0002777777777777778,  // -1/3600
++    4.72411186696901e-6,     // 1/211680
++    -9.185773074661964e-8,   // -1/10886400
++    1.8978869988971e-9,      // 1/526901760
++    -4.0647616451442256e-11, // -691/16999766784000
++    8.921691020456452e-13,   // 1/1120863744000
++    -1.9939295860721074e-14, // -3617/181400588328960000
++    4.518980029619918e-16,   // 43867/97072790126247936000
++    -1.0356517612181247e-17, // -174611/16860010916664115200000
++    2.395218621026187e-19,   // 77683/324325300906011525120000
++    -5.581785874325009e-21,  // -236364091/42345603418293591736320000000
++    1.3091507554183213e-22,  // 657931/5025632054039239458816000000
++    -3.0874198024267403e-24, // -3392780147/1098904704936220100064706560000000
++];
++
++/// Principal binary64 dilogarithm for finite complex arguments.
++///
++/// Inversion (DLMF 25.12.4) followed by reflection (25.12.6, analytically
++/// continued off the cut) reduces to |u| <= 1, Re(u) <= 1/2. With
++/// w=-log(1-u), d Li2(1-exp(-w))/dw = w/(exp(w)-1), hence
++/// Li2(u)=w-w^2/4+sum B(2k)*w^(2k+1)/(2k+1)!.
++/// On this domain |w| <= hypot(log(2), pi/3). The omitted tail after B28 is
++/// bounded by 2*zeta(2)*|w|*q^15/(31*(1-q)) < 1.5e-22, q=|w/(2*pi)|^2.
++/// This is a truncation bound, not a bound on binary64 arithmetic/log errors
++/// or a correct-rounding guarantee. Arbitrary-precision evaluation is unchanged.
++/// References: https://dlmf.nist.gov/25.12 and https://dlmf.nist.gov/24.2.E1.
++fn dilog_complex_f64(z: Complex<f64>) -> Complex<f64> {
++    use std::f64::consts::PI;
++    const PI_SQUARED_OVER_SIX: f64 = std::f64::consts::PI * std::f64::consts::PI / 6.0;
++
++    debug_assert!(z.re.is_finite() && z.im.is_finite());
++    if z.im == 0.0 {
++        if z.re == 0.0 {
++            return Complex::new(0.0, 0.0);
++        }
++        if z.re == 1.0 {
++            return Complex::new(PI_SQUARED_OVER_SIX, 0.0);
++        }
++        if z.re == -1.0 {
++            return Complex::new(-PI_SQUARED_OVER_SIX / 2.0, 0.0);
++        }
++    }
++
++    let mut u = z;
++    let mut correction = Complex::new(0.0, 0.0);
++    let mut sign = 1.0;
++    if z.re.hypot(z.im) > 1.0 {
++        // The existing polylog convention chooses the negative imaginary
++        // value on x>1 for BOTH signed zeros; nonzero widths keep their side.
++        let log_minus = if z.im == 0.0 && z.re > 0.0 {
++            Complex::new(z.re.ln(), PI)
++        } else {
++            dilog_log_f64(-z)
++        };
++        correction = -(log_minus * log_minus) * 0.5 - PI_SQUARED_OVER_SIX;
++        sign = -1.0;
++        // Scaled reciprocal avoids overflow in re^2+im^2 for large finite z.
++        let scale = z.re.abs().max(z.im.abs());
++        let re = z.re / scale;
++        let im = z.im / scale;
++        let denominator = re * re + im * im;
++        u = Complex::new((re / denominator) / scale, (-im / denominator) / scale);
++    }
++    if u.re > 0.5 {
++        let one_minus = Complex::new(1.0 - u.re, -u.im);
++        correction += (Complex::new(PI_SQUARED_OVER_SIX, 0.0)
++            - dilog_log_f64(u) * dilog_log_f64(one_minus))
++            * sign;
++        sign = -sign;
++        u = one_minus;
++    }
++
++    // Unlike log(1-u), ln_1p keeps tiny/subnormal real components of u even
++    // when 1-u rounds to 1. This formula is well-conditioned on the reduced
++    // domain, where |1-u| >= 1/2; atan2 preserves its imaginary direction.
++    let norm_delta = u.re.mul_add(u.re - 2.0, u.im * u.im);
++    let w = Complex::new(-0.5 * norm_delta.ln_1p(), u.im.atan2(1.0 - u.re));
++    let w_squared = w * w;
++    let mut polynomial = Complex::new(DILOG_BERNOULLI_F64[13], 0.0);
++    for coefficient in DILOG_BERNOULLI_F64[..13].iter().rev() {
++        polynomial = polynomial * w_squared + *coefficient;
++    }
++    let mut result = correction + (w + w_squared * (w * polynomial - 0.25)) * sign;
++    if z.im == 0.0 {
++        result.im = if z.re > 1.0 { -PI * z.re.ln() } else { 0.0 };
++    }
++    result
++}
++
++/// Principal logarithm without overflow/underflow from a squared norm.
++fn dilog_log_f64(z: Complex<f64>) -> Complex<f64> {
++    let larger = z.re.abs().max(z.im.abs());
++    let smaller = z.re.abs().min(z.im.abs());
++    let ratio = smaller / larger;
++    Complex::new(
++        larger.ln() + 0.5 * (ratio * ratio).ln_1p(),
++        z.im.atan2(z.re),
++    )
++}
++
+ fn zeta_eval_f64(args: &[f64]) -> f64 {
+     let [arg] = args else {
+         return f64::NAN;
+@@ -3677,11 +3810,13 @@ fn polylog_integer_numeric_eval(
          return Some(polylog_negative_integer_numeric_eval(order, z, binary_prec));
      }
  
@@ -110,7 +898,7 @@ index 91e9ec8..abae977 100644
          let zeta = zeta_integer_numeric_eval(order, binary_prec);
          let exponent = Complex::new(Float::with_val(binary_prec, 1 - order), zero.clone());
          let factor = complex_one(binary_prec)
-@@ -3649,7 +3651,7 @@ fn polylog_integer_numeric_eval(
+@@ -3694,7 +3829,7 @@ fn polylog_integer_numeric_eval(
      }
  
      #[cfg(feature = "float-mpfr")]
@@ -119,7 +907,7 @@ index 91e9ec8..abae977 100644
          return Some(Complex::new(
              z.re.clone().into_raw().li2().into(),
              zero.clone(),
-@@ -3662,7 +3664,10 @@ fn polylog_integer_numeric_eval(
+@@ -3707,7 +3842,10 @@ fn polylog_integer_numeric_eval(
      }
  
      let log_z = z.log();
@@ -131,7 +919,7 @@ index 91e9ec8..abae977 100644
          return Some(polylog_real_branch_fix(
              z,
              polylog_jonquiere_integer(order as u32, &log_z, binary_prec),
-@@ -3792,7 +3797,10 @@ fn polylog_jonquiere_integer(order: u32, mu: &Complex<Float>, binary_prec: u32)
+@@ -3837,7 +3975,10 @@ fn polylog_jonquiere_integer(order: u32, mu: &Complex<Float>, binary_prec: u32)
  
          let term_size = term.norm().re.to_f64().abs();
          sum += term;
@@ -143,7 +931,7 @@ index 91e9ec8..abae977 100644
              return sum;
          }
  
-@@ -3826,7 +3834,7 @@ fn bernoulli_polynomial(n: u32, x: &Complex<Float>, binary_prec: u32) -> Complex
+@@ -3871,7 +4012,7 @@ fn bernoulli_polynomial(n: u32, x: &Complex<Float>, binary_prec: u32) -> Complex
  }
  
  fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
@@ -152,7 +940,7 @@ index 91e9ec8..abae977 100644
          return z.log()
              + Complex::new(
                  Float::new(binary_prec),
-@@ -3838,7 +3846,10 @@ fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+@@ -3883,7 +4024,10 @@ fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
  }
  
  fn polylog_real_branch_fix(z: &Complex<Float>, value: Complex<Float>) -> Complex<Float> {
@@ -164,12 +952,223 @@ index 91e9ec8..abae977 100644
          return Complex::new(value.re, -value.im);
      }
  
-@@ -4542,6 +4553,26 @@ mod tests {
+@@ -4565,6 +4709,207 @@ mod tests {
+         );
+     }
+ 
++    // These tests intentionally call only numerical functions and Rational/
++    // MPFR arithmetic: no Atom, Symbol, State initializer, or license access.
++    #[test]
++    fn dilog_f64_bernoulli_coefficients_and_tail() {
++        use super::{DILOG_BERNOULLI_F64, bernoulli_number};
++        use crate::domains::{integer::Integer, rational::Rational};
++        for (index, coefficient) in DILOG_BERNOULLI_F64.iter().enumerate() {
++            let order = 2 * (index as u32 + 1);
++            let exact = bernoulli_number(order) / Rational::from(Integer::factorial(order + 1));
++            assert_eq!(*coefficient, exact.to_multi_prec_float(256).to_f64());
++        }
++        let w = 2.0_f64.ln().hypot(std::f64::consts::PI / 3.0);
++        let q = (w / (2.0 * std::f64::consts::PI)).powi(2);
++        let tail = std::f64::consts::PI.powi(2) / 3.0 * w * q.powi(15) / (31.0 * (1.0 - q));
++        assert!(tail < 1.5e-22);
++    }
++
++    #[test]
++    fn dilog_f64_direct_high_precision_grid() {
++        use super::{complex_f64_to_float, dilog_complex_f64, polylog_integer_numeric_eval};
++        let smallest = f64::from_bits(1);
++        let mut points = Vec::new();
++        for re in [
++            -f64::MAX,
++            -1e300,
++            -1e100,
++            -100.0,
++            -2.0,
++            -1.0,
++            -0.5,
++            -1e-16,
++            -1e-300,
++            -smallest,
++            -0.0,
++            0.0,
++            smallest,
++            1e-300,
++            1e-16,
++            0.25,
++            0.5,
++            0.75,
++            f64::from_bits(1.0_f64.to_bits() - 1),
++            1.0,
++            f64::from_bits(1.0_f64.to_bits() + 1),
++            2.0,
++            100.0,
++            1e100,
++            1e300,
++            f64::MAX,
++        ] {
++            points.extend([Complex::new(re, 0.0), Complex::new(re, -0.0)]);
++        }
++        for re in [-10.0, -1.0, -0.5, 0.0, 0.5, 0.75, 1.0, 1.5, 2.0, 10.0] {
++            for im in [
++                -10.0, -1.0, -0.1, -1e-16, -1e-300, 1e-300, 1e-16, 0.1, 1.0, 10.0,
++            ] {
++                points.push(Complex::new(re, im));
++            }
++        }
++        for re in [
++            1.0,
++            f64::from_bits(1.0_f64.to_bits() + 1),
++            2.0,
++            1e100,
++            1e300,
++        ] {
++            for im in [-smallest, smallest, -f64::MIN_POSITIVE, f64::MIN_POSITIVE] {
++                points.push(Complex::new(re, im));
++            }
++        }
++        for index in 0..96 {
++            let angle = std::f64::consts::TAU * index as f64 / 96.0;
++            let (im, re) = angle.sin_cos();
++            points.push(Complex::new(re, im));
++        }
++        for re in [
++            f64::from_bits(0.5_f64.to_bits() - 1),
++            0.5,
++            f64::from_bits(0.5_f64.to_bits() + 1),
++        ] {
++            for im in [-3.0_f64.sqrt() / 2.0, 3.0_f64.sqrt() / 2.0] {
++                points.push(Complex::new(re, im));
++            }
++        }
++        let mut seed = 0x53_4c_6932_u64;
++        for index in 0..384 {
++            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
++            let re = (seed >> 11) as f64 * 2.0_f64.powi(-52) - 1.0;
++            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
++            let im = (seed >> 11) as f64 * 2.0_f64.powi(-52) - 1.0;
++            let scale = 10.0_f64.powi(index * 600 / 383 - 300);
++            points.push(Complex::new(re * scale, im * scale));
++        }
++        points.extend([
++            Complex::new(f64::MAX, f64::MAX),
++            Complex::new(-f64::MAX, f64::MAX),
++            Complex::new(f64::MAX, -f64::MAX),
++            Complex::new(-f64::MAX, -f64::MAX),
++        ]);
++        assert_eq!(points.len(), 662);
++        let mut maximum_scaled_error = 0.0_f64;
++        for bits in [128, 256] {
++            for z in &points {
++                let actual = dilog_complex_f64(*z);
++                let reference =
++                    polylog_integer_numeric_eval(2, &complex_f64_to_float(z, bits), bits, 0)
++                        .expect("generic dilogarithm reference")
++                        .to_f64();
++                let error = (actual.re - reference.re).hypot(actual.im - reference.im);
++                let scale = 1.0 + reference.re.hypot(reference.im);
++                maximum_scaled_error = maximum_scaled_error.max(error / scale);
++                assert!(
++                    error.is_finite() && error <= 24.0 * f64::EPSILON * scale,
++                    "{bits}-bit reference at {z:?}: native={actual:?}, reference={reference:?}, error={error:e}",
++                );
++                // Jonquiere cancellation in the generic reference need not
++                // resolve an imaginary part far below its working precision.
++                // Tiny widths are checked independently below via Li2'.
++                if z.im != 0.0 && reference.im.abs() > 64.0 * 2.0_f64.powi(-(bits as i32)) * scale {
++                    assert_eq!(
++                        actual.im.is_sign_negative(),
++                        reference.im.is_sign_negative(),
++                        "{z:?}"
++                    );
++                }
++                // Do not let the absolute tolerance hide cancellation of tiny
++                // arguments. Permit two subnormal steps for final rounding.
++                if z.re.hypot(z.im) < 1e-10 {
++                    let tiny_scale = reference.re.hypot(reference.im);
++                    assert!(
++                        error <= 24.0 * f64::EPSILON * tiny_scale + 2.0 * smallest,
++                        "tiny {z:?}: {actual:?} vs {reference:?}"
++                    );
++                }
++            }
++        }
++        eprintln!(
++            "662 finite inputs at 128/256 bits; max |error|/(1+|Li2|)={maximum_scaled_error:e}"
++        );
++    }
++
++    #[test]
++    fn dilog_f64_endpoints_cut_and_numeric_callbacks() {
++        use super::{
++            dilog_complex_f64, dilog_eval_complex_f64, dilog_eval_f64, polylog_eval_complex_f64,
++        };
++        let pi = std::f64::consts::PI;
++        for zero in [0.0, -0.0] {
++            assert_eq!(
++                dilog_complex_f64(Complex::new(0.0, zero)),
++                Complex::new(0.0, 0.0)
++            );
++            assert_eq!(
++                dilog_complex_f64(Complex::new(1.0, zero)),
++                Complex::new(pi * pi / 6.0, 0.0)
++            );
++            for x in [f64::from_bits(1.0_f64.to_bits() + 1), 2.0, 1e300] {
++                assert_eq!(dilog_complex_f64(Complex::new(x, zero)).im, -pi * x.ln());
++            }
++        }
++        let half = pi * pi / 12.0 - 0.5 * 2.0_f64.ln().powi(2);
++        assert!((dilog_eval_f64(&[0.5]) - half).abs() <= 2.0 * f64::EPSILON);
++        let upper = dilog_eval_complex_f64(&[Complex::new(2.0, f64::from_bits(1))]);
++        let lower = dilog_eval_complex_f64(&[Complex::new(2.0, -f64::from_bits(1))]);
++        assert!(upper.im > 0.0 && lower.im < 0.0);
++        assert_eq!(upper.re, lower.re);
++        assert_eq!(upper.im, -lower.im);
++        // Away from the cut, Im Li2(x+iy) = y*(-log(1-x)/x)+O(y^3).
++        // At these widths the cubic term is below the subnormal range. Check
++        // normal tiny components relatively, but explicitly allow two final
++        // subnormal ulps: the kernel does not promise correct rounding there.
++        let smallest = f64::from_bits(1);
++        for x in [-10.0_f64, -1.0, -0.5, 0.0, 0.5, 0.75] {
++            let derivative = if x == 0.0 { 1.0 } else { -(-x).ln_1p() / x };
++            for width in [-1e-300, 1e-300, -smallest, smallest] {
++                let actual = dilog_complex_f64(Complex::new(x, width)).im;
++                let expected = width * derivative;
++                assert!(
++                    (actual - expected).abs()
++                        <= 24.0 * f64::EPSILON * expected.abs() + 2.0 * smallest,
++                    "tiny width at {x}+i*{width}: {actual:e} vs {expected:e}"
++                );
++            }
++        }
++        assert!(dilog_eval_f64(&[]).is_nan());
++        assert!(dilog_eval_complex_f64(&[]).re.is_nan());
++        for z in [
++            Complex::new(f64::NAN, 0.0),
++            Complex::new(f64::INFINITY, 0.0),
++        ] {
++            let fallback = polylog_eval_complex_f64(
++                Some(Complex::new(Float::with_val(53, 2), Float::new(53))),
++                &[z],
++            );
++            let actual = dilog_eval_complex_f64(&[z]);
++            for (a, b) in [(actual.re, fallback.re), (actual.im, fallback.im)] {
++                assert!(a == b || a.is_nan() && b.is_nan());
++            }
++        }
++    }
++
+     #[test]
+     fn polylog_basic_normalization() {
+         assert_eq!(parse!("polylog(s,0)"), Atom::new());
+@@ -4587,6 +4932,29 @@ mod tests {
          assert!(Complex::<Float>::try_from(parse!("polylog(2,0.5)")).is_ok());
      }
  
 +    #[test]
 +    fn polylog_unit_circle_precision() {
++        use super::polylog_integer_numeric_eval;
++        use crate::domains::{backend::float::Constant, float::FloatLike};
++
 +        let mut previous: Option<Complex<Float>> = None;
 +        for bits in [128, 256] {
 +            let pi = Float::with_val(bits, Constant::Pi);
@@ -191,3 +1190,13 @@ index 91e9ec8..abae977 100644
      #[test]
      fn polylog_matches_ginac_for_dilog() {
          if Command::new("ginsh").arg("--help").output().is_err() {
+@@ -4873,7 +5241,8 @@ mod tests {
+                     // Independent Wronskian identities exercise both integer
+                     // limits without comparing two perturbed approximations.
+                     let one = complex_one(prec);
+-                    let y_residual = j_next * y - j * y_next
++                    let y_residual = j_next * y
++                        - j * y_next
+                         - (one.clone() + one.clone()) / (complex_pi(prec) * z.clone());
+                     let k_residual = i * k_next + i_next * k - one / z.clone();
+                     for residual in [y_residual, k_residual] {

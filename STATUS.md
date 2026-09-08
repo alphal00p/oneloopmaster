@@ -1,18 +1,104 @@
 # Native OneLOop status
 
+## Current verified development snapshot (2026-09-08)
+
+The current manifest uses patched Symbolica dev `fb845d34`, with portable O2
+evaluator/batch APIs and a separate PyO3 adapter. The release Rust suite passes
+57 tests (four ignored test entries, including a startup subprocess helper).
+The expanded 342-point / 1,026-output
+audit passes at 256 bits, but fixed binary64 still fails on 14 small-momentum B0/dB0
+finite coefficients. Passing the default suite is not a full-parity certificate.
+Both Python adapter build modes compile. The standalone release extension passes
+all 11 tests on CPython 3.13.12 in the original fresh-worker mode (19.740 s): seven
+API tests and four stdlib benchmark-harness tests. The unchanged separate
+two-worker regression also passes. Integrated community-host runtime validation
+remains pending. Thirteen unique focused engine tests pass on the new pin,
+including exact-constant JIT evaluation, portable complex/nested callback
+restoration, and native special-function registration.
+The published SymJIT backend required nine further generic fixes: direct power
+registration, complex callback lane packing, nested SIMD fallback, exact complex
+IF truth, principal square-root lips, negative integer powers, known-real
+absolute-value registers, strict complex-arithmetic contractions, and zero-input
+SIMD transposition. Twelve dependency regressions and the expanded eight-case
+SIMD probe pass. Integrated
+scalar-family strict-v3 caches have been generated and are enabled by default;
+their restored scalar outputs pass all three Laurent coefficients for every
+row of the 293-row acceptance and 31-row benchmark tables. The release suite
+also checks mixed SIMD batches, portable restoration, clone lifetimes, malformed
+cache dimensions, and constant-only zero-input batching. The bare-Symbol outer
+JIT route, with no native FunctionMap, passes all 293 acceptance rows in canonical
+tag order and five further tag orders on per-family controls, before/after
+portable restoration and through scalar/mixed/repeated/tail layouts.
+All five assets have
+been regenerated and validated with the current patched dependencies; their
+hashes are recorded in `assets/evaluators/README.md`.
+
+The completed performance survey uses matched 4,097-point, seven-repetition
+workloads against unchanged Fortran compiled with `-O2 -fno-fast-math`. Python
+uses batches of 1,024 plus a one-row tail; Rust and Symbol routes are measured
+separately. The requested 1.5× target is **not met across all workloads**.
+See [the per-family report](performance/2026-09-08/README.md) for raw data,
+correctness gates, conversion overhead and shared-host limitations.
+
+A subsequent generic Symbolica binary64 Li2 specialization removes MPFR work
+from finite order-2 evaluator callbacks; it does not change arbitrary-precision
+or other-order evaluation. Three state-free tests pass, including 1,324
+comparisons (662 selected inputs at 128/256 reference bits), with maximum
+observed `|error|/(1+|Li2|) = 4.15e-16`, plus explicit endpoint/cut and tiny-width
+checks. Twelve focused engine tests and the additional native special-function
+registration test also pass with this source. These are sampled numerical and
+integration checks, not exhaustive precision guarantees. Integral timings are
+measured independently in the performance survey. The complete dependency delta
+and reproduction details are recorded
+in [patches/README.md](patches/README.md).
+
+Both manifests now disable Symbolica's default features and explicitly retain
+`tracing_max_level_info`, `integer-gmp`, `float-mpfr`, `native_code_generation`,
+and `bincode`, excluding its optional `faster_alloc` global mimalloc allocator.
+The sequential-thread Python crash was in mimalloc during PyO3 string extraction,
+before cache cloning or evaluator construction. The system-allocator rebuild
+passes the unchanged reproduction and full API suite; no mathematical change or
+new initializing-thread lifetime rule is involved. An embedding host must audit
+Cargo's unified features, since another dependency can re-enable `faster_alloc`.
+
+The repeated-root real-box limit has been repaired and its formerly ignored
+128/256-bit regression now passes on the current engine. A native vacuum
+triangle sheet correction and broader permutation regression now pass on the
+new pin: 324 evaluations across six orders, three real-sign sets, three widths,
+three scales, and 128/256 bits. Analytic symmetry takes precedence over
+inconsistent exceptional-point reference values; see
+[VACUUM_SYMMETRY_AUDIT.md](VACUUM_SYMMETRY_AUDIT.md). The historical descriptions
+below are historical; the separately completed current-engine checks above and
+the dated audits take precedence. The width-1e-30 box check at 128 bits asserts
+finiteness only; its analytic target comparison is at 256 bits.
+
+## Preserved prior-engine audit baseline
+
 The expression crate is independent of the unchanged Fortran wrapper and
 standalone numerical Rust port. Symbolica is its only direct dependency.
 It is not yet registered as a community Python extension.
 
-The requested public master Symbols with dedicated Symbolica `EvaluationInfo`
-hooks are also not implemented. Existing native sector function-map definitions
-are a different API; see [MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md).
+The requested public master Symbols and dedicated Symbolica `EvaluationInfo`
+hooks are now implemented, with native tagged map definitions in parallel.
+All three interface tests pass, including all 879 acceptance coefficients through
+both hooks and native maps. The three-mass box NaN exposed by an earlier run is
+repaired. See [MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md).
 
-**Full scalar parity currently fails.** The expanded scalar-domain audit found
-44 coefficient disagreements over 342 accepted original-Fortran points. Known
-failures include the regular dB0 pseudothreshold, mixed-sign finite massless C0,
-complex finite D0, and massive infrared box continuations. See
-`SCALAR_PARITY_AUDIT.md`; the passing acceptance suite below is narrower.
+**Global scalar parity is not established.** The expanded audit originally found
+44 fixed-f64 disagreements. The repaired expressions now match all 342 accepted
+Fortran points / 1,026 coefficients at 256 bits. The final fixed-f64 rerun retains
+14 failures (six B0 and eight dB0 finite small-momentum coefficients); all sampled
+A0/C0/D0 and pole coefficients pass. Focused regressions also pass
+99 bubble points at 256/384 bits, 20 triangle points at f64/256/384, and 63 box
+points at f64/128. Fixed-f64 cancellation, additional exact boundaries and
+legacy-output versus analytic-value distinctions remain explicit audit items.
+At that prior baseline, the exact repeated-root box
+`p=[0,0,0,0,4,-3]`, `m=[1,1,1,1]` had an incorrect imaginary part at 128/256 bits.
+The negative-mass vacuum triangle also had a native continuation error alongside
+inconsistent original-Fortran mass permutations. The current repairs and
+independent analytic targets are described above and in the dated audits.
+The dated follow-up in `SCALAR_PARITY_AUDIT.md` takes precedence over the
+preserved older acceptance results below.
 
 ## Expression coverage
 
@@ -24,18 +110,22 @@ complex finite D0, and massive infrared box continuations. See
 - Exact finite two-mass box boundary branches (including vanishing r12/r13),
   and the equal-mass, zero-external-momentum box `1/(6(m²)²)`.
 - Continued root/log/Li2 definitions shared through a native FunctionMap.
-  No numerical OneLOop callback or Fortran runtime is used.
+  Public evaluation hooks reuse these native bodies; no separate numerical
+  OneLOop algorithm or Fortran runtime is used.
 
 C0/D0 return compact mapped series; OneLoopExpressions shares one cached definition
 map across an amplitude. Cyclic mass sectors reuse canonical definitions.
 The implementation is split into two-point, triangle, triangle-continuation,
 box, shared-definition and sheet-arithmetic modules.
 
-## Reproducible checks
+## Preserved prior-engine checks and fixture provenance
 
-The post-audit suite passes **31 tests** (27 unit tests and four integration
-tests), including all 879 Fortran coefficients. Validation commands and their
-final audit results are recorded in `AUDIT.md`.
+The prior-engine 2026-09-08 default rerun passed **44 tests** (30 unit tests and
+14 integration tests), including all 879 Fortran acceptance coefficients through
+both master hooks and native maps as well as the direct-expression route.
+Four diagnostics were ignored by default; the then-separate repeated-root
+box diagnostic failed before the current repair. The expanded 342-point audit is
+also opt-in and passes at 256 bits. `AUDIT.md` retains the earlier 31-test baseline.
 Tests arrange their own stack without an external RUST_MIN_STACK setting.
 Symbolica can emit normalization
 warnings while constructing singular expressions in inactive native if branches;
@@ -46,8 +136,12 @@ The checked-in Fortran suite contains 293 points / **879 Laurent coefficients**:
 Laurent poles, every C0/D0 mass mask, scales between 1e-4 and 1e4, Euclidean and
 selected timelike/scattering invariants, complex masses, cyclic permutations and
 finite zero-boundary regressions. The comparison rejects NaN/infinity and applies
-2e-10 + 2e-8*|reference| **after mass-dimension normalization** (using mu², mu⁴,
-or 1/mu² as appropriate). This prevents small, dimensionful box values from
+2e-10 + 2e-8*|reference| **after mass-dimension normalization**. The original
+acceptance/hook checks use mu² as their characteristic squared scale. The expanded
+audit, portable/batched tests and benchmarks instead use the largest absolute
+kinematic input component, excluding mu², with the appropriate integral mass
+dimension. That latter convention prevents independent scale changes from
+relaxing the tolerance and small, dimensionful box values from
 passing with large relative errors. The test enforces fixture inventory, row
 shape, valid integral kinds, and mass-mask/pole coverage.
 
@@ -79,8 +173,10 @@ could select an incorrect continuation sheet. Projections and sign selection
 now use explicit native function definitions with single evaluated arguments.
 This preserves their exact meaning without a floating tolerance.
 
-The sibling Symbolica dev checkout is based on
-0b57776bf911faeea7e28ea133706fb03740ffeb and contains local fixes for:
+For the preserved prior-engine baseline only, the sibling Symbolica dev checkout
+was based on `0b57776bf911faeea7e28ea133706fb03740ffeb` and contained the following
+local fixes. The current `fb845d34` dependency and its additional repairs are
+described in the current-work section above and in `patches/README.md`.
 
 1. External-function index remapping when constants are lifted from a non-inlined
    evaluator.
@@ -88,6 +184,9 @@ The sibling Symbolica dev checkout is based on
 3. Polylogarithm convergence near the unit circle, including avoiding premature
    termination at the zeta function's structural zeros, and exact endpoint/
    real-axis predicates that do not round arbitrary-precision inputs to f64.
+4. Reuse of repeated non-inlined definitions before recursive compilation,
+   retaining captures, tags and lifted constants. This prevents exponential
+   recompilation of the compact native dependency graph.
 
 These are native Symbolica changes, not replacement numerical integral helpers.
 The manifest's local paths must be replaced with an agreed upstream revision or
@@ -106,30 +205,31 @@ arbitrary Gram/Cayley degeneracies, all threshold/real-axis limits, arbitrary
 negative-real-part masses, and the complete timelike/complex kinematic domain
 are not exhaustively covered.
 
-A concrete known incorrect point remains: C0 with squared invariants
-`[-4,-1,-1]` and squared masses `[0,0,1]` reaches an unsupported quadratic
-degeneration and returns zero although the Euclidean integral is nonzero.
-The original Fortran also reports an error and returns zero for this input:
-this is a mathematical coverage gap, not a successful-Fortran parity case.
-The generic `a=0` guards in other finite sectors are not established analytic
-limits. Do not use these degenerate points as supported inputs.
+The new one-mass C0 quadratic-degeneration formula includes the regular
+coincident limit: at squared invariants `[-4,-1,-1]` and squared masses
+`[0,0,1]` it simplifies to `-ln(2)`, instead of the former zero guard. The original
+Fortran reports an error and returns zero at this point, so this is an independent
+analytic check rather than a successful-Fortran parity fixture. It passes at
+f64/256/384, with the last two compared against native `Float::log(2)` to an
+absolute error below 1e-60. Generic
+degeneracies in other sectors still require separate analytic validation.
 
 The fully scaleless derivative dB0(0,0,0) is undefined in Fortran and excluded
 from finite-value fixtures. Direct construction marks it indeterminate; generic
 evaluation returns a nonfinite value rather than a spurious zero.
 
-High-precision tests cover selected cases at 128/256 bits, not a broad stability
-proof. Independent tensor fixtures and broad higher-precision D0/threshold
+High-precision tests cover the expanded table at 256 bits and focused families
+at 128/256/384 bits, not a global stability proof. Independent tensor fixtures
+and broader higher-precision D0/threshold
 sweeps remain needed. Symbolica's existing complex-polylog stopping criteria
 cap their requested-precision threshold at approximately 900 bits; larger
 requested precisions are not verified here.
 
-The native closed forms were checked against selected cases that Fortran routes
-through its boxc contour implementation. This is not a line-by-line transcription
-of every alternate boxc T/T1/T13/planar reduction. Those alternate representations
-and special degeneracies remain an explicit audit/coverage item before claiming
-100% path equivalence. Higher tensor triangles/boxes and higher Laurent orders
-are not promised by this API.
+The native map now includes the boxc T/T1/T13/planar reductions, contour residues
+and exact infinitesimal directions. Their presence does not establish every
+kinematic limit: repeated-root thresholds and general Gram/Cayley degeneracies
+remain explicit audit items. Higher tensor triangles/boxes and higher Laurent
+orders are not promised by this API.
 
 Community integration, dependency/version alignment, final packaging metadata and
 the licensing permission being handled by the project owner remain release work.

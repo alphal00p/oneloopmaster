@@ -1,5 +1,174 @@
 # Scalar-integral parity audit
 
+## Current release validation — 2026-09-08
+
+**Full scalar parity is not established, and the requested performance target is
+not met.** The current release checks use Symbolica dev
+`fb845d34bda8ccf1fedef6544d3aa46dc24944e3` plus the recorded Symbolica/SymJIT
+patches, including native binary64 Li2. The original Fortran wrapper and the
+separate dependency-free numerical Rust core remain unchanged.
+
+- The default release suite passes **57 tests**, with zero failures and four
+  ignored test entries (three opt-in diagnostics and the initialization helper).
+  This includes public master hooks/native maps, portable restored evaluators,
+  mixed batches and tails, manual evaluator shape/clone checks, and fresh-process
+  eager initialization. The ignored entries are not all unresolved failures:
+  one is the child-process helper executed by the initialization parent test.
+- The added bare-master outer-JIT regression passes without a native function
+  map, checking all three coefficients against fixtures and prepared backends.
+  Original/restored evaluators cover scalar and 1/3/4/5/31-row batches, repeated
+  inputs and tails. All 293 acceptance rows use canonical tag order; the other
+  five orders use eight controls per family. This does not constitute testing
+  every accepted row in every tag order or adding new analytic regions.
+- The explicitly selected expanded table passes at **256 bits: 342 points /
+  1,026 coefficients**, with unchanged dimension-normalized tolerances. The
+  current fixed-f64 rerun still fails on **14 finite coefficients: six B0 and
+  eight dB0 small-momentum cases**. Higher-precision success is not automatic
+  recovery by the fixed-f64/SymJIT API. The retained failing inputs and earlier
+  convergence analysis are preserved below.
+- The repeated-root real-box regression is now enabled and passes. Its exact
+  `D0([0,0,0,0,4,-3],[1,1,1,1])` target is checked at both 128 and 256 bits.
+  The broader threshold test retains one explicit limitation: at
+  `s=2, t=-4, width=1e-30`, the 128-bit sample checks finiteness only; its
+  independent numerical target is asserted at 256 bits. Passing that test does
+  not certify target accuracy for every sampled width at both precisions.
+- The corrected vacuum triangle passes **324 evaluations** against the
+  independent symmetric lower-lip formula: six mass orders, three real-sign
+  sets, three widths, three scales, and 128/256 bits. For squared masses
+  `[-1,2,3]`, the target has imaginary part `-pi/12` in every order. The user
+  has selected analytic symmetry over inconsistent exceptional-point legacy
+  values. See [VACUUM_SYMMETRY_AUDIT.md](VACUUM_SYMMETRY_AUDIT.md) for exact
+  permutations, original-source evidence, and the scope of that conclusion.
+
+The 293 acceptance rows and 342 expanded rows represent **613 unique ordered
+inputs**, not an exhaustive inventory of analytic regions. Repeating them at
+other precisions or batch layouts validates execution paths, not additional
+kinematic regions. Arbitrary threshold/Gram/Cayley intersections, input
+hierarchies, limiting widths, and the full original domain remain open coverage
+work. The dependency's full upstream test suite and runtime on other CPU
+architectures have not been established by these checks. The most recent Python
+and benchmark status is recorded separately in [STATUS.md](STATUS.md) and the
+[performance report](performance/2026-09-08/README.md); this native release run
+must not be presented as a Python/community-host runtime test.
+
+## Preserved prior-engine repair follow-up — 2026-09-08
+
+The following follow-up records the earlier patched `0b57776b` engine. Its
+44-test count, ignored repeated-root failure, unresolved vacuum sheet, and
+pending analytic-versus-legacy decision describe that historical stage; the
+current validation above supersedes those status statements. The detailed
+counterexamples and independent targets remain useful evidence and are retained.
+
+Full parity is still **not established**. Three agents are investigating branch
+conventions/master hooks, complex boxes, and original-source coverage, with
+cross-review of the proposed formulas. The original wrapper remains unchanged.
+
+Verified during this follow-up:
+
+- The complete default suite passes **44 tests**, with four opt-in diagnostics
+  ignored. One of those diagnostics is the confirmed repeated-root box failure
+  described below; a passing default suite does not hide or resolve that gap.
+- The complete expanded corpus now passes at **256 bits: 342 accepted Fortran
+  points / 1,026 coefficients, zero mismatches**, with unchanged comparison
+  tolerances. Family counts are `[13,49,50,100,130]` for A0/B0/dB0/C0/D0.
+  This is a chosen-precision evaluation of every point, not automatic recovery
+  by a fixed-f64 evaluator and not proof of unrestricted domain parity.
+- The final fixed-f64 rerun completed with **14 failures / 1,026 coefficients**
+  (exit 101, 127.13 seconds), down from the baseline's 44. All remaining failures
+  are finite small-momentum bubble coefficients: six B0 and eight dB0. Their
+  fixture lines are `21,23,25,27,29,31,33,53,55,57,59,61,63,65` in
+  `tests/data/scalar_audit.txt`. All sampled A0/C0/D0 coefficients and all pole
+  coefficients pass. The 256-/384-bit bubble convergence checks below establish
+  recoverable fixed-precision cancellation for these retained points; the test
+  still fails at f64 and no tolerance or expected value was changed.
+- The five tests in `tests/branch_limits.rs` pass. All 49 B0 and 50 dB0 points
+  from the 342-point corpus match Fortran at **both 256 and 384 bits**, using
+  unchanged dimension-normalized tolerances. The two precisions agree to a
+  normalized absolute difference below 1e-32. This includes small-momentum
+  cancellation, not a claim that fixed f64 evaluation is stable there.
+- A native real-axis grouping identity `if(z,z,0)` prevents conjugation from
+  distributing a composite argument into differently rounded subexpressions.
+  Without it, one timelike B0 passed at 256 bits but selected the wrong lip at
+  384 bits because its nominally zero axis predicate had a real residual.
+  The focused test now verifies exact-zero predicates and both logarithm lips.
+- Negative-mass dB0 zero-momentum and on-shell logarithms, mass-exchanged
+  coincident roots, and the original normal-threshold prescription pass focused
+  regressions. The normal-threshold prescription is an original API convention,
+  not a finite one-sided derivative limit.
+- The formerly failing finite complex four-mass box passes all four cyclic
+  rotations at f64 and 128 bits using the new transparent `box_complex` map.
+  This is a focused eight-comparison check, not full boxc certification.
+- `tests/triangle_limits.rs` now passes all 20 points and all three coefficients
+  at f64, 256 and 384 bits. This covers regular one-mass quadratic limits,
+  negative masses, three-mass cyclic relabelings and an exact zero Gram
+  determinant. A polynomial resultant detects the relabeling condition;
+  evaluating the discriminant directly as `lambda/(m1*m2*m3)` preserves exact
+  coincident roots. Neither fix uses a numerical proximity tolerance.
+  The added independent `C0([-4,-1,-1],[0,0,1])=-ln(2)` control additionally
+  agrees with a native 256-/384-bit logarithm to below 1e-60 absolute error.
+
+The first follow-up construction attempt hit an internal
+Symbolica representation error before evaluating points: recursively expanded
+triangle relabeling grew into multi-gigabyte atoms. Compact non-inlined native
+stages fixed construction; the triangle sweep above subsequently completed.
+
+The new `tests/box_limits.rs` initially reported **31 failed comparisons** across
+28 original-accepted cases, f64/128-bit evaluation and signed-zero variants.
+After preserving continued products in IR06/12/13 and exact first-/second-order
+contour directions, these cases all pass. Rectangular complex square roots avoid
+losing tiny-width information through polar-angle rounding. Exact zero-endpoint
+limits additionally fix the newly exposed three-mass box NaN. The test now
+passes **63 cases** at f64/128 bits, including 31 three-mass acceptance fixtures,
+exact endpoint-chart controls and signed-zero variants. The complete expanded
+suite has additionally passed at 256 bits as recorded above. All three master
+tests now pass, including 879 coefficients through both hook/map routes. The
+final expanded fixed-f64 rerun has only the 14 bubble failures recorded above.
+
+Additional concrete findings include lower-lip mass square roots, a missing
+exact-zero-channel D0 pre-permutation, and accepted C0 quadratic-degenerate
+points previously returned as zero. These repairs pass the focused family tests
+above.
+Cross-review identified and repaired removable coincident-contour-root dilog
+limits and checked the ordinary contour chain rules against the source. The
+remaining repeated-root counterexample is recorded in the
+[independent threshold checks](#independent-finite-box-threshold-and-removable-limit-checks):
+at `D0([0,0,0,0,4,-3],[1,1,1,1])` the native expression has an incorrect
+imaginary part at both 128 and 256 bits. Its explicitly ignored diagnostic still
+fails when invoked; it is not included in passing coverage. Infinitesimal
+directions in the implementation are symbolic coefficients, not finite numeric
+regulators or proximity-based switches.
+
+### Exact formulas versus legacy numerical artifacts
+
+The original can emit finite values without `ERROR` even when an internal
+regulator/tolerance controls the answer. For example, finite C0 with
+`p=[-1,-2,-3]`, `m=[1,2,3]` gives about -0.2090612533590607 at `mu²=1`, but
+-0.2616240718822739 at `mu²=1e20` after a scale-dependent vacuum approximation.
+A finite scalar triangle with zero Laurent poles is analytically independent
+of that renormalization scale. Likewise, the exactly pinched one-mass C0
+`p=[-2,3,2]`, `m=[0,0,1]` gets a large finite imaginary component from the
+original's finite regulator rather than a regulator-independent finite limit.
+
+Per the agreed exact-expression/no-near-degeneracy-gate design, these artifacts
+are documented separately, not silently approximated or counted as proof that
+the exact formula is wrong. Literal equality with *every* finite original
+printed result is therefore a different contract from analytic scalar parity.
+
+A further unresolved example is the unequal-mass vacuum triangle
+`p=[0,0,0]`, `m=[-1,2,3]`. Original Fortran returns approximately
+`-0.3618610961277855 - 0.2617993877991497 i`, but exchanging the first two
+masses changes its imaginary part to `+0.7853981633974484 i`. The native
+formula currently gives `+0.2617993877991494 i` in both orders. This is both a
+native analytic-continuation gap and an inconsistency in the legacy oracle;
+agreement with either arbitrary mass ordering cannot establish correctness.
+The symmetric lower-lip vacuum formula
+`-sum_i m_i*log(m_i-i0)/product_{j!=i}(m_i-m_j)` gives
+`(2/3)*log(2)-(3/4)*log(3)-i*pi/12`, i.e. the negative imaginary part in
+both orders. Choosing the intended analytic-versus-literal-legacy contract
+and repairing this case remain pending; it is not counted as verified parity.
+
+## Baseline audit — 2026-09-07
+
 Audit date: 2026-09-07. Verdict: **full scalar parity is not established, and the
 expanded audit has found reproducible disagreements.** Passing the earlier
 acceptance suite is not evidence that every supported kinematic region works.
@@ -321,3 +490,136 @@ by those invalid original outputs. Original `boxc` also rejects some arbitrary
 external invariant tuples when no acceptable positive Källén permutation is
 available (`avh_olo_boxc.f90:176–191`). These must remain separate from clean
 Fortran-parity counterexamples.
+
+## Independent finite-box threshold and removable-limit checks
+
+The following checks use equal squared masses `[1,1,1,1]`, squared scale `1`,
+and external invariants `[0,0,0,0,s,t]`. Both Laurent poles vanish. The
+quadrature below is an independent **test oracle only**: it is not used by any
+native expression, master-symbol callback, or production implementation.
+
+The four-dimensional Feynman-parameter representation is
+`D0 = integral_simplex [1-s*x1*x3-t*x2*x4]^-2`. Apply the Cheng-Wu choice
+`x1+x2=1`, write `x1=x`, `x2=1-x`, `x3=r*v`, `x4=r*(1-v)`, and integrate
+`v` and then `x` analytically. With `z=r/(1+r)` and `w=z*(1-z)`, this gives
+
+```text
+D0(s,t) = -integral_0^1 log[(1-s*w)*(1-t*w)] / (s+t-s*t*w) dz.
+```
+
+For the two real points below the logarithms have real limiting values. At
+`s=4,t=-3`, the zero at `z=1/2` is an integrable logarithmic endpoint after
+splitting the interval. At `s=2,t=-4`, numerator and denominator vanish
+together, so their quotient must be evaluated by its removable limit.
+Symmetry and `u=abs(1-2*z)` give cancellation-free one-dimensional formulas:
+
+```text
+D0(4,-3) = -integral_0^1 [2*log(u)+log((7-3*u^2)/4)]/(4-3*u^2) du
+D0(2,-4) =  integral_0^1 log1p(u^2*(1-u^2)/2)/(2*u^2) du
+          = pi/4 - atanh(1/sqrt(2))/sqrt(2).
+```
+
+The second integrand is `1/4` at `u=0`; its closed form follows immediately
+by integration by parts. The independently obtained targets are
+
+```text
+D0(4,-3) = 0.437508120479433839303015369526783505697336155799893173453710894022789135269725375157557290 + 0i
+D0(2,-4) = 0.162172923257217796221640765569307718398597037497209202345021371980784097024538069189339633 + 0i.
+```
+
+Reproduction with Python and `mpmath==1.3.0`:
+
+```python
+import mpmath as mp
+for digits in (80, 120):
+    mp.mp.dps = digits
+    threshold = mp.quad(
+        lambda u: -(2*mp.log(u) + mp.log((7-3*u*u)/4))/(4-3*u*u),
+        [0, mp.mpf(1)/4, mp.mpf(1)/2, 1])
+    removable = mp.quad(
+        lambda u: mp.log1p(u*u*(1-u*u)/2)/(2*u*u) if u else mp.mpf(1)/4,
+        [0, mp.mpf(1)/2, 1])
+    exact = mp.pi/4 - mp.atanh(1/mp.sqrt(2))/mp.sqrt(2)
+    print(digits, mp.nstr(threshold, digits), mp.nstr(removable, digits))
+    print("closed-form error:", mp.nstr(removable-exact, 10))
+```
+
+The two precision runs agree through the displayed 80-digit result; the
+closed-form errors were `-5.27e-82` and `-1.21e-121`, respectively.
+
+The unchanged original build also provides `avh_olo_qp` with
+`olo_kind=16`, `digits=113`, and machine epsilon
+`1.92592994438723585305597794258492732e-34`. A separate temporary driver was
+linked against its existing `libavh_olo.a` using gfortran 15.2.0. No original
+source, module, archive, or wrapper build was changed. The zero-width results
+were:
+
+| Point | Original DP finite term | Original QP finite term |
+| --- | --- | --- |
+| `s=4,t=-3` | `0.437508112203920163 + 8.27551422065440851e-9 i` | `0.437508120479433831595842035686652605 + 7.70717333384013151e-18 i` |
+| `s=2,t=-4` | `-0.134889937937259674 - 1.54027890413999557 i` | `0.127142510038012190864975536896963604 - 0.0838448301598513322241412737412247225 i` |
+
+At the threshold, `Re+Im` from QP is
+`0.437508120479433839303015369526784134`, agreeing with the independent
+target to about 32 decimal digits. Explicit common negative widths `1e-24`,
+`1e-30`, and `1e-32` converge to the same sum. The individual real and
+imaginary displacements are order `sqrt(width)`; the original finite-regulator
+imaginary part is not the exact threshold value. In contrast, the zero-width
+`s=2,t=-4` original result is unstable even in QP. A common width `1e-16`
+gives approximately `0.1621729232572177966441 + 3.77745e-17 i`, consistent
+with the independent closed form, but shrinking widths reintroduce severe
+cancellation. Merely obtaining finite original output is therefore insufficient
+to make either zero-width result a strict regression target.
+
+To reproduce QP with the existing original build, copy
+`tests/support/oracle.f90` to a temporary directory, import `avh_olo_qp`
+instead of `avh_olo`, and declare its momenta, masses and results as
+`complex(olo_kind)`. Keep the scale as `real(kind(1d0))`, matching the original
+`olo_scale` API. Print `real(result(i),kind=olo_kind)` and `aimag(result(i))`
+using `2es45.35`, and link the driver with `-I /path/to/original/OneLOop`
+and `/path/to/original/OneLOop/libavh_olo.a`. This uses the native QP module;
+it does not mix promoted driver types with a DP archive.
+
+The native exact `s=4,t=-3` result is a **confirmed remaining gap**: its real
+part matches the independent target, but it has the spurious imaginary part
+`+3.5830460942481976` at both 128 and 256 bits. With common masses `1-i*delta`
+and strictly positive width magnitude `delta`, the native values instead
+converge correctly. Independent quadrature at 80 and 120 decimal digits gives,
+for example,
+
+```text
+delta=1e-8:
+  0.437452584442429213196616652862811396
+  + 0.0000555328011958603090209985543129131 i
+delta=1e-30:
+  0.437508120479433283942648099731002629
+  + 5.55360367269795457351641215380708e-16 i.
+```
+
+For this complex-mass check the same parameter integral applies with
+`D=m*(s+t)-s*t*w` and integrand `-log1p(-D*w/m^2)/D`, where `m=1-i*delta`
+denotes the squared mass. Splitting the transformed `u` interval at
+`sqrt(delta)` resolves the threshold boundary layer. The exact repeated inner
+polynomial is `4*(z-1/2)^2`; perturbation by `-i*delta` splits its roots at
+order `sqrt(delta)`, not order `delta`. A Taylor-only continuation cannot
+silently assign this term the same order as ordinary root directions.
+Documenting this discrepancy is not a production repair or a passing exact
+threshold regression.
+
+The native exact `s=2,t=-4` value, on the other hand, agrees with its independent
+closed form at 128 and 256 bits; a test expecting either unstable zero-width
+original output would be testing the wrong reference. At width `1e-30`,
+128-bit evaluation exhibits about `6.6e-9` cancellation drift while 256-bit
+evaluation agrees with the independent value. This is distinct from the
+precision-independent exact-threshold branch gap above.
+
+A bounded native repair has been derived and independently cross-reviewed,
+but is **not implemented** in this snapshot. In `s3`, for real `a>0,b,c` with
+`b^2-4*a*c=0`, repeated root `z=-b/(2*a)` strictly inside `(0,1)`, and both
+outer poles outside the closed real interval `[0,1]`, replace the coalescing-root
+logarithms by `log(a)+2*log(abs(x-z))` and integrate the two intervals with
+native dilogarithm divided differences. The kernel is bounded on this domain,
+so the integrable logarithmic limit can be taken directly. This avoids a full
+fractional-power root expansion for the confirmed counterexample. Simultaneous
+inner/outer poles inside the interval are excluded from that argument and
+require a limit of the combined contour expression, not the individual `s3`.

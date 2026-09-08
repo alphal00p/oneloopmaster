@@ -1,0 +1,67 @@
+Independent sequential-thread crash diagnosis (2026-09-08)
+========================================================
+
+Reproducer: python/tests/thread_handoff.py
+Both workers request 128 MiB stacks and run strictly sequentially.
+Worker 1 imports the extension, evaluates A0(2), and exits.
+Worker 2 reimports the cached module and calls Evaluator("A0").
+
+Build at failure:
+  Symbolica fb845d34bda8ccf1fedef6544d3aa46dc24944e3, patched native evaluator
+  SymJIT 2.24.1, strict-v3 patches
+  mimalloc 0.1.52 / libmimalloc-sys 0.1.49 (enabled by Symbolica faster_alloc)
+  Debug Python extension, CPython 3.13.12, x86_64 Linux
+
+Command (run alone; requires extension import directory on PYTHONPATH):
+  gdb -q -batch -ex 'set pagination off' -ex run -ex 'bt 45' \
+      -ex 'thread apply all bt 8' --args python3 -X faulthandler \
+      python/tests/thread_handoff.py
+
+Observed prefix:
+  first: imported
+  ((0.6137056388801094+0j), (2+0j), 0j)
+  first: completed
+  first: joined
+  second: entered worker
+  second: imported
+  constructing A0
+  Thread 5 "python3" received signal SIGSEGV, Segmentation fault.
+
+Relevant native frames (intervening allocation plumbing omitted):
+  #0 _mi_subproc()                  mimalloc/v3/src/init.c:435
+       return theap->tld->subproc;
+  #1 mi_heap_main()                 mimalloc/v3/src/init.c:452
+  #2 mi_thread_init()               mimalloc/v3/src/init.c:722
+  #3 _mi_malloc_generic(...size=2)   mimalloc/v3/src/page.c:987
+  #13 mi_malloc_aligned(size=2, alignment=1)
+  #14 mimalloc::MiMalloc::alloc     mimalloc-0.1.52/src/lib.rs:51
+  #15 symbolica::__rust_alloc       symbolica/src/lib.rs:290
+  #24 alloc::str::to_owned
+  #25 pyo3::Borrowed<PyString>::to_cow
+  #29 pyo3::extract_argument<&str>
+  #30 oneloop_native::Evaluator::__pymethod___new____
+
+The failure occurs while PyO3 extracts the constructor's family string,
+BEFORE the Rust Evaluator::new body, cache cloning, or generated code execution.
+This evidence does not establish a cross-thread evaluator restriction.
+No large core dump is retained.
+
+Configuration repair and direct verification:
+  Both core and Python manifests disable Symbolica's default features and
+  explicitly retain bincode, float-mpfr, integer-gmp, native_code_generation,
+  and tracing_max_level_info. The faster_alloc global allocator is excluded.
+  cargo tree -e features -i symbolica confirms exactly those five features;
+  cargo tree -i mimalloc reports no matching package.
+  After rebuilding the debug extension, the UNCHANGED two-worker reproducer
+  exits successfully: the second worker constructs and drops all five families.
+  No evaluator-thread guard, evaluator lifetime change, or mathematical change
+  is used to obtain this result.
+
+Full API regression after rebuilding, using the original fresh-worker mode:
+  env -u ONELOOP_PYTHON_REBUILD -u SYMJIT_TOML \
+      ONELOOP_PYTHON_THREAD_HANDOFF=1 PYTHONPATH=<extension directory> \
+      python3 -X faulthandler -m unittest discover -s python/tests \
+      -p test_api.py -v
+  Result: all 7 tests PASS in 107.040 seconds. This includes cold main-thread
+  subprocesses, environment guards, all shared fixtures, invalid inputs,
+  scalar evaluation, mixed batches, and explicit evaluator rebuilding.

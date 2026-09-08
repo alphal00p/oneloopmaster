@@ -1,0 +1,7 @@
+all-family eager initialization 5.289590729s
+survey route=Hooks; all three Laurent outputs; warmup=256; interpreted hooks are scalar-only
+route=hooks A0 expression build 1.092855ms; using already prepared shared backend
+route=hooks B0 expression build 219.501µs; using already prepared shared backend
+route=hooks dB0 expression build 220.531µs; using already prepared shared backend
+route=hooks C0 expression build 257.571µs; using already prepared shared backend
+route=hooks D0 expression build 365.181µs; using already prepared shared backend

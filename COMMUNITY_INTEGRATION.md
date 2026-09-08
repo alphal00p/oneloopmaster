@@ -3,6 +3,37 @@
 This is a plan, not an integration or publishing change. The original Fortran
 wrapper and the standalone numerical crate remain separate and unchanged.
 
+## Current adapter progress (2026-09-08)
+
+The thin binding crate now exists under [python/](python/README.md), with an
+optional `community` feature implementing `SymbolicaCommunityModule`. It returns
+genuine host expressions for the compact master Symbols and offers `compile_native`
+to retain the transparent function map for combined expressions. Its standalone
+PyO3 extension exchanges numbers only; separately loaded Symbolica binaries must
+not exchange their internal expression objects.
+
+Both adapter build modes compile. The standalone debug extension passes all
+seven API tests on CPython 3.13.12, including original fresh-worker mode
+(107.040 s), and the unchanged two-worker regression passes. Registration in a
+real community host, stub generation, and shared-host runtime verification are
+still future steps; these standalone results do not establish shared expression
+state in a host. Numerical performance measurements remain pending.
+No community-root files have been changed in this pass. The current dev snapshot
+is `fb845d34`; a consuming host must also carry the documented numerica/graphica
+and SymJIT overrides. See [patches/README.md](patches/README.md).
+
+Core and adapter manifests disable Symbolica default features and explicitly
+retain `tracing_max_level_info`, `integer-gmp`, `float-mpfr`,
+`native_code_generation`, and `bincode`; community mode additionally enables
+`python_export`. This excludes the optional `faster_alloc` global mimalloc
+allocator. A sequential-thread crash was traced to that allocator during PyO3
+argument extraction, before evaluator construction; the system-allocator rebuild
+passes the unchanged checks. Cargo features are unified across the host graph,
+so any dependency requesting Symbolica defaults or `faster_alloc` can undo this
+selection. The consuming root must inspect its resolved features and verify the
+actual host allocator configuration, not assume dependency-level
+`default-features = false` disables a feature requested elsewhere.
+
 ## What Spenso actually does
 
 The community checkout depends on the Python binding crate `spynso3`, not just

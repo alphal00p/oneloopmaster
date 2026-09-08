@@ -1,0 +1,30 @@
+[package]
+name = "oneloop-python"
+version = "0.1.0"
+edition = "2024"
+description = "Thin numeric and shared-kernel community Python adapters for oneloop"
+publish = false
+
+[lib]
+name = "oneloop_native"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module", "pyo3/abi3-py39"]
+community = ["symbolica/python_export"]
+
+[dependencies]
+oneloop = { path = ".." }
+pyo3 = "0.28"
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "fb845d34bda8ccf1fedef6544d3aa46dc24944e3", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
+
+# This crate is a build root: dependency-level patches do not propagate here.
+# A community host must apply these compatible overrides at its own build root.
+[patch.crates-io]
+symjit = { path = "../../symjit-2.24.1-patched" }
+numerica = { path = "../../symbolica-dev-v3/lib/numerica" }
+graphica = { path = "../../symbolica-dev-v3/lib/graphica" }
+
+[patch."https://github.com/symbolica-dev/symbolica"]
+symbolica = { path = "../../symbolica-dev-v3" }

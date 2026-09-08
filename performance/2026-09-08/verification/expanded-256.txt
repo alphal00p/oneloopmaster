@@ -1,0 +1,54 @@
+
+running 1 test
+test audit_extra_fortran_fixtures ... Compiling Fortran audit evaluators at 256 bits
+┌────────────────────────────────────────────────────────┐
+│ You are running a restricted Symbolica instance.       │
+│                                                        │
+│ This mode is only permitted for non-commercial use and │
+│ is limited to one Symbolica thread per user.           │
+│                                                        │
+│ Hobbyists can easily acquire a free license key        │
+│ that unlocks all cores and removes this banner:        │
+│                                                        │
+│   from symbolica import *                              │
+│   request_hobbyist_license('YOUR_NAME', 'YOUR_EMAIL')  │
+│                                                        │
+│ All other users can obtain a free 30-day trial key:    │
+│                                                        │
+│   from symbolica import *                              │
+│   request_trial_license('NAME', 'EMAIL', 'EMPLOYER')   │
+│                                                        │
+│ See https://symbolica.io/docs/get_started.html#license │
+└────────────────────────────────────────────────────────┘
+2026-09-08T11:52:15.546099Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T11:52:15.546166Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T11:52:15.546526Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T11:52:15.546536Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T11:52:15.547026Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T11:52:15.547042Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T11:52:15.547212Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T11:52:15.547220Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T11:52:15.547539Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T11:52:15.547547Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T11:52:15.547717Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T11:52:15.547725Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+Compiled A0/B0/dB0/C0; compiling D0
+Audit progress: 25 points; 0 mismatches so far
+Audit progress: 50 points; 0 mismatches so far
+Audit progress: 75 points; 0 mismatches so far
+Audit progress: 100 points; 0 mismatches so far
+Audit progress: 125 points; 0 mismatches so far
+Audit progress: 150 points; 0 mismatches so far
+Audit progress: 175 points; 0 mismatches so far
+Audit progress: 200 points; 0 mismatches so far
+Audit progress: 225 points; 0 mismatches so far
+Audit progress: 250 points; 0 mismatches so far
+Audit progress: 275 points; 0 mismatches so far
+Audit progress: 300 points; 0 mismatches so far
+Audit progress: 325 points; 0 mismatches so far
+Family points [A0,B0,dB0,C0,D0]: [13, 49, 50, 100, 130]; with poles: [13, 49, 0, 28, 32]
+Checked 1026 Fortran coefficients; 0 failures
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 29.18s
+

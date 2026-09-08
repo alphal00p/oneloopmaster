@@ -6,8 +6,57 @@ use symbolica::{
         float::{Complex, Float},
         rational::Rational,
     },
+    evaluate::ExpressionEvaluator,
     parse,
 };
+
+// The optional audit precision applies to the whole fixture table. It is not
+// a fallback selected by the measured error or by a kinematic tolerance.
+enum OracleEvaluator {
+    Double(ExpressionEvaluator<Complex<f64>>),
+    Precise(u32, ExpressionEvaluator<Complex<Float>>),
+}
+
+impl OracleEvaluator {
+    fn new(exact: ExpressionEvaluator<Complex<Rational>>, bits: Option<u32>) -> Self {
+        match bits {
+            None => Self::Double(exact.map_coeff(&|c| Complex::new(c.re.to_f64(), c.im.to_f64()))),
+            Some(bits) => Self::Precise(
+                bits,
+                exact.map_coeff_with_prec(
+                    &|c| {
+                        Complex::new(
+                            c.re.to_multi_prec_float(bits),
+                            c.im.to_multi_prec_float(bits),
+                        )
+                    },
+                    bits,
+                ),
+            ),
+        }
+    }
+
+    fn evaluate(&mut self, input: &[Complex<f64>], out: &mut [Complex<f64>; 3]) {
+        match self {
+            Self::Double(evaluator) => evaluator.evaluate(input, out),
+            Self::Precise(bits, evaluator) => {
+                // Reproduce the original oracle's double inputs exactly at the
+                // selected precision, rather than changing the tested point.
+                let input = input
+                    .iter()
+                    .map(|v| {
+                        Complex::new(Float::with_val(*bits, v.re), Float::with_val(*bits, v.im))
+                    })
+                    .collect::<Vec<_>>();
+                let mut result = core::array::from_fn::<_, 3, _>(|_| {
+                    Complex::new(Float::new(*bits), Float::new(*bits))
+                });
+                evaluator.evaluate(&input, &mut result);
+                *out = result.map(|v| Complex::new(v.re.to_f64(), v.im.to_f64()));
+            }
+        }
+    }
+}
 
 #[test]
 fn fortran_fixtures() {
@@ -38,32 +87,46 @@ fn audit_extra_fortran_fixtures() {
 }
 
 fn check_fixtures(fixtures: &str, enforce_inventory: bool) {
+    let bits = if enforce_inventory {
+        None
+    } else {
+        std::env::var("ONELOOP_AUDIT_BITS")
+            .ok()
+            .map(|v| v.parse::<u32>().expect("integer audit precision"))
+    };
+    eprintln!(
+        "Compiling Fortran audit evaluators at {}",
+        bits.map_or_else(|| "f64".to_owned(), |b| format!("{b} bits"))
+    );
     let ctx = OneLoopExpressions::new();
     let ap = [parse!("oracle_a_mass"), parse!("oracle_a_mu")];
-    let mut ae = ctx
-        .evaluator(oneloop::a0(&ap[0], &ap[1]).coefficients(), &ap)
-        .unwrap()
-        .map_coeff(&|x: &Complex<Rational>| Complex::new(x.re.to_f64(), x.im.to_f64()));
+    let mut ae = OracleEvaluator::new(
+        ctx.evaluator(oneloop::a0(&ap[0], &ap[1]).coefficients(), &ap)
+            .unwrap(),
+        bits,
+    );
     let bp = [
         parse!("oracle_b_p"),
         parse!("oracle_b_m0"),
         parse!("oracle_b_m1"),
         parse!("oracle_b_mu"),
     ];
-    let mut be = ctx
-        .evaluator(
+    let mut be = OracleEvaluator::new(
+        ctx.evaluator(
             oneloop::b0(&bp[0], &bp[1], &bp[2], &bp[3]).coefficients(),
             &bp,
         )
-        .unwrap()
-        .map_coeff(&|x: &Complex<Rational>| Complex::new(x.re.to_f64(), x.im.to_f64()));
-    let mut dbe = ctx
-        .evaluator(
+        .unwrap(),
+        bits,
+    );
+    let mut dbe = OracleEvaluator::new(
+        ctx.evaluator(
             oneloop::db0(&bp[0], &bp[1], &bp[2], &bp[3]).coefficients(),
             &bp,
         )
-        .unwrap()
-        .map_coeff(&|x: &Complex<Rational>| Complex::new(x.re.to_f64(), x.im.to_f64()));
+        .unwrap(),
+        bits,
+    );
     let cp = [
         parse!("p1"),
         parse!("p2"),
@@ -75,9 +138,8 @@ fn check_fixtures(fixtures: &str, enforce_inventory: bool) {
     ];
     let cs = ctx.c0([&cp[0], &cp[1], &cp[2]], [&cp[3], &cp[4], &cp[5]], &cp[6]);
     let cexact = ctx.evaluator(cs.coefficients(), &cp).unwrap();
-    let mut ce = cexact
-        .clone()
-        .map_coeff(&|x: &Complex<Rational>| Complex::new(x.re.to_f64(), x.im.to_f64()));
+    let mut ce = OracleEvaluator::new(cexact.clone(), bits);
+    eprintln!("Compiled A0/B0/dB0/C0; compiling D0");
     let dp = [
         parse!("p1"),
         parse!("p2"),
@@ -96,10 +158,7 @@ fn check_fixtures(fixtures: &str, enforce_inventory: bool) {
         [&dp[6], &dp[7], &dp[8], &dp[9]],
         &dp[10],
     );
-    let mut de = ctx
-        .evaluator(ds.coefficients(), &dp)
-        .unwrap()
-        .map_coeff(&|x: &Complex<Rational>| Complex::new(x.re.to_f64(), x.im.to_f64()));
+    let mut de = OracleEvaluator::new(ctx.evaluator(ds.coefficients(), &dp).unwrap(), bits);
     let mut failures = Vec::new();
     let mut count = 0;
     let mut family_counts = [0; 5]; // A0, B0, dB0, C0, D0.

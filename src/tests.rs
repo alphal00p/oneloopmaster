@@ -29,10 +29,8 @@ fn a0_is_a_transparent_native_expression() {
     let mu2 = parse!("mu2");
     let coefficients = a0(&m, &mu2).into_coefficients();
 
-    assert_eq!(
-        coefficients[0],
-        parse!("if(m,m*(1-conj(log(conj(m/mu2)))),0)")
-    );
+    let expected = if_nonzero(&m, &m * (1 - physical_log(&(&m / &mu2))));
+    assert_eq!(coefficients[0], expected);
     assert_eq!(coefficients[1], m);
     assert_eq!(coefficients[2], parse!("0"));
 }
@@ -44,16 +42,63 @@ fn a0_zero_mass_is_scaleless() {
 }
 
 #[test]
+fn bubble_axis_lips_survive_arbitrary_precision_arithmetic() {
+    use symbolica::prelude::{Float, RealLike};
+    let p = parse!("axis_p");
+    let m0 = parse!("axis_m0");
+    let m1 = parse!("axis_m1");
+    let linear = &m1 - &m0 - &p;
+    let delta = (&linear * &linear - Atom::num(4) * &p * &m0).sqrt();
+    let root = (-linear - &delta) / (Atom::num(2) * &p);
+    let ratio = Atom::num(1) - Atom::num(1) / &root;
+    let off_axis = off_real_axis(&ratio);
+    let expressions = [
+        delta,
+        root,
+        ratio.clone(),
+        off_axis,
+        upper_log(&ratio),
+        physical_log(&ratio),
+    ];
+    let views = expressions.each_ref().map(Atom::as_view);
+    let e = Atom::evaluator_multiple(&views, &[p, m0, m1])
+        .build()
+        .unwrap();
+    for bits in [256, 384] {
+        let mut evaluator = e.clone().map_coeff_with_prec(
+            &|c| {
+                Complex::new(
+                    c.re.to_multi_prec_float(bits),
+                    c.im.to_multi_prec_float(bits),
+                )
+            },
+            bits,
+        );
+        let input = [7, 1, 2].map(|v| Complex::new(Float::with_val(bits, v), Float::new(bits)));
+        let mut out =
+            core::array::from_fn::<_, 6, _>(|_| Complex::new(Float::new(bits), Float::new(bits)));
+        evaluator.evaluate(&input, &mut out);
+        eprintln!("branch diagnostic {bits}bits: {out:?}");
+        assert_eq!(out[3].re.to_f64(), 0.);
+        assert_eq!(out[3].im.to_f64(), 0.);
+        assert!((out[4].im.to_f64() - std::f64::consts::PI).abs() < 1e-12);
+        assert!((out[5].im.to_f64() + std::f64::consts::PI).abs() < 1e-12);
+    }
+}
+
+#[test]
 fn tensor_tadpoles_use_exact_rationals() {
     let coefficients = an(4, &parse!("m"), &parse!("mu2")).unwrap();
     assert_eq!(coefficients.len(), 3);
+    let m = parse!("m");
+    let logarithm = physical_log(&parse!("m/mu2"));
     assert_eq!(
         coefficients[1].coefficients()[0],
-        parse!("if(m,m^2*(3/2-conj(log(conj(m/mu2))))/4,0)")
+        if_nonzero(&m, &m * &m * (parse!("3/2") - &logarithm) / 4),
     );
     assert_eq!(
         coefficients[2].coefficients()[0],
-        parse!("if(m,m^3*(11/6-conj(log(conj(m/mu2))))/24,0)")
+        if_nonzero(&m, &m * &m * &m * (parse!("11/6") - logarithm) / 24),
     );
     assert_eq!(coefficients[1].coefficients()[1], parse!("m^2/4"));
     assert_eq!(coefficients[2].coefficients()[1], parse!("m^3/24"));
@@ -818,6 +863,27 @@ pub(super) fn large_stack(f: fn()) {
         .unwrap()
         .join()
         .unwrap();
+}
+
+#[test]
+#[ignore = "diagnoses construction cost of individual native definition groups"]
+fn native_definition_construction_stages() {
+    large_stack(|| {
+        let mut map = FunctionMap::new();
+        eprintln!("constructing sheet definitions");
+        sheet_exact::register(&mut map);
+        eprintln!("constructing triangle HV definitions");
+        triangle_hv::register(&mut map);
+        eprintln!("constructing complex box definitions");
+        box_complex::register(&mut map);
+        eprintln!("constructing triangle sector definitions");
+        register_triangles(&mut map);
+        eprintln!("constructing box sector definitions");
+        register_boxes(&mut map);
+        eprintln!("constructing public master definitions");
+        register_masters(&mut map);
+        eprintln!("all native definitions constructed");
+    });
 }
 
 #[test]

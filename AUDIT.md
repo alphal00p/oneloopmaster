@@ -1,5 +1,28 @@
 # Implementation audit — 2026-09-07
 
+For the **current 2026-09-08 release validation**, see the dated sections of
+[SCALAR_PARITY_AUDIT.md](SCALAR_PARITY_AUDIT.md) and
+[MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md). All 1,026 expanded Fortran
+coefficients now pass at 256 bits, and master Symbols are implemented. Full
+default release-suite revalidation passes **57 tests**, with zero failures and
+four ignored entries (three opt-in diagnostics and the initialization helper),
+including all 879 acceptance coefficients through both master hooks and native
+maps. The new bare-master outer-JIT/portable-batch regression also passes: all
+293 rows in canonical tag order, plus eight controls per family in each of the
+other five orders. The final expanded
+fixed-f64 rerun retains 14 small-momentum B0/dB0 failures, down from 44. Separate
+repeated-root box and vacuum-triangle repairs now pass their focused regressions;
+the scalar audit records the remaining 128-bit tiny-width diagnostic explicitly.
+Global analytic-region coverage remains unproved, and measured runtime does not
+meet the requested 1.5-times-Fortran target. Publication, final dependency
+configuration, licensing permission, and actual community-host validation remain
+open. These results use dev `fb845d34` plus the documented dependency patches;
+they do not validate Python or other CPU architectures by themselves.
+
+The text below preserves the **2026-09-07 audit baseline**. Its old test counts,
+missing master interface, and then-unrepaired counterexamples describe that
+earlier stage, not the current implementation.
+
 This is a development audit, not certification of complete Fortran equivalence
 or a publication approval. The original Fortran wrapper and the independent
 dependency-free numerical Rust core were not changed.

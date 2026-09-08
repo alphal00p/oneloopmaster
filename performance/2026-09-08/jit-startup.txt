@@ -1,0 +1,7 @@
+all-family eager initialization 5.579777532s
+survey route=Jit; all three Laurent outputs; warmup=256; interpreted hooks are scalar-only
+route=jit A0 prepared-backend clone 7.52µs
+route=jit B0 prepared-backend clone 11.01µs
+route=jit dB0 prepared-backend clone 28.441µs
+route=jit C0 prepared-backend clone 1.316665ms
+route=jit D0 prepared-backend clone 16.769899ms

@@ -1,0 +1,1087 @@
+diff --git a/src/symjit/amd/complex.rs b/src/symjit/amd/complex.rs
+index 5864895..2820671 100644
+--- a/src/symjit/amd/complex.rs
++++ b/src/symjit/amd/complex.rs
+@@ -309,13 +309,22 @@ impl Generator for AmdComplexGenerator {
+         self.amd.vcmpeqsd(T0, T2, T2);
+         self.amd.vandpd(T2, T2, T0);
+ 
++        // On the negative-real chart the principal root is
++        // (abs(y), copysign(x, Im(z))). Keep the original imaginary sign,
++        // including -0, before writing dst (which may alias s1).
++        self.amd.vunpckhdd(ϕ(dst), ϕ(s1), ϕ(s1));
++        self.amd.vmovsd_xmm_label(T0, "_minus_zero_");
++        self.amd.vandpd(T0, T0, ϕ(dst));
++        self.amd.vxorpd(T1, T1, T0);
++        self.amd.vandnpd(T2, T0, T2);
+         self.amd.vunpckldd(ϕ(dst), T2, T1);
+ 
+         let label = format!(".Y{}", self.amd.a.ip());
+-        // self.amd.mov_reg_mem(Amd::RAX, SP, 0);
+         self.amd.or(Amd::RAX, Amd::RAX);
+         self.amd.js(&label);
+-        self.amd.vshufdd(ϕ(dst), ϕ(dst), ϕ(dst), 1);
++        self.amd.vxorpd(T1, T1, T0);
++        self.amd.vxorpd(T2, T2, T0);
++        self.amd.vunpckldd(ϕ(dst), T1, T2);
+         self.set_label(&label);
+     }
+ 
+diff --git a/src/symjit/amd/vector.rs b/src/symjit/amd/vector.rs
+index 7072d8d..73bfe7c 100644
+--- a/src/symjit/amd/vector.rs
++++ b/src/symjit/amd/vector.rs
+@@ -204,6 +204,13 @@ impl AmdVectorF64x4Generator {
+         self.vzeroupper();
+         self.amd.call_indirect(&format!("_simd_{}_", op));
+ 
++        if ker {
++            // A nested kernel can bail out on mixed-lane control flow. Preserve
++            // its status so the outer matrix evaluator retries each lane.
++            self.amd.or(Amd::RAX, Amd::RAX);
++            self.amd.jnz("@epilogue");
++        }
++
+         if self.config.is_complex() {
+             let l1 = format!(".P{}", self.amd.a.ip());
+             let l2 = format!(".Q{}", self.amd.a.ip());
+@@ -875,25 +882,30 @@ impl AmdVectorF64x4Generator {
+         self.amd.or(IDX, IDX);
+         self.amd.jz("@main");
+ 
+-        sub_rsp(&mut self.amd, align_stack(regions.count_params * REG_USIZE));
+-        self.amd.mov(Amd::RAX, PARAMS);
+-        self.amd.mov(PARAMS, SP);
++        // Constant expressions have no input storage. Do not enter the
++        // do-while transpose loop with a zero counter: even its first load
++        // would dereference the empty input slice.
++        if regions.count_params != 0 {
++            sub_rsp(&mut self.amd, align_stack(regions.count_params * REG_USIZE));
++            self.amd.mov(Amd::RAX, PARAMS);
++            self.amd.mov(PARAMS, SP);
+ 
+-        self.amd.mov_imm(Amd::RCX, regions.count_params);
+-        self.set_label(".load");
++            self.amd.mov_imm(Amd::RCX, regions.count_params);
++            self.set_label(".load");
++
++            for j in 0..NUM_LANES {
++                self.amd
++                    .vmovsd_xmm_mem(RET, Amd::RAX, (8 * j * regions.count_params) as i32);
++                self.amd.vmovsd_mem_xmm(PARAMS, 8 * j as i32, RET);
++            }
++            self.amd.add_imm(Amd::RAX, 8);
++            self.amd.add_imm(PARAMS, 8 * NUM_LANES);
++            self.amd.dec(Amd::RCX);
++            self.amd.jnz(".load");
+ 
+-        for j in 0..NUM_LANES {
+             self.amd
+-                .vmovsd_xmm_mem(RET, Amd::RAX, (8 * j * regions.count_params) as i32);
+-            self.amd.vmovsd_mem_xmm(PARAMS, 8 * j as i32, RET);
++                .sub_imm(PARAMS, 8 * regions.count_params * NUM_LANES);
+         }
+-        self.amd.add_imm(Amd::RAX, 8);
+-        self.amd.add_imm(PARAMS, 8 * NUM_LANES);
+-        self.amd.dec(Amd::RCX);
+-        self.amd.jnz(".load");
+-
+-        self.amd
+-            .sub_imm(PARAMS, 8 * regions.count_params * NUM_LANES);
+ 
+         sub_rsp(&mut self.amd, align_stack(regions.count_obs * REG_USIZE));
+         self.amd.mov(STATES, MEM);
+diff --git a/src/symjit/amd/vector_f64x8.rs b/src/symjit/amd/vector_f64x8.rs
+index c574a66..da6a64d 100644
+--- a/src/symjit/amd/vector_f64x8.rs
++++ b/src/symjit/amd/vector_f64x8.rs
+@@ -212,6 +212,12 @@ impl AmdVectorF64x8Generator {
+ 
+         self.amd.call_indirect(&format!("_simd_{}_", op));
+ 
++        if ker {
++            // Propagate an incomplete nested kernel to the scalar lane retry.
++            self.amd.or(Amd::RAX, Amd::RAX);
++            self.amd.jnz("@epilogue");
++        }
++
+         if self.config.is_complex() {
+             let l1 = format!(".P{}", self.amd.a.ip());
+             let l2 = format!(".Q{}", self.amd.a.ip());
+@@ -889,25 +895,30 @@ impl AmdVectorF64x8Generator {
+         self.amd.or(IDX, IDX);
+         self.amd.jz("@main");
+ 
+-        sub_rsp(&mut self.amd, align_stack(regions.count_params * REG_USIZE));
+-        self.amd.mov(Amd::RAX, PARAMS);
+-        self.amd.mov(PARAMS, SP);
++        // Constant expressions have no input storage. Do not enter the
++        // do-while transpose loop with a zero counter: even its first load
++        // would dereference the empty input slice.
++        if regions.count_params != 0 {
++            sub_rsp(&mut self.amd, align_stack(regions.count_params * REG_USIZE));
++            self.amd.mov(Amd::RAX, PARAMS);
++            self.amd.mov(PARAMS, SP);
+ 
+-        self.amd.mov_imm(Amd::RCX, regions.count_params);
+-        self.set_label(".load");
++            self.amd.mov_imm(Amd::RCX, regions.count_params);
++            self.set_label(".load");
++
++            for j in 0..NUM_LANES {
++                self.amd
++                    .vmovsd_xmm_mem(RET, Amd::RAX, (8 * j * regions.count_params) as i32);
++                self.amd.vmovsd_mem_xmm(PARAMS, 8 * j as i32, RET);
++            }
++            self.amd.add_imm(Amd::RAX, 8);
++            self.amd.add_imm(PARAMS, 8 * NUM_LANES);
++            self.amd.dec(Amd::RCX);
++            self.amd.jnz(".load");
+ 
+-        for j in 0..NUM_LANES {
+             self.amd
+-                .vmovsd_xmm_mem(RET, Amd::RAX, (8 * j * regions.count_params) as i32);
+-            self.amd.vmovsd_mem_xmm(PARAMS, 8 * j as i32, RET);
++                .sub_imm(PARAMS, 8 * regions.count_params * NUM_LANES);
+         }
+-        self.amd.add_imm(Amd::RAX, 8);
+-        self.amd.add_imm(PARAMS, 8 * NUM_LANES);
+-        self.amd.dec(Amd::RCX);
+-        self.amd.jnz(".load");
+-
+-        self.amd
+-            .sub_imm(PARAMS, 8 * regions.count_params * NUM_LANES);
+ 
+         sub_rsp(&mut self.amd, align_stack(regions.count_obs * REG_USIZE));
+         self.amd.mov(STATES, MEM);
+diff --git a/src/symjit/arm/complex.rs b/src/symjit/arm/complex.rs
+index a2502e6..0de332f 100644
+--- a/src/symjit/arm/complex.rs
++++ b/src/symjit/arm/complex.rs
+@@ -275,10 +275,19 @@ impl Generator for ArmComplexGenerator {
+         self.emit(arm! {fcmeq d(T0), d(T2), d(T2)});
+         self.emit(arm! {and v(T2).8b, v(T2).8b, v(T0).8b});
+ 
++        // Preserve the original imaginary sign, including -0 and dst == s1.
++        // The negative-real chart is (abs(y), copysign(x, Im(z))).
++        self.emit(arm! {zip2 q(ϕ(dst)), q(ϕ(s1)), q(ϕ(s1))});
++        self.emit(arm! {fabs d(T0), d(ϕ(dst))});
++        self.emit(arm! {eor v(T0).8b, v(T0).8b, v(ϕ(dst)).8b});
++        self.emit(arm! {eor v(T1).8b, v(T1).8b, v(T0).8b});
++        self.emit(arm! {bic v(T2).8b, v(T2).8b, v(T0).8b});
+         self.emit(arm! {zip1 q(ϕ(dst)), q(T2), q(T1)});
+         let label = self.a.create_label();
+         self.emit(arm! {tst x(0), x(0)});
+         self.jump(&label, 0, |offset, _| arm! {b.mi label(offset)});
++        self.emit(arm! {eor v(T1).8b, v(T1).8b, v(T0).8b});
++        self.emit(arm! {eor v(T2).8b, v(T2).8b, v(T0).8b});
+         self.emit(arm! {zip1 q(ϕ(dst)), q(T1), q(T2)});
+         self.set_label(&label);
+     }
+diff --git a/src/symjit/arm/vector.rs b/src/symjit/arm/vector.rs
+index 265efa9..18b0113 100644
+--- a/src/symjit/arm/vector.rs
++++ b/src/symjit/arm/vector.rs
+@@ -65,6 +65,13 @@ impl ArmSimdGenerator {
+ 
+         self.emit(arm! {blr x(CALL)});
+ 
++        if ker {
++            // Propagate the child's nonzero bailout status without reading its
++            // incomplete output. The outer matrix evaluator retries scalarly.
++            self.emit(arm! {tst x(0), x(0)});
++            self.jump("@epilogue", 0, |offset, _| arm! {b.ne label(offset)});
++        }
++
+         if self.config.is_complex() {
+             let l2 = self.a.create_label();
+ 
+diff --git a/src/symjit/complexify.rs b/src/symjit/complexify.rs
+index 7130789..0006337 100644
+--- a/src/symjit/complexify.rs
++++ b/src/symjit/complexify.rs
+@@ -302,7 +302,7 @@ impl Generator for Complexifier {
+ 
+     fn abs(&mut self, dst: Reg, s1: Reg) {
+         if self.is_real_reg(s1) {
+-            self.mir.abs(dst, s1);
++            self.mir.abs(re(dst), re(s1));
+             self.set_reg_real(dst);
+         } else {
+             self.mir.times(Self::T0, re(s1), re(s1));
+@@ -325,7 +325,12 @@ impl Generator for Complexifier {
+         self.mir.save_stack(x, 1);
+ 
+         self.mir.times(x, re(s1), re(s1));
+-        self.mir.fused_mul_add(x, im(s1), im(s1), x);
++        if self.mir.config.fastmath() {
++            self.mir.fused_mul_add(x, im(s1), im(s1), x);
++        } else {
++            self.mir.times(y, im(s1), im(s1));
++            self.mir.plus(x, x, y);
++        }
+ 
+         self.mir.root(x, x);
+         self.mir.abs(y, re(s1));
+@@ -335,11 +340,23 @@ impl Generator for Complexifier {
+         self.mir.divide(y, im(s1), x);
+         self.mir.half(y, y);
+ 
+-        self.mir.eq(re(dst), y, y);
+-        self.mir.and(y, y, re(dst));
+-
++        // Preserve the ORIGINAL imaginary sign before writing either output.
++        // XOR with its absolute value extracts the sign bit, including -0;
++        // the divided y cannot supply it at the origin, where y is NaN.
++        // This order also permits dst == s1.
++        self.mir.abs(re(dst), im(s1));
++        self.mir.xor(re(dst), re(dst), im(s1));
++        self.mir.eq(im(dst), y, y);
++        self.mir.and(y, y, im(dst));
++        self.mir.abs(y, y);
++
++        // The principal root has nonnegative real part and an imaginary part
++        // with the input's sign on BOTH charts.
++        self.mir.xor(x, x, re(dst));
++        self.mir.xor(re(dst), y, re(dst));
++        self.mir.ifelse(im(dst), re(dst), x, Loc::Stack(1));
++        self.mir.abs(x, x);
+         self.mir.ifelse(re(dst), x, y, Loc::Stack(1));
+-        self.mir.ifelse(im(dst), y, x, Loc::Stack(1));
+ 
+         self.set_reg_complex(dst);
+     }
+@@ -357,7 +374,7 @@ impl Generator for Complexifier {
+         if self.is_real_reg(s1) {
+             self.mir.recip(re(dst), re(s1));
+             self.set_reg_real(dst);
+-        } else if self.mir.config.is_sse() {
++        } else if self.mir.config.is_sse() || !self.mir.config.fastmath() {
+             self.mir.times(Self::T0, im(s1), im(s1));
+             self.mir.times(Self::T1, re(s1), re(s1));
+             self.mir.plus(Self::T0, Self::T0, Self::T1);
+@@ -520,7 +537,7 @@ impl Generator for Complexifier {
+                 self.mir.divide(re(dst), re(s1), re(s2));
+             }
+             Types::RC => {
+-                if self.mir.config.is_sse() {
++                if self.mir.config.is_sse() || !self.mir.config.fastmath() {
+                     self.mir.times(Self::T0, re(s2), re(s2));
+                     self.mir.times(Self::T1, im(s2), im(s2));
+                     self.mir.plus(t, Self::T0, Self::T1);
+diff --git a/src/symjit/composer.rs b/src/symjit/composer.rs
+index c051734..a49b658 100644
+--- a/src/symjit/composer.rs
++++ b/src/symjit/composer.rs
+@@ -156,6 +156,23 @@ impl DirectTranslator {
+         }
+     }
+ 
++    // Symbolica's IF tests the whole complex value. Backend equality compares real
++    // components, so build its exact zero mask from both components explicitly.
++    // Do not use a norm: squaring would underflow for nonzero tiny conditions.
++    fn load_zero_condition(&mut self, cond: &Slot) -> Result<()> {
++        self.load(reg(0), cond)?;
++        if self.mir.config.is_complex() {
++            self.mir.imaginary(reg(2), reg(0));
++            self.mir.real(reg(0), reg(0));
++            self.mir.iszero(reg(1), reg(0));
++            self.mir.iszero(reg(2), reg(2));
++            self.mir.and(reg(1), reg(1), reg(2));
++        } else {
++            self.mir.iszero(reg(1), reg(0));
++        }
++        Ok(())
++    }
++
+     fn add_stack(&mut self, name: &str) -> Result<u32> {
+         if let Some(Loc::Stack(i)) = self.find_sym(name) {
+             Ok(i)
+@@ -365,14 +382,6 @@ impl Composer for DirectTranslator {
+             2 => self.mir.square(reg(1), reg(0)),
+             3 => self.mir.cube(reg(1), reg(0)),
+             -1 => self.mir.recip(reg(1), reg(0)),
+-            -2 => {
+-                self.mir.recip(reg(1), reg(0));
+-                self.mir.square(reg(1), reg(0))
+-            }
+-            -3 => {
+-                self.mir.recip(reg(1), reg(0));
+-                self.mir.cube(reg(1), reg(0))
+-            }
+             p => self.mir.powi(reg(1), reg(0), p as i32),
+         }
+         self.save(reg(1), lhs)?;
+@@ -387,6 +396,8 @@ impl Composer for DirectTranslator {
+         self.load(reg(1), p)?;
+         self.mir.setup_call_binary(reg(0), reg(1));
+         self.mir.call("power", 2)?;
++        // The virtual-table section must emit every indirect call target, also for direct IR.
++        self.ft.insert("power".to_string());
+         self.save(Reg::Ret, lhs)?;
+         Ok(())
+     }
+@@ -405,8 +416,7 @@ impl Composer for DirectTranslator {
+ 
+     fn append_if_else(&mut self, cond: &Slot, id: usize) -> Result<()> {
+         let label = format!(".S{}", id);
+-        self.load(reg(0), cond)?;
+-        self.mir.iszero(reg(1), reg(0));
++        self.load_zero_condition(cond)?;
+         self.mir.branch_if(reg(1), &label, true);
+         Ok(())
+     }
+@@ -426,9 +436,7 @@ impl Composer for DirectTranslator {
+         true_val: &Slot,
+         false_val: &Slot,
+     ) -> Result<()> {
+-        self.load(reg(0), cond)?;
+-        self.mir.xor(Reg::Ret, reg(0), reg(0));
+-        self.mir.eq(reg(1), reg(0), Reg::Ret);
++        self.load_zero_condition(cond)?;
+         self.save(reg(1), &Slot::Arg(0))?;
+         self.load(reg(0), true_val)?;
+         self.load(reg(1), false_val)?;
+@@ -507,3 +515,323 @@ impl Composer for DirectTranslator {
+         Ok(app)
+     }
+ }
++
++#[cfg(test)]
++mod power_tests {
++    use super::*;
++    use crate::Storage;
++
++    #[test]
++    fn zero_argument_constants_support_simd_batches_and_portable_roundtrip() {
++        for complex in [false, true] {
++            for simd in [false, true] {
++                for simd512 in [false, true] {
++                    let mut config = Config::default();
++                    config.set_direct(true);
++                    config.set_complex(complex);
++                    config.set_fastmath(false);
++                    config.set_fast_complex(false);
++                    config.set_simd(simd);
++                    config.enable_simd512(simd512);
++                    config.set_threads(false);
++                    let mut translator = DirectTranslator::new(config.clone());
++                    translator.set_num_params(0);
++                    translator.append_constant(Complex::new(2., 0.)).unwrap();
++                    translator
++                        .append_constant(Complex::new(std::f64::consts::PI, 0.))
++                        .unwrap();
++                    for output in 0..2 {
++                        translator
++                            .append_assign(&Slot::Out(output), &Slot::Const(output))
++                            .unwrap();
++                    }
++                    let application = translator.compile().unwrap();
++                    let mut bytes = Vec::new();
++                    application.save(&mut bytes).unwrap();
++                    let original = application.seal().unwrap();
++                    let restored = Application::load(&mut bytes.as_slice(), &config)
++                        .unwrap()
++                        .seal()
++                        .unwrap();
++                    for evaluator in [&original, &restored] {
++                        assert_eq!(evaluator.count_params, 0);
++                        for rows in [0, 1, 3, 4, 5, 8, 9] {
++                            if complex {
++                                let mut output = vec![Complex::new(f64::NAN, f64::NAN); 2 * rows];
++                                evaluator.evaluate_matrix(&[], &mut output, rows);
++                                for row in output.chunks_exact(2) {
++                                    assert_eq!(row[0], Complex::new(2., 0.));
++                                    assert_eq!(row[1], Complex::new(std::f64::consts::PI, 0.));
++                                }
++                            } else {
++                                let mut output = vec![f64::NAN; 2 * rows];
++                                evaluator.evaluate_matrix(&[], &mut output, rows);
++                                for row in output.chunks_exact(2) {
++                                    assert_eq!(row, &[2., std::f64::consts::PI]);
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++
++    fn power_application(complex: bool) -> (Application, Config) {
++        let mut config = Config::default();
++        config.set_opt_level(2);
++        config.set_direct(true);
++        config.set_complex(complex);
++        config.set_fastmath(false);
++        config.set_fast_complex(false);
++        config.set_simd(false);
++        config.set_threads(false);
++        let mut translator = DirectTranslator::new(config.clone());
++        translator.set_num_params(2);
++        translator
++            .append_powf(&Slot::Out(0), &Slot::Param(0), &Slot::Param(1), !complex)
++            .unwrap();
++        (translator.compile().unwrap(), config)
++    }
++
++    #[test]
++    fn direct_powf_real_and_portable_roundtrip() {
++        let (application, config) = power_application(false);
++        let mut bytes = Vec::new();
++        application.save(&mut bytes).unwrap();
++        let original = application.seal().unwrap();
++        let restored = Application::load(&mut bytes.as_slice(), &config)
++            .unwrap()
++            .seal()
++            .unwrap();
++        for [base, exponent] in [[4.0_f64, 0.5], [2.0, -0.25], [0.25, 1.5]] {
++            let expected = base.powf(exponent);
++            for evaluator in [&original, &restored] {
++                let actual = evaluator.evaluate_single(&[base, exponent]);
++                assert!((actual - expected).abs() < 1e-14);
++            }
++        }
++    }
++
++    #[test]
++    fn direct_powf_complex_and_portable_roundtrip() {
++        let (application, config) = power_application(true);
++        let mut bytes = Vec::new();
++        application.save(&mut bytes).unwrap();
++        let original = application.seal().unwrap();
++        let restored = Application::load(&mut bytes.as_slice(), &config)
++            .unwrap()
++            .seal()
++            .unwrap();
++        for (base, exponent) in [
++            (Complex::new(4.0, 0.0), Complex::new(0.5, 0.0)),
++            (Complex::new(1.0, -2.0), Complex::new(0.5, 0.25)),
++            (Complex::new(-2.0, -0.25), Complex::new(-0.25, 0.0)),
++        ] {
++            let expected = base.powc(exponent);
++            for evaluator in [&original, &restored] {
++                let actual = evaluator.evaluate_single(&[base, exponent]);
++                assert!((actual - expected).norm() < 1e-13);
++            }
++        }
++    }
++
++    #[test]
++    fn direct_negative_integer_powers_use_reciprocal() {
++        for complex in [false, true] {
++            let mut config = Config::default();
++            config.set_opt_level(2);
++            config.set_direct(true);
++            config.set_complex(complex);
++            config.set_fastmath(false);
++            config.set_fast_complex(false);
++            config.set_simd(false);
++            let mut translator = DirectTranslator::new(config);
++            translator.set_num_params(1);
++            translator
++                .append_pow(&Slot::Out(0), &Slot::Param(0), -2, !complex)
++                .unwrap();
++            translator
++                .append_pow(&Slot::Out(1), &Slot::Param(0), -3, !complex)
++                .unwrap();
++            let evaluator = translator.compile().unwrap().seal().unwrap();
++            if complex {
++                let input = Complex::new(2., -1.);
++                let mut output = [Complex::new(0., 0.); 2];
++                evaluator.evaluate(&[input], &mut output);
++                for (actual, power) in output.into_iter().zip([-2, -3]) {
++                    assert!((actual - input.powi(power)).norm() < 1e-14);
++                }
++            } else {
++                let mut output = [0.; 2];
++                evaluator.evaluate(&[2.], &mut output);
++                assert_eq!(output, [0.25, 0.125]);
++            }
++        }
++    }
++
++    #[test]
++    fn complex_roots_follow_principal_lips_and_portable_roundtrip() {
++        for fast_complex in [true, false] {
++            for simd in [false, true] {
++                let mut config = Config::default();
++                config.set_opt_level(2);
++                config.set_direct(true);
++                config.set_complex(true);
++                config.set_fastmath(false);
++                config.set_fast_complex(fast_complex);
++                config.set_simd(simd);
++                config.set_threads(false);
++                let mut translator = DirectTranslator::new(config.clone());
++                translator.set_num_params(1);
++                translator
++                    .append_fun(&Slot::Out(0), "root", &[Slot::Param(0)], false)
++                    .unwrap();
++                let application = translator.compile().unwrap();
++                let mut bytes = Vec::new();
++                application.save(&mut bytes).unwrap();
++                let original = application.seal().unwrap();
++                let restored = Application::load(&mut bytes.as_slice(), &config)
++                    .unwrap()
++                    .seal()
++                    .unwrap();
++                let inputs = [
++                    Complex::new(-3., 0.),
++                    Complex::new(-3., -0.),
++                    Complex::new(3., 0.),
++                    Complex::new(3., -0.),
++                    Complex::new(-3., 4.),
++                    Complex::new(-3., -4.),
++                    Complex::new(3., 4.),
++                    Complex::new(3., -4.),
++                    Complex::new(0., 4.),
++                    Complex::new(0., -4.),
++                    Complex::new(-0., 4.),
++                    Complex::new(-0., -4.),
++                    Complex::new(0., 0.),
++                    Complex::new(0., -0.),
++                    Complex::new(-0., 0.),
++                    Complex::new(-0., -0.),
++                ];
++                let expected = inputs.map(|z| z.sqrt());
++                for evaluator in [&original, &restored] {
++                    for (input, expected) in inputs.iter().zip(expected) {
++                        let actual = evaluator.evaluate_single(&[*input]);
++                        assert!((actual-expected).norm() < 1e-14,
++                            "point fast={fast_complex} simd={simd} input={input:?}: {actual:?} != {expected:?}");
++                        assert_eq!(
++                            actual.im.is_sign_negative(),
++                            expected.im.is_sign_negative(),
++                            "imaginary sign for {input:?}"
++                        );
++                        assert!(!actual.re.is_sign_negative(), "real sign for {input:?}");
++                    }
++                    for rows in [3, 4, 5, 8, inputs.len()] {
++                        let mut output = vec![Complex::new(f64::NAN, f64::NAN); rows];
++                        evaluator.evaluate_matrix(&inputs[..rows], &mut output, rows);
++                        for (actual, expected) in output.into_iter().zip(expected) {
++                            assert!((actual - expected).norm() < 1e-14,
++                                "batch{rows} fast={fast_complex} simd={simd}: {actual:?} != {expected:?}");
++                            assert_eq!(
++                                actual.im.is_sign_negative(),
++                                expected.im.is_sign_negative()
++                            );
++                            assert!(!actual.re.is_sign_negative());
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++mod condition_tests {
++    use super::*;
++    use crate::Storage;
++
++    #[test]
++    fn complex_if_checks_both_components_before_and_after_restore() {
++        for fast_complex in [false, true] {
++            for (simd, simd_branch) in [(false, false), (true, false), (true, true)] {
++                let mut config = Config::default();
++                config.set_opt_level(2);
++                config.set_direct(true);
++                config.set_complex(true);
++                config.set_fastmath(false);
++                config.set_fast_complex(fast_complex);
++                config.set_simd(simd);
++                config.set_simd_branch(simd_branch);
++                config.set_threads(false);
++                let mut translator = DirectTranslator::new(config.clone());
++                translator.set_num_params(1);
++                translator.append_constant(Complex::new(7., -2.)).unwrap();
++                translator.append_constant(Complex::new(11., 3.)).unwrap();
++                translator.append_if_else(&Slot::Param(0), 1).unwrap();
++                translator
++                    .append_assign(&Slot::Temp(0), &Slot::Const(0))
++                    .unwrap();
++                translator.append_goto(2).unwrap();
++                translator.append_label(1).unwrap();
++                translator
++                    .append_assign(&Slot::Temp(1), &Slot::Const(1))
++                    .unwrap();
++                translator.append_label(2).unwrap();
++                translator
++                    .append_join(
++                        &Slot::Out(0),
++                        &Slot::Param(0),
++                        &Slot::Temp(0),
++                        &Slot::Temp(1),
++                    )
++                    .unwrap();
++                let application = translator.compile().unwrap();
++                let mut bytes = Vec::new();
++                application.save(&mut bytes).unwrap();
++                let original = application.seal().unwrap();
++                let restored = Application::load(&mut bytes.as_slice(), &config)
++                    .unwrap()
++                    .seal()
++                    .unwrap();
++                let inputs = [
++                    Complex::new(0., 1.),
++                    Complex::new(0., -1.),
++                    Complex::new(1., 0.),
++                    Complex::new(-1., 0.),
++                    Complex::new(0., 0.),
++                    Complex::new(-0., -0.),
++                    Complex::new(0., -0.),
++                    Complex::new(-0., 0.),
++                    Complex::new(0., 1e-300),
++                    Complex::new(0., -1e-300),
++                    Complex::new(1e-300, -1e-300),
++                    Complex::new(2., -0.1),
++                    Complex::new(-2., 0.1),
++                    Complex::new(0., f64::from_bits(1)),
++                    Complex::new(0., -f64::from_bits(1)),
++                    Complex::new(f64::from_bits(1), 0.),
++                    Complex::new(-f64::from_bits(1), f64::from_bits(1)),
++                ];
++                let expected = inputs.map(|input| {
++                    if input.re == 0. && input.im == 0. {
++                        Complex::new(11., 3.)
++                    } else {
++                        Complex::new(7., -2.)
++                    }
++                });
++                for evaluator in [&original, &restored] {
++                    for (input, expected) in inputs.iter().zip(expected) {
++                        assert_eq!(evaluator.evaluate_single(&[*input]), expected,
++                            "point: fast_complex={fast_complex}, simd={simd}, branch={simd_branch}, input={input:?}");
++                    }
++                    for rows in [3, 4, 5, 8, inputs.len()] {
++                        let mut output = vec![Complex::new(f64::NAN, f64::NAN); rows];
++                        evaluator.evaluate_matrix(&inputs[..rows], &mut output, rows);
++                        assert_eq!(output, expected[..rows],
++                            "batch{rows}: fast_complex={fast_complex}, simd={simd}, branch={simd_branch}");
++                    }
++                }
++            }
++        }
++    }
++}
+diff --git a/src/symjit/defuns.rs b/src/symjit/defuns.rs
+index ada6dba..e91f39e 100644
+--- a/src/symjit/defuns.rs
++++ b/src/symjit/defuns.rs
+@@ -78,6 +78,43 @@ where
+     true
+ }
+ 
++/// Call a scalar complex closure once per lane of a packed complex SIMD value.
++///
++/// Complex SIMD values contain all real lanes followed by all imaginary lanes;
++/// they cannot be reinterpreted as interleaved `Complex<f64>` scalar values.
++pub unsafe extern "C" fn trampoline_call_scalar_complex<T>(
++    env: *const c_void,
++    slice_ptr: *const Complex<T>,
++    slice_len: usize,
++    res: *mut Complex<T>,
++) -> bool
++where
++    T: Sized + Copy + Default,
++{
++    assert!(slice_len <= SLICE_CAP && size_of::<T>() >= size_of::<f64>());
++
++    let closure = &*(env as *const ExternalFunction<Complex<f64>>);
++    let lanes = size_of::<T>() / size_of::<f64>();
++    let slice = from_raw_parts(slice_ptr.cast::<f64>(), 2 * lanes * slice_len);
++    let res = from_raw_parts_mut(res.cast::<f64>(), 2 * lanes);
++    let mut buf = [Complex::<f64>::default(); SLICE_CAP];
++
++    for lane in 0..lanes {
++        for arg in 0..slice_len {
++            buf[arg] = Complex::new(
++                slice[2 * arg * lanes + lane],
++                slice[(2 * arg + 1) * lanes + lane],
++            );
++        }
++        let value = closure(&buf[..slice_len]);
++        res[lane] = value.re;
++        res[lanes + lane] = value.im;
++    }
++
++    // The output already has the native packed layout: do not shuffle it.
++    false
++}
++
+ unsafe fn real<T: Element>(x: T) -> f64 {
+     let p = &x as *const _ as *const f64;
+     *p
+@@ -207,7 +244,7 @@ impl Defuns {
+         let trampoline_simd: *const c_void = match T::get_type(T::default()) {
+             ElemType::RealF64(_) => trampoline_call_scalar::<NativeSimd, T> as *const c_void,
+             ElemType::ComplexF64(_) => {
+-                trampoline_call_scalar::<Complex<NativeSimd>, T> as *const c_void
++                trampoline_call_scalar_complex::<NativeSimd> as *const c_void
+             }
+             _ => trampoline_homogenous::<T> as *const c_void,
+         };
+@@ -272,3 +309,333 @@ impl Drop for RawBox {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod simd_regressions {
++    use super::*;
++    use crate::{Applet, Composer, Config, Slot, Storage, Translator};
++
++    fn callback(args: &[Complex<f64>]) -> Complex<f64> {
++        args[0] * Complex::new(2.0, -3.0) + args[1] * Complex::new(-5.0, 7.0)
++    }
++
++    fn check_callback_layout<T: Copy + Default>(inputs: &[Complex<T>], expected: &[f64]) {
++        let closure: ExternalFunction<Complex<f64>> = Box::new(callback);
++        let mut output = Complex::<T>::default();
++        let shuffled = unsafe {
++            trampoline_call_scalar_complex::<T>(
++                (&closure as *const ExternalFunction<Complex<f64>>).cast(),
++                inputs.as_ptr(),
++                inputs.len(),
++                &mut output,
++            )
++        };
++        assert!(!shuffled, "complex callback output must already be packed");
++        let actual =
++            unsafe { from_raw_parts((&output as *const Complex<T>).cast::<f64>(), expected.len()) };
++        assert_eq!(actual, expected);
++    }
++
++    #[test]
++    fn scalar_complex_callback_preserves_two_lane_layout() {
++        let inputs = [
++            Complex::new(f64x2::from([1., 2.]), f64x2::from([11., 12.])),
++            Complex::new(f64x2::from([21., 22.]), f64x2::from([31., 32.])),
++        ];
++        let expected = [0, 1].map(|i| {
++            callback(&[
++                Complex::new(1. + i as f64, 11. + i as f64),
++                Complex::new(21. + i as f64, 31. + i as f64),
++            ])
++        });
++        check_callback_layout(
++            &inputs,
++            &[
++                expected[0].re,
++                expected[1].re,
++                expected[0].im,
++                expected[1].im,
++            ],
++        );
++    }
++
++    #[test]
++    fn scalar_complex_callback_preserves_four_lane_layout() {
++        let inputs = [
++            Complex::new(
++                f64x4::from([1., 2., 3., 4.]),
++                f64x4::from([11., 12., 13., 14.]),
++            ),
++            Complex::new(
++                f64x4::from([21., 22., 23., 24.]),
++                f64x4::from([31., 32., 33., 34.]),
++            ),
++        ];
++        let expected = [0, 1, 2, 3].map(|i| {
++            callback(&[
++                Complex::new(1. + i as f64, 11. + i as f64),
++                Complex::new(21. + i as f64, 31. + i as f64),
++            ])
++        });
++        check_callback_layout(
++            &inputs,
++            &[
++                expected[0].re,
++                expected[1].re,
++                expected[2].re,
++                expected[3].re,
++                expected[0].im,
++                expected[1].im,
++                expected[2].im,
++                expected[3].im,
++            ],
++        );
++    }
++
++    fn config(complex: bool) -> Config {
++        let mut config = Config::default();
++        config.set_complex(complex);
++        config.set_symbolica(true);
++        config.set_direct(true);
++        config.set_opt_level(2);
++        config.set_simd(true);
++        config.set_simd_branch(false);
++        config.set_threads(false);
++        config.set_fastmath(false);
++        config.set_fast_complex(false);
++        config
++    }
++
++    #[test]
++    fn strict_complex_products_preserve_exact_real_axes() {
++        let inputs = [
++            Complex::new(0.990122047587489, -0.014621177826587966),
++            Complex::new(0.5717239802032432, -0.06483875997714851),
++            Complex::new(0.43130263011085063, -0.05040401478920286),
++            Complex::new(1.1677014045978775, -0.05510911175211895),
++            Complex::new(2.076967148296377, -0.03408118721335855),
++            Complex::new(1.469793874622943, -0.08349956482474695),
++            Complex::new(1.25, 2.5),
++            Complex::new(-1.25, -2.5),
++        ];
++        let mut failures = Vec::new();
++        for simd in [false, true] {
++            let mut settings = config(true);
++            settings.set_simd(simd);
++            let mut translator = Translator::new(settings.clone());
++            translator.set_num_params(1);
++            translator
++                .append_fun(&Slot::Temp(0), "conjugate", &[Slot::Param(0)], false)
++                .unwrap();
++            translator
++                .append_mul(&Slot::Out(0), &[Slot::Param(0), Slot::Temp(0)], 0)
++                .unwrap();
++            let application = translator.compile().unwrap();
++            let mut bytes = Vec::new();
++            application.save(&mut bytes).unwrap();
++            let original = application.seal().unwrap();
++            let restored = crate::Application::load(&mut bytes.as_slice(), &settings)
++                .unwrap()
++                .seal()
++                .unwrap();
++            for (stage, evaluator) in [("original", &original), ("restored", &restored)] {
++                for rows in [1, 3, 4, 5, 8] {
++                    let mut actual = vec![Complex::new(f64::NAN, f64::NAN); rows];
++                    evaluator.evaluate_matrix(&inputs[..rows], &mut actual, rows);
++                    for (input, result) in inputs[..rows].iter().zip(actual.iter()) {
++                        let expected = *input * input.conj();
++                        if *result != expected {
++                            failures.push(format!("simd={simd}/{stage}/batch{rows} z={input:?}: {result:?}, expected {expected:?}"));
++                        }
++                    }
++                }
++            }
++        }
++        assert!(
++            failures.is_empty(),
++            "{} exact-axis failures:\n{}",
++            failures.len(),
++            failures.join("\n")
++        );
++    }
++
++    #[test]
++    fn strict_complex_norms_use_separately_rounded_products() {
++        let inputs: [Complex<f64>; 4] = [
++            Complex::new(0.990122047587489, -0.014621177826587966),
++            Complex::new(-0.990122047587489, -0.014621177826587966),
++            Complex::new(0.43130263011085063, 0.05040401478920286),
++            Complex::new(-0.43130263011085063, 0.05040401478920286),
++        ];
++        for simd in [false, true] {
++            let mut settings = config(true);
++            settings.set_simd(simd);
++            let mut translator = Translator::new(settings.clone());
++            translator.set_num_params(1);
++            translator
++                .append_fun(&Slot::Out(0), "root", &[Slot::Param(0)], false)
++                .unwrap();
++            translator
++                .append_pow(&Slot::Out(1), &Slot::Param(0), -1, false)
++                .unwrap();
++            let application = translator.compile().unwrap();
++            let mut bytes = Vec::new();
++            application.save(&mut bytes).unwrap();
++            let original = application.seal().unwrap();
++            let restored = crate::Application::load(&mut bytes.as_slice(), &settings)
++                .unwrap()
++                .seal()
++                .unwrap();
++            for (stage, evaluator) in [("original", &original), ("restored", &restored)] {
++                for rows in [1, 3, 4] {
++                    let mut actual = vec![Complex::new(f64::NAN, f64::NAN); 2 * rows];
++                    evaluator.evaluate_matrix(&inputs[..rows], &mut actual, rows);
++                    for (input, result) in inputs[..rows].iter().zip(actual.chunks_exact(2)) {
++                        let norm_squared = input.re * input.re + input.im * input.im;
++                        let x = ((norm_squared.sqrt() + input.re.abs()) * 0.5).sqrt();
++                        let y = (input.im / x) * 0.5;
++                        let root = if input.re > 0. {
++                            Complex::new(x, y)
++                        } else {
++                            Complex::new(y.abs(), x.copysign(input.im))
++                        };
++                        let reciprocal =
++                            Complex::new(input.re / norm_squared, -input.im / norm_squared);
++                        assert_eq!(
++                            result,
++                            [root, reciprocal],
++                            "simd={simd}/{stage}/batch{rows} input={input:?}"
++                        );
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn absolute_values_of_known_real_components_use_mapped_registers() {
++        let inputs = [
++            Complex::new(3., -4.),
++            Complex::new(-5., 12.),
++            Complex::new(-0., -0.),
++            Complex::new(0.25, -0.75),
++        ];
++        let mut failures = Vec::new();
++        for simd in [false, true] {
++            let mut settings = config(true);
++            settings.set_simd(simd);
++            let mut translator = Translator::new(settings);
++            translator.set_num_params(1);
++            translator
++                .append_fun(&Slot::Temp(0), "real", &[Slot::Param(0)], false)
++                .unwrap();
++            translator
++                .append_fun(&Slot::Temp(1), "imaginary", &[Slot::Param(0)], false)
++                .unwrap();
++            translator
++                .append_fun(&Slot::Out(0), "abs", &[Slot::Temp(0)], false)
++                .unwrap();
++            translator
++                .append_fun(&Slot::Out(1), "abs", &[Slot::Temp(1)], false)
++                .unwrap();
++            let evaluator = translator.compile().unwrap().seal().unwrap();
++            for rows in [1, 3, 4] {
++                let mut actual = vec![Complex::new(f64::NAN, f64::NAN); rows * 2];
++                evaluator.evaluate_matrix(&inputs[..rows], &mut actual, rows);
++                for (input, result) in inputs[..rows].iter().zip(actual.chunks_exact(2)) {
++                    let expected = [
++                        Complex::new(input.re.abs(), 0.),
++                        Complex::new(input.im.abs(), 0.),
++                    ];
++                    if result != expected {
++                        failures.push(format!("simd={simd}/batch{rows} z={input:?}: {result:?}, expected {expected:?}"));
++                    }
++                }
++            }
++        }
++        assert!(
++            failures.is_empty(),
++            "{} real-component abs failures:\n{}",
++            failures.len(),
++            failures.join("\n")
++        );
++    }
++
++    fn conditional_child(complex: bool) -> Applet {
++        let mut translator = Translator::new(config(complex));
++        translator.set_num_params(2);
++        translator.append_if_else(&Slot::Param(0), 1).unwrap();
++        translator
++            .append_assign(&Slot::Out(0), &Slot::Param(1))
++            .unwrap();
++        translator.append_goto(2).unwrap();
++        translator.append_label(1).unwrap();
++        translator
++            .append_add(&Slot::Out(0), &[Slot::Param(1), Slot::Param(1)], 0)
++            .unwrap();
++        translator.append_label(2).unwrap();
++        translator.compile().unwrap().seal().unwrap()
++    }
++
++    fn wrap_child(child: Applet, complex: bool) -> Applet {
++        let mut defuns = Defuns::new();
++        defuns.add_applet("child", child);
++        let mut config = config(complex);
++        config.set_defuns(defuns);
++        let mut translator = Translator::new(config);
++        translator.set_num_params(2);
++        translator
++            .append_external_fun(&Slot::Temp(0), "child", &[Slot::Param(0), Slot::Param(1)])
++            .unwrap();
++        translator
++            .append_add(&Slot::Out(0), &[Slot::Temp(0), Slot::Param(1)], 0)
++            .unwrap();
++        translator.compile().unwrap().seal().unwrap()
++    }
++
++    #[test]
++    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
++    fn nested_simd_bailouts_reach_scalar_retry() {
++        #[cfg(target_arch = "x86_64")]
++        if !std::is_x86_feature_detected!("avx") {
++            return;
++        }
++        for complex in [false, true] {
++            let mut app = conditional_child(complex);
++            for _depth in 1..=2 {
++                app = wrap_child(app, complex);
++                assert!(app.compiled_simd.is_some(), "must exercise SIMD");
++                for count in [3, 4, 5, 8] {
++                    if complex {
++                        let input: Vec<_> = (0..count)
++                            .flat_map(|i| {
++                                [
++                                    Complex::new((i % 2) as f64, 0.),
++                                    Complex::new(i as f64 + 0.25, i as f64 - 0.75),
++                                ]
++                            })
++                            .collect();
++                        let expected: Vec<_> = input
++                            .chunks_exact(2)
++                            .map(|row| app.evaluate_single(row))
++                            .collect();
++                        let mut actual = vec![Complex::new(f64::NAN, f64::NAN); count];
++                        app.evaluate_matrix(&input, &mut actual, count);
++                        assert_eq!(actual, expected);
++                    } else {
++                        let input: Vec<_> = (0..count)
++                            .flat_map(|i| [(i % 2) as f64, i as f64 + 0.25])
++                            .collect();
++                        let expected: Vec<_> = input
++                            .chunks_exact(2)
++                            .map(|row| app.evaluate_single(row))
++                            .collect();
++                        let mut actual = vec![f64::NAN; count];
++                        app.evaluate_matrix(&input, &mut actual, count);
++                        assert_eq!(actual, expected);
++                    }
++                }
++            }
++        }
++    }
++}
+diff --git a/src/symjit/mir.rs b/src/symjit/mir.rs
+index 4493fff..24d4733 100644
+--- a/src/symjit/mir.rs
++++ b/src/symjit/mir.rs
+@@ -2029,12 +2029,21 @@ impl Mir {
+                         Complexifier::generic_complex_minus(ir, *xd, *yd, *x1, *y1, *x2, *y2)
+                     }
+                     ArithOp::Times => {
+-                        if !ir.times_complex(*xd, *yd, *x1, *y1, *x2, *y2) {
++                        // Optimized complex kernels contract products and sums
++                        // into FMAs. In strict mode each operation must round
++                        // separately: otherwise z * conj(z), for example, can
++                        // acquire a nonzero imaginary component and change a
++                        // subsequent exact-axis branch decision.
++                        if !self.config.fastmath()
++                            || !ir.times_complex(*xd, *yd, *x1, *y1, *x2, *y2)
++                        {
+                             Complexifier::generic_complex_times(ir, *xd, *yd, *x1, *y1, *x2, *y2)
+                         }
+                     }
+                     ArithOp::Divide => {
+-                        if !ir.divide_complex(*xd, *yd, *x1, *y1, *x2, *y2) {
++                        if !self.config.fastmath()
++                            || !ir.divide_complex(*xd, *yd, *x1, *y1, *x2, *y2)
++                        {
+                             Complexifier::generic_complex_divide(ir, *xd, *yd, *x1, *y1, *x2, *y2)
+                         }
+                     }

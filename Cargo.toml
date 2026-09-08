@@ -6,13 +6,19 @@ license = "MIT"
 description = "Exact Symbolica expressions for one-loop integrals"
 publish = false # Development snapshot: dependency patches and licensing approval remain open.
 
+[features]
+default = ["prebuilt"]
+prebuilt = []
+
 [dependencies]
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "0b57776bf911faeea7e28ea133706fb03740ffeb" }
+# Do not impose Symbolica's optional global mimalloc allocator on embedding hosts.
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "fb845d34bda8ccf1fedef6544d3aa46dc24944e3", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
 
 [patch.crates-io]
-graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "0b57776bf911faeea7e28ea133706fb03740ffeb" }
-numerica = { path = "../symbolica-dev/lib/numerica" }
+symjit = { path = "../symjit-2.24.1-patched" }
+graphica = { path = "../symbolica-dev-v3/lib/graphica" }
+numerica = { path = "../symbolica-dev-v3/lib/numerica" }
 
 # Local evaluator and transcendental fixes; remove after upstream includes them.
 [patch."https://github.com/symbolica-dev/symbolica"]
-symbolica = { path = "../symbolica-dev" }
+symbolica = { path = "../symbolica-dev-v3" }

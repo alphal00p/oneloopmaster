@@ -1,0 +1,7 @@
+all-family eager initialization 5.510134286s
+survey route=HooksJit; all three Laurent outputs; warmup=256; interpreted hooks are scalar-only
+route=hooks-jit A0 bare public master JIT compilation 1.153315ms; using automatic cached callbacks without a FunctionMap
+route=hooks-jit B0 bare public master JIT compilation 751.343µs; using automatic cached callbacks without a FunctionMap
+route=hooks-jit dB0 bare public master JIT compilation 647.393µs; using automatic cached callbacks without a FunctionMap
+route=hooks-jit C0 bare public master JIT compilation 725.743µs; using automatic cached callbacks without a FunctionMap
+route=hooks-jit D0 bare public master JIT compilation 1.815977ms; using automatic cached callbacks without a FunctionMap

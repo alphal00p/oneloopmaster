@@ -23,18 +23,8 @@ impl Default for OneLoopExpressions {
 impl OneLoopExpressions {
     /// Builds the native definitions once per process and reuses them thereafter.
     pub fn new() -> Self {
-        static DEFINITIONS: OnceLock<FunctionMap> = OnceLock::new();
         Self {
-            map: DEFINITIONS
-                .get_or_init(|| {
-                    let mut map = FunctionMap::new();
-                    sheet_exact::register(&mut map);
-                    triangle_hv::register(&mut map);
-                    register_triangles(&mut map);
-                    register_boxes(&mut map);
-                    map
-                })
-                .clone(),
+            map: shared_definitions().clone(),
         }
     }
 
@@ -50,29 +40,13 @@ impl OneLoopExpressions {
     /// Constructs a triangle using this context's definitions.
     /// The same unsupported degenerate limits as [crate::c0] apply.
     pub fn c0(&self, p: [&Atom; 3], m: [&Atom; 3], mu: &Atom) -> LaurentSeries {
-        let args = p
-            .into_iter()
-            .chain(m)
-            .chain([mu])
-            .cloned()
-            .collect::<Vec<_>>();
-        let branches = core::array::from_fn(|sector| series_call("c0", sector, &args));
-        with_triangle_normalization(select_three_series(m, branches))
+        triangle_series(p, m, mu)
     }
 
     /// Constructs a box using this context's definitions.
     /// The same coverage limitations as [crate::d0] apply.
     pub fn d0(&self, p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeries {
-        let args = p
-            .into_iter()
-            .chain(m)
-            .chain([mu])
-            .cloned()
-            .collect::<Vec<_>>();
-        select_four_series(
-            m,
-            core::array::from_fn(|sector| series_call("d0", sector, &args)),
-        )
+        box_series(p, m, mu)
     }
 
     /// Compiles combinations of integral coefficients. The returned evaluator
@@ -84,6 +58,95 @@ impl OneLoopExpressions {
     ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
         compile(expressions, parameters, self.map.clone())
     }
+
+    /// Compile a manually assembled amplitude with SymJIT O2. The returned
+    /// evaluator supports scalar and row-major batched complex-f64 inputs.
+    /// The exact/arbitrary-precision [Self::evaluator] API remains unchanged.
+    pub fn jit_evaluator(
+        &self,
+        expressions: &[Atom],
+        parameters: &[Atom],
+    ) -> Result<JitEvaluator, String> {
+        let exact = self
+            .evaluator(expressions, parameters)
+            .map_err(|e| e.to_string())?;
+        JitEvaluator::compile(&exact, parameters.len(), expressions.len())
+    }
+}
+
+pub(crate) fn shared_definitions() -> &'static FunctionMap {
+    initialization::ensure_symbolica_state();
+    static DEFINITIONS: OnceLock<FunctionMap> = OnceLock::new();
+    DEFINITIONS.get_or_init(|| {
+        let mut map = FunctionMap::new();
+        sheet_exact::register(&mut map);
+        triangle_hv::register(&mut map);
+        box_complex::register(&mut map);
+        register_triangles(&mut map);
+        register_boxes(&mut map);
+        register_masters(&mut map);
+        map
+    })
+}
+
+// Pure expression construction: safe to call while the shared definition map
+// is being initialized. Do not invoke OneLoopExpressions::new from here.
+pub(crate) fn triangle_series(p: [&Atom; 3], m: [&Atom; 3], mu: &Atom) -> LaurentSeries {
+    let args = p
+        .into_iter()
+        .chain(m)
+        .chain([mu])
+        .cloned()
+        .collect::<Vec<_>>();
+    let branches = core::array::from_fn(|sector| series_call("c0", sector, &args));
+    with_triangle_normalization(select_three_series(m, branches))
+}
+
+pub(crate) fn box_series(p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeries {
+    // Original d0 changes the channel pair before mass-sector dispatch when
+    // s12 or s23 vanishes. The finite sector formulas can divide by those
+    // channels, so skipping this permutation can silently return zero.
+    // Only the exact-zero case is selected here, not the reference's optional
+    // tolerance-based "hard kinematics" warning/coercion.
+    let abs = p.map(|v| Symbol::ABS.call((v,)));
+    let min = |a: &Atom, b: &Atom| {
+        if_nonzero_else(&sheet_exact::negative(&(a - b)), a.clone(), b.clone())
+    };
+    let min13 = min(&abs[0], &abs[2]);
+    let min24 = min(&abs[1], &abs[3]);
+    let min56 = min(&abs[4], &abs[5]);
+    let choose13 =
+        sheet_exact::negative(&(&min24 - &min13)) * sheet_exact::negative(&(&min56 - &min13));
+    let choose24 =
+        sheet_exact::negative(&(&min13 - &min24)) * sheet_exact::negative(&(&min56 - &min24));
+    let hard = if_nonzero(p[4], if_nonzero(p[5], Atom::num(1)));
+    let select = |ordinary: &Atom, paired13: &Atom, paired24: &Atom| {
+        if_nonzero_else(
+            &hard,
+            ordinary.clone(),
+            if_nonzero_else(
+                &choose13,
+                paired13.clone(),
+                if_nonzero_else(&choose24, paired24.clone(), ordinary.clone()),
+            ),
+        )
+    };
+    let p13 = [4, 1, 5, 3, 0, 2];
+    let p24 = [0, 5, 2, 4, 3, 1];
+    let m13 = [0, 2, 1, 3];
+    let m24 = [0, 1, 3, 2];
+    let pp = core::array::from_fn::<_, 6, _>(|i| select(p[i], p[p13[i]], p[p24[i]]));
+    let mm = core::array::from_fn::<_, 4, _>(|i| select(m[i], m[m13[i]], m[m24[i]]));
+    let args = pp
+        .iter()
+        .chain(&mm)
+        .chain([mu])
+        .cloned()
+        .collect::<Vec<_>>();
+    select_four_series(
+        mm.each_ref(),
+        core::array::from_fn(|sector| series_call("d0", sector, &args)),
+    )
 }
 
 fn series_call(family: &str, sector: usize, args: &[Atom]) -> LaurentSeries {
@@ -112,5 +175,11 @@ impl MappedLaurentSeries {
         parameters: &[Atom],
     ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
         compile(self.coefficients(), parameters, self.function_map.clone())
+    }
+
+    /// Compile all three coefficients for scalar or batched SymJIT evaluation.
+    pub fn jit_evaluator(&self, parameters: &[Atom]) -> Result<JitEvaluator, String> {
+        let exact = self.evaluator(parameters).map_err(|e| e.to_string())?;
+        JitEvaluator::compile(&exact, parameters.len(), 3)
     }
 }

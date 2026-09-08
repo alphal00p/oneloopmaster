@@ -1,0 +1,47 @@
+test_00_main_thread_cold_start (test_api.AdapterTests.test_00_main_thread_cold_start) ... ok
+test_01_portable_environment_guards (test_api.AdapterTests.test_01_portable_environment_guards) ... ok
+test_elementary_calls_and_order (test_api.AdapterTests.test_elementary_calls_and_order) ... ┌────────────────────────────────────────────────────────┐
+│ You are running a restricted Symbolica instance.       │
+│                                                        │
+│ This mode is only permitted for non-commercial use and │
+│ is limited to one Symbolica thread per user.           │
+│                                                        │
+│ Hobbyists can easily acquire a free license key        │
+│ that unlocks all cores and removes this banner:        │
+│                                                        │
+│   from symbolica import *                              │
+│   request_hobbyist_license('YOUR_NAME', 'YOUR_EMAIL')  │
+│                                                        │
+│ All other users can obtain a free 30-day trial key:    │
+│                                                        │
+│   from symbolica import *                              │
+│   request_trial_license('NAME', 'EMAIL', 'EMPLOYER')   │
+│                                                        │
+│ See https://symbolica.io/docs/get_started.html#license │
+└────────────────────────────────────────────────────────┘
+2026-09-08T12:47:32.337814Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:47:32.337878Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:47:32.338246Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:47:32.338256Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:47:32.338759Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:47:32.338785Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:47:32.338960Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:47:32.338969Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:47:32.339293Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:47:32.339303Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T12:47:32.339463Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T12:47:32.339473Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test_every_shared_benchmark_fixture (test_api.AdapterTests.test_every_shared_benchmark_fixture) ... ok
+test_expression_interop_only_in_shared_kernel (test_api.AdapterTests.test_expression_interop_only_in_shared_kernel) ... ok
+test_invalid_inputs (test_api.AdapterTests.test_invalid_inputs) ... ok
+test_reusable_single_batch_and_rebuild (test_api.AdapterTests.test_reusable_single_batch_and_rebuild) ... ok
+test_bad_pole_and_missing_tail_are_rejected (test_performance_survey.SurveyTests.test_bad_pole_and_missing_tail_are_rejected) ... ok
+test_fortran_comparison_matches_inputs_not_only_names (test_performance_survey.SurveyTests.test_fortran_comparison_matches_inputs_not_only_names) ... ok
+test_full_cli_control_flow_with_fake_module_only (test_performance_survey.SurveyTests.test_full_cli_control_flow_with_fake_module_only) ... ok
+test_warmup_exact_calls_tails_and_all_checksum_outputs (test_performance_survey.SurveyTests.test_warmup_exact_calls_tails_and_all_checksum_outputs) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 19.740s
+
+OK
