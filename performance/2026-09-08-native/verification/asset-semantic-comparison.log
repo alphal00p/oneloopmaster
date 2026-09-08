@@ -1,0 +1,5 @@
+a0: 1437 bytes; 1 Builder tables; 0 differing bytes; permuted entry spans (zero-based, end-exclusive) []; exact name sets and all non-order bytes IDENTICAL
+b0: 8968 bytes; 1 Builder tables; 0 differing bytes; permuted entry spans (zero-based, end-exclusive) []; exact name sets and all non-order bytes IDENTICAL
+db0: 39225 bytes; 1 Builder tables; 0 differing bytes; permuted entry spans (zero-based, end-exclusive) []; exact name sets and all non-order bytes IDENTICAL
+c0: 545750 bytes; 1 Builder tables; 487 differing bytes; permuted entry spans (zero-based, end-exclusive) [(536568..537152, 12)]; exact name sets and all non-order bytes IDENTICAL
+d0: 10441150 bytes; 1 Builder tables; 635 differing bytes; permuted entry spans (zero-based, end-exclusive) [(9080644..9081519, 18)]; exact name sets and all non-order bytes IDENTICAL

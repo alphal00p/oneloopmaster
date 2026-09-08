@@ -180,6 +180,43 @@ rounding them to `f64`. References:
 [DLMF 25.12.12](https://dlmf.nist.gov/25.12#E12) and the unit-circle regression's
 [DLMF 25.12.8](https://dlmf.nist.gov/25.12#E8).
 
+The arbitrary-precision follow-up removes the 900-bit convergence clamp in the
+polylogarithm paths used here. Zero, exact integer-order and real-axis predicates,
+radius comparisons, and series stopping comparisons retain Float precision;
+tiny complex arguments no longer become zero through f64 norm underflow.
+Positive-integer power-series and logarithmic-expansion stopping conditions
+account for the remaining geometric tail and skip structural zeta zeros.
+Iteration limits scale with requested bits and use checked arithmetic; an
+exhausted calculation does not silently return an unconverged partial sum.
+The order-2 logarithmic series uses reflected positive-integer zeta coefficients
+and recurrent powers, avoiding costly negative-integer zeta evaluations and
+separately growing factorials. Integer-zeta constants use MPFR's specialized
+integer-order entry point. Internal guard
+precision accommodates continuation cancellation, including tiny components;
+returned values are rounded down only, never padded upward after precision loss.
+These are generic Symbolica special-function repairs, not opaque OneLOop helpers
+or a OneLOop precision-escalation gate. Unrelated special functions are not
+claimed to have arbitrary-precision convergence simply because this path does.
+
+The same numerical dilogarithms are exposed as state-free real-scalar kernels
+for the generic Rust backend. Four focused arbitrary-precision regressions pass
+at 3456 bits: continuation identities and Catalan's constant; relative tiny-width
+and endpoint checks; exact predicates and checked limits; and reflected-series
+coefficient checks. The native primitive suite separately checks DoubleFloat
+low components, rectangular complex square roots, signed lips and extreme inputs.
+
+Two read-only interfaces support inspection and ahead-of-time generation:
+`FunctionMap::get_definition` exposes the selected exact tagged definition,
+and instruction exports include registered constant metadata (including pi and
+fixed polylogarithms) rather than requiring consumers to guess their rational
+placeholder values. Neither interface changes serialized SymJIT IR.
+
+Transcendental symbol caches now enter Symbolica State before taking their own
+initialization lock. This avoids reentrant initialization deadlocks when a
+dependent crate first accesses polylogarithm, geometric or Bessel functions.
+Three fresh-process OneLOop startup cases pass, including callback reentry and
+checking that all five prepared evaluators are ready.
+
 The later binary64 specialization selects the exact integer order-2 tag once
 when registering real/complex `f64` callbacks. Its finite-argument hot path uses
 only binary64 arithmetic, with no per-call MPFR conversion or captured-order
@@ -220,11 +257,35 @@ an independent high-precision numerical oracle; that role belongs to the
 separate numerical checks above. Integral-level regression and timing results
 must be checked separately before attributing an application-level speedup.
 
-The refreshed six-file Symbolica patch has SHA-256
-`1b8ab1c9a1f8a808a1a7c408187d1c5586181b4686e19d929d2683e2cde22c62`.
-It exactly matches `git diff --binary` against the pinned `fb845d34` revision,
+The refreshed eleven-file Symbolica patch has SHA-256
+`4962412a065d07ad3c6e03335095874c2a105b784acda66e90c732b843cf89c6`.
+It contains `git diff --binary` against the pinned `fb845d34` revision plus
+the new `lib/numerica/tests/complex_sqrt_precision.rs` regression,
 passes reverse `git apply --check` against the live checkout, and passes forward
 `git apply --check` against a fresh archive of that exact base revision.
+
+Numerica's Float complex square root now uses scaled Cartesian arithmetic.
+A nearly imaginary discriminant can have a tiny real cancellation residual with
+only two relative bits; the former polar implementation could reduce the entire
+root to those two bits. A default `Real::complex_sqrt` method retains polar
+arithmetic for other domains, with its exact divisor constructed at the phase's
+precision. Only Float overrides it. Independent MPC references cover disparate
+component precisions, signed axes, nonfinite limits, extreme scales and a
+324-case precision/magnitude matrix. One-mass C0 supplies an integral control.
+
+The related Float `atan2` repair computes a small correction to the dominant-axis
+angle when component precisions differ. Nonzero integer powers start from their
+first factor, avoiding a spurious unit multiplication; zero powers construct the
+identity at the strongest component precision. Exact `±1/2` and `±3/2` powers use
+the square root directly, with reciprocal-first negative powers to avoid
+overflowing an otherwise representable inverse;
+all 30 noninteger power sites in the generated scalar code have one of those
+negative exponents (25 and 5 respectively). Zero addition/subtraction preserves
+the nonzero operand's precision instead of falsely inflating it. These changes
+do not pad computed corrections, add finite-width regulators or introduce an
+adaptive precision policy. Focused OneLOop regression files are
+`complex_precision_provenance.rs`, `float_zero_precision.rs`,
+`complex_sqrt_precision.rs` and `native_primitives.rs` under `tests/`.
 
 OneLOop's tests exercise the native index/absolute-value regressions and compare
 324 sheet operations at machine and 128-bit precision. The full Symbolica test

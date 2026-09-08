@@ -1,0 +1,12 @@
+2026-09-08T17:12:27.921107Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:12:27.921203Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:12:27.921468Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:12:27.921478Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:12:27.921835Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:12:27.921853Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:12:27.921981Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:12:27.921990Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:12:27.922227Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:12:27.922236Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:12:27.922355Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:12:27.922363Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞

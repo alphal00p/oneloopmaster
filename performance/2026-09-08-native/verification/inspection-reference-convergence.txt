@@ -1,0 +1,16 @@
+2026-09-08T16:59:51.945523Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:51.945677Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:51.946022Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:51.946036Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:51.946388Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:51.946406Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:51.946537Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:51.946547Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:51.946798Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:51.946809Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:51.946945Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:51.946956Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+bits=384 compact=-560.620422318570964164317949124525720035423642752987673222561005032825886913743658341965 prec=291 reference=-560.62042231857096416431794912452572003542364275298767322 prec=188 difference=-3.3e-55
+bits=512 compact=-560.620422318570964164317949124525720035423642752987673222561005032825886913743658341968592346300302871884270699583478172922706 prec=419 reference=-560.62042231857096416431794912452572003542364275298767322256100503282588691374365834196859234630 prec=316 difference=1.9e-93
+bits=768 compact=-560.62042231857096416431794912452572003542364275298767322256100503282588691374365834196859234630030287188427069958347817292270074264837634333153323890962867092961534926545820856542511073386758715074841062 prec=675 reference=-560.6204223185709641643179491245257200354236427529876732225610050328258869137436583419685923463003028718842706995834781729227007426483763433315332389096286709296153492654582 prec=572 difference=1.7e-170
+reference 384-768=3.3e-55, reference 512-768=-1.9e-93, compact384-reference768=4e-84

@@ -1,6 +1,54 @@
 # Native OneLOop status
 
-## Current verified development snapshot (2026-09-08)
+## Current development status (2026-09-08)
+
+Direct generic Rust evaluation is now the default for the five scalar masters.
+Their Symbolica hooks use that native backend exclusively for `Complex<f64>`,
+`Complex<DoubleFloat>`, and arbitrary-precision `Complex<Float>`. Manual calls
+also retain explicit `symjit` and `expression` backends. Transparent native
+FunctionMap definitions remain available and take precedence over bare hooks.
+All master Symbols include the squared renormalization scale as their final
+numeric argument.
+
+Initialization eagerly registers the Symbols and prepares both sets of
+binary64 backends: native Rust workspaces and embedded portable SymJIT
+evaluators. Precision-specific Float workspaces are created on request. Python
+supports decimal-digit `prec` requests, exact Decimal/large-integer conversion,
+DecimalComplex inputs/outputs, and batching. The former approximately 900-bit
+cap in the scalar-master Li2 path has been removed; precision-provenance fixes
+also cover roots, phases, powers, zero arithmetic, and Float norms. A working
+precision request is not a guarantee that every requested digit survives
+cancellation or singular conditioning.
+
+See [NATIVE_BACKEND.md](NATIVE_BACKEND.md), [PRECISION.md](PRECISION.md),
+[ARBITRARY_PRECISION_AUDIT.md](ARBITRARY_PRECISION_AUDIT.md), and the
+[master-Symbol audit](MASTER_SYMBOL_AUDIT.md) for implementation and audit scope.
+
+Completed checks from this pass:
+
+- Final standalone Python suite: **27 tests passed**, 83.755 seconds.
+- Community adapter **compile-only check passed**, 25.13 seconds. Runtime
+  validation inside the community host is still pending.
+- Focused tests against real Symbolica: **11 primitive tests passed** in
+  0.08 seconds and **3 simple-sector tests passed** in 0.06 seconds.
+- The independent ArbPrec audit records a separate **5/5** fresh-Numerica
+  precision-provenance gate, including 512/3456-bit controls.
+
+The final rebuilt release suite passes **114 Rust tests**, with six ignored
+entries. The explicit native binary64 diagnostic still fails on 14 finite
+B0/dB0 coefficients. The matched mixed-input native/Fortran ratios are
+0.85/0.84/1.08/1.22/1.51 for A0/B0/dB0/C0/D0 at batch 1024; the largest sector
+miss at that batch size is timelike D0 at 3.80×. See the [current release audit](NATIVE_RELEASE_AUDIT.md) and
+[matched performance report](performance/2026-09-08-native/README.md), which also
+separate bare hooks, Python and manually selected SymJIT. These passing checks
+do not establish global parity, guaranteed accuracy or publication readiness.
+
+## Preserved SymJIT-default verified snapshot (2026-09-08)
+
+The following measurements belong to the earlier SymJIT-default implementation,
+before the direct Rust default and current arbitrary-precision changes.
+"Current" and "default" within this preserved section describe that historical
+snapshot. They do not replace the final native-default gates listed above.
 
 The current manifest uses patched Symbolica dev `fb845d34`, with portable O2
 evaluator/batch APIs and a separate PyO3 adapter. The release Rust suite passes
@@ -100,7 +148,7 @@ independent analytic targets are described above and in the dated audits.
 The dated follow-up in `SCALAR_PARITY_AUDIT.md` takes precedence over the
 preserved older acceptance results below.
 
-## Expression coverage
+## Current expression coverage
 
 - A0 and tadpole tensors through rank four.
 - B0, dB0 and bubble tensor coefficients through rank four.
@@ -110,8 +158,9 @@ preserved older acceptance results below.
 - Exact finite two-mass box boundary branches (including vanishing r12/r13),
   and the equal-mass, zero-external-momentum box `1/(6(m²)²)`.
 - Continued root/log/Li2 definitions shared through a native FunctionMap.
-  Public evaluation hooks reuse these native bodies; no separate numerical
-  OneLOop algorithm or Fortran runtime is used.
+  Scalar-master hooks now use the direct generic Rust transcription; the
+  transparent expression bodies and explicit manual evaluator backends remain
+  available in parallel. No Fortran runtime is used by these master hooks.
 
 C0/D0 return compact mapped series; OneLoopExpressions shares one cached definition
 map across an amplitude. Cyclic mass sectors reuse canonical definitions.
@@ -218,12 +267,17 @@ The fully scaleless derivative dB0(0,0,0) is undefined in Fortran and excluded
 from finite-value fixtures. Direct construction marks it indeterminate; generic
 evaluation returns a nonfinite value rather than a spurious zero.
 
-High-precision tests cover the expanded table at 256 bits and focused families
-at 128/256/384 bits, not a global stability proof. Independent tensor fixtures
-and broader higher-precision D0/threshold
-sweeps remain needed. Symbolica's existing complex-polylog stopping criteria
-cap their requested-precision threshold at approximately 900 bits; larger
-requested precisions are not verified here.
+The historical expanded-table checks at 256 bits and focused 128/256/384-bit
+checks remain sampled evidence, not a global stability proof. The current pass
+adds 512/3456-bit precision-provenance controls and Python arbitrary-precision
+checks; their scope and provenance are recorded in
+[ARBITRARY_PRECISION_AUDIT.md](ARBITRARY_PRECISION_AUDIT.md) and
+[PRECISION.md](PRECISION.md). The former approximately 900-bit threshold cap in
+the master-reachable Li2 implementation has been removed. Neither that repair
+nor requesting `prec=1000` certifies 1,000 accurate digits for all kinematics.
+Independent tensor fixtures and broader higher-precision D0/threshold sweeps
+remain useful release work. The final rebuilt Rust and measured performance
+results are recorded in [NATIVE_RELEASE_AUDIT.md](NATIVE_RELEASE_AUDIT.md).
 
 The native map now includes the boxc T/T1/T13/planar reductions, contour residues
 and exact infinitesimal directions. Their presence does not establish every

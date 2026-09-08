@@ -9,6 +9,19 @@ The later zero-argument SIMD input-transpose repair changes code generation only
 not this serialized IR; these scalar-family assets do not require regeneration
 for that repair.
 
+Final regeneration after the arbitrary-precision repairs again passed all
+293 acceptance and 31 benchmark rows after restoration; the shipped assets
+were kept unchanged. A0/B0/dB0 matched byte-for-byte. C0/D0 differed only in
+the serialization order of 12/18 function names from SymJIT's `HashSet` table:
+their complete name sets match, and sorting only those entries makes each whole
+blob byte-identical. Thus numeric constants, instructions, nested evaluator
+payloads and all other metadata are unchanged; export is not byte-deterministic
+in this table. See the [regeneration log](../../performance/2026-09-08-native/verification/asset-regeneration.log),
+[hashes](../../performance/2026-09-08-native/verification/asset-sha256sums.txt),
+and [structural comparison result](../../performance/2026-09-08-native/verification/asset-semantic-comparison.log).
+The [read-only comparison source](../../performance/2026-09-08-native/verification/asset-compare-portable.rs)
+records the exact binary-layout proof and the temporary paths of that run.
+
 SymJIT settings: O2, direct translation, SIMD enabled, scalar retry on divergent
 branches, threads/fastmath/fast-complex/AVX-512 disabled. Native x86-64 execution
 is tested; generated code on other architectures has not been exercised here.

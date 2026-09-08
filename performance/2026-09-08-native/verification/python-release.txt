@@ -1,0 +1,44 @@
+test_00_main_thread_cold_start (test_api.AdapterTests.test_00_main_thread_cold_start) ... ok
+test_01_portable_environment_guards (test_api.AdapterTests.test_01_portable_environment_guards) ... ok
+test_elementary_calls_and_order (test_api.AdapterTests.test_elementary_calls_and_order) ... 2026-09-08T17:00:07.628093Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:07.628152Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:07.628604Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:07.628621Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:07.629204Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:07.629219Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:07.629418Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:07.629439Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:07.629821Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:07.629836Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:07.630020Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:07.630033Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test_every_shared_benchmark_fixture (test_api.AdapterTests.test_every_shared_benchmark_fixture) ... ok
+test_expression_interop_only_in_shared_kernel (test_api.AdapterTests.test_expression_interop_only_in_shared_kernel) ... ok
+test_invalid_inputs (test_api.AdapterTests.test_invalid_inputs) ... ok
+test_reusable_single_batch_and_rebuild (test_api.AdapterTests.test_reusable_single_batch_and_rebuild) ... ok
+test_arbitrary_native_and_expression_all_families (test_backends.BackendSelection.test_arbitrary_native_and_expression_all_families) ... ok
+test_batched_1024_native_machine_and_decimal (test_backends.BackendSelection.test_batched_1024_native_machine_and_decimal) ... ok
+test_genuinely_complex_triangle_backend_agreement (test_backends.BackendSelection.test_genuinely_complex_triangle_backend_agreement) ... ok
+test_machine_native_and_symjit_all_benchmark_points (test_backends.BackendSelection.test_machine_native_and_symjit_all_benchmark_points) ... ok
+test_selection_overrides_and_arbitrary_symjit_rejection (test_backends.BackendSelection.test_selection_overrides_and_arbitrary_symjit_rejection) ... ok
+test_all_families_and_explicit_errors (test_inspection.ExpressionInspection.test_all_families_and_explicit_errors) ... ok
+test_complete_bodies_and_coefficient_selection (test_inspection.ExpressionInspection.test_complete_bodies_and_coefficient_selection) ... ok
+test_complete_compact_complex_one_mass_triangle (test_inspection.ExpressionInspection.test_complete_compact_complex_one_mass_triangle) ... ok
+test_bad_pole_and_missing_tail_are_rejected (test_performance_survey.SurveyTests.test_bad_pole_and_missing_tail_are_rejected) ... ok
+test_explicit_backend_is_forwarded_and_recorded (test_performance_survey.SurveyTests.test_explicit_backend_is_forwarded_and_recorded) ... ok
+test_fortran_comparison_matches_inputs_not_only_names (test_performance_survey.SurveyTests.test_fortran_comparison_matches_inputs_not_only_names) ... ok
+test_full_cli_control_flow_with_fake_module_only (test_performance_survey.SurveyTests.test_full_cli_control_flow_with_fake_module_only) ... ok
+test_warmup_exact_calls_tails_and_all_checksum_outputs (test_performance_survey.SurveyTests.test_warmup_exact_calls_tails_and_all_checksum_outputs) ... ok
+test_all_five_families_at_32_and_1000_digits (test_precision.PrecisionTests.test_all_five_families_at_32_and_1000_digits) ... ok
+test_decimal_complex_preserves_tiny_width_and_large_precision (test_precision.PrecisionTests.test_decimal_complex_preserves_tiny_width_and_large_precision) ... ok
+test_decimal_context_does_not_truncate_inputs_or_outputs (test_precision.PrecisionTests.test_decimal_context_does_not_truncate_inputs_or_outputs) ... ok
+test_decimal_validation_never_uses_float_predicates (test_precision.PrecisionTests.test_decimal_validation_never_uses_float_predicates) ... ok
+test_default_machine_path_and_decimal_selection (test_precision.PrecisionTests.test_default_machine_path_and_decimal_selection) ... ok
+test_reusable_precision_overrides_and_mixed_batch_tails (test_precision.PrecisionTests.test_reusable_precision_overrides_and_mixed_batch_tails) ... ok
+test_undefined_integral_outputs_remain_decimal_nonfinite_values (test_precision.PrecisionTests.test_undefined_integral_outputs_remain_decimal_nonfinite_values) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 83.755s
+
+OK

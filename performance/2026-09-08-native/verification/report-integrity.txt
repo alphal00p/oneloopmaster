@@ -1,0 +1,102 @@
+Independent final-report integrity audit — 2026-09-08
+
+Scope: read-only Python 3.13 stdlib parsing, statistics, and SHA-256 checks
+after all final timing processes stopped. No builds, numerical evaluations,
+profiling, or benchmark reruns were performed. The independent parser was
+run as inline Python heredocs; it did not call tests/compare_performance.py.
+
+DATA AND PROTOCOL: PASS
+
+- Identical ordered 31-fixture inventories in Fortran/Python JSON, including
+  exact input, expected coefficient, normalization, and original-row fields.
+- 36 workloads: 31 uniform and five same-family mixed streams.
+- 4097 calls per repetition, seven repetitions numbered exactly 1..7,
+  256 recorded warmup calls per workload.
+- Fortran: 252 samples; each of native, jit, and hooks-jit: 504 samples,
+  covering batches 1 and 1024; Python: 252 samples at batch 1024.
+- Exact workload/repetition/batch inventory; finite positive timings and
+  finite checksums throughout; no missing or duplicate sample keys.
+- Mixed streams cycle fixtures in file order and restart each repetition.
+  Python records five batch calls and a one-row tail for every 4097-row
+  stream at batch 1024; distinct-row and tail metadata were checked.
+- All three fixture coefficients and all three Fortran batch-final
+  coefficients independently checked against the recorded expected values.
+- Every Fortran/Rust/Python finite checksum independently recomputed from
+  fixture order and repetition length; all three Python Laurent checksums
+  independently recomputed. Allowances use the documented normalized
+  coefficient tolerance plus conservative accumulated rounding allowance.
+- Every Fortran/Python summary median recomputed from its seven samples.
+  Python TSV sample order, timings, and finite checksums agree with JSON;
+  the TSV's decimal timing serialization is accounted for.
+- All 36 Python recorded Fortran ratios and pass flags independently
+  recomputed. Route ratios below use medians of raw samples, not rounded
+  table entries or means of ratios.
+
+PROVENANCE: PASS
+
+- All 12 provenance.json binary/archive/fixture/patch/asset SHA-256 values
+  match the live files used by the final run.
+- All 38 source-sha256sums.txt entries match the current source files.
+- All 44 fortran-build.json source/compiler/archive/module hashes match.
+- Python survey source, extension, fixture and Fortran-reference hashes
+  cross-match the corresponding files and other provenance records.
+- Fortran's reused-executable JSON leaves compiler flags unverified; the
+  separately matched explicit build record and compiler trace establish
+  the unchanged original source's -O2 -fno-fast-math archive and driver.
+
+WORKLOADS AT OR BELOW 1.5 TIMES FORTRAN (36 total per row)
+
+route       batch  passes  maximum ratio
+native          1      27   3.827818119
+native       1024      30   3.800049351
+jit             1       6  24.810415323
+jit          1024      25  10.931962079
+hooks-jit       1       7   9.022172589
+hooks-jit    1024       7  12.972044040
+python       1024       5  31.028142132
+
+MIXED BATCH-1024 RATIOS (computed from unrounded medians)
+
+family Native/Fortran  HooksJIT/Native  Python/Native  ManualJIT/Native
+A0       0.848128691      4.391732442    8.475865105       1.526286419
+B0       0.842400097      2.584908263    5.025071552       2.182710391
+dB0      1.081493639      2.024628668    3.660520969       2.695852242
+C0       1.218258738      1.131145787    1.257271553       2.818482597
+D0       1.506273461      1.068414355    1.069777112       7.257621116
+
+dB0 rounding check: 134.782035636 / 124.62582377349281 equals
+1.0814936387579357, which rounds directly to 1.081 at three decimals.
+Rounding the intermediate four-decimal value 1.0815 again is incorrect.
+
+NATIVE BATCH-1024 TARGET MISSES
+
+C0_real_timelike          1.613063090
+D0_real_timelike          3.800049351
+D0_complex                1.518326004
+D0_complex_mu_0.01        1.521169940
+D0_complex_mu_10000       1.525927974
+D0 mixed                  1.506273461
+
+INTERPRETATION LIMITS
+
+The source verifies all three Rust outputs on the full untimed input/batch
+layout before measurement; each timed evaluation computes all three, but
+only the finite checksum is accumulated and recorded during Rust timing.
+Fortran checks all three fixtures/batch-final outputs and its timed finite
+checksum. Python checks every timed output and all three Laurent checksums
+outside its timing interval. These are different measurement boundaries.
+Python timing includes conversion and result allocation, but excludes input
+list preparation and final result destruction. Initialization is excluded.
+The CPU-affinity-controlled runs are a shared-host snapshot, not isolated
+machine measurements or confidence intervals. Binary64 only is timed.
+The target is per workload: 30/36 is not a universal 1.5x claim, and the
+1.50627 D0 mixed ratio remains a miss despite its proximity to the target.
+
+FINAL REPORT FILE SHA-256
+
+bac52b820ac85b425aa3187cae7181271dbb31775948c64d4275c41c6048c5e8  fortran.json
+f2af57e08ce5a7f7d94e5204bc3cd2fcac880053a1f03ae61770bba60fb29604  native.tsv
+f2103e93e9e57f0e7ffdd32ae5d8c3f625b390767b67f672c1f7359735cda931  jit.tsv
+fcf95a12135d826c25d077eebbe1d3f17a3f12769be36c006e73e145b0a90e90  hooks-jit.tsv
+fffed2e4f646e3732b560f8d997a42811286f1384b04952cdbf3e41f60577ec8  python.json
+9c8d902de51f048d8ad610c584221239dfa4a1092284af0f9f0afee763852136  python.tsv

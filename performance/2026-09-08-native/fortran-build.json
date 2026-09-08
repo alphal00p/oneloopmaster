@@ -1,0 +1,142 @@
+{
+  "schema": "oneloop_explicit_fortran_o2_build_v1",
+  "created_utc": "2026-09-08T10:39:55Z",
+  "purpose": "Isolated original-source O2 reference; smoke correctness only, not a performance result.",
+  "build_directory": "/tmp/oneloop-fortran-o2.Tihpwf",
+  "original_repository": {
+    "path": "/common/dev/oneloop/OneLOopBridge",
+    "head": "402bf0d70bfa2a9d8ae66b8251cc4395b7b5ab99",
+    "tracked_worktree_clean_before_and_after": true,
+    "generated_source_ignored": true,
+    "source_and_original_archive_hashes_unchanged": true
+  },
+  "source": {
+    "path": "/common/dev/oneloop/OneLOopBridge/oneloop/avh_olo.f90",
+    "description": "Existing unchanged generated combined DP+QP OneLOop source; bench driver exercises original DP overloads."
+  },
+  "compiler": {
+    "wrapper": "/nix/store/5km6kqfhjr16939ak9l1crzsh6x96f68-gfortran-wrapper-15.2.0/bin/gfortran",
+    "version": "GNU Fortran (GCC) 15.2.0",
+    "target": "x86_64-unknown-linux-gnu",
+    "flags": [
+      "-O2",
+      "-fno-fast-math"
+    ],
+    "wrapper_extra_codegen_flags": [
+      "-fno-omit-frame-pointer",
+      "-mno-omit-leaf-frame-pointer"
+    ],
+    "effective_trace": "compiler-trace.txt"
+  },
+  "commands": [
+    [
+      "/nix/store/5km6kqfhjr16939ak9l1crzsh6x96f68-gfortran-wrapper-15.2.0/bin/gfortran",
+      "-O2",
+      "-fno-fast-math",
+      "-J",
+      "/tmp/oneloop-fortran-o2.Tihpwf",
+      "-I",
+      "/tmp/oneloop-fortran-o2.Tihpwf",
+      "-c",
+      "/common/dev/oneloop/OneLOopBridge/oneloop/avh_olo.f90",
+      "-o",
+      "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo.o"
+    ],
+    [
+      "/nix/store/4yi6jj75bb5hhdzpzlxfyf69d35wsf2x-binutils-wrapper-2.44/bin/ar",
+      "rcsD",
+      "/tmp/oneloop-fortran-o2.Tihpwf/libavh_olo.a",
+      "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo.o"
+    ],
+    [
+      "/nix/store/5km6kqfhjr16939ak9l1crzsh6x96f68-gfortran-wrapper-15.2.0/bin/gfortran",
+      "-O2",
+      "-fno-fast-math",
+      "-J",
+      "/tmp/oneloop-fortran-o2.Tihpwf",
+      "-I",
+      "/tmp/oneloop-fortran-o2.Tihpwf",
+      "/common/dev/oneloop/oneloopmaster/tests/support/bench_oracle.f90",
+      "/tmp/oneloop-fortran-o2.Tihpwf/libavh_olo.a",
+      "-o",
+      "/tmp/oneloop-fortran-o2.Tihpwf/bench_oracle"
+    ],
+    [
+      "/nix/store/463ik27ppxhpbvw7c50s7qcfc7mgfa5x-python3-3.12.12-env/bin/python3",
+      "/common/dev/oneloop/oneloopmaster/tests/benchmark_fortran.py",
+      "/tmp/oneloop-fortran-o2.Tihpwf",
+      "--executable",
+      "/tmp/oneloop-fortran-o2.Tihpwf/bench_oracle",
+      "--fixtures",
+      "/common/dev/oneloop/oneloopmaster/tests/data/benchmark.txt",
+      "--iterations",
+      "257",
+      "--warmup",
+      "256",
+      "--repetitions",
+      "3",
+      "--output",
+      "/tmp/oneloop-fortran-o2.Tihpwf/smoke.json"
+    ]
+  ],
+  "smoke": {
+    "passed": true,
+    "fixtures": 31,
+    "calls_per_sample": 257,
+    "repetitions": 3,
+    "warmup_calls_per_workload": 256,
+    "workloads": 36,
+    "samples": 108,
+    "full_laurent_outputs_and_checksums_validated": true,
+    "timing_claim": false,
+    "reason": "Other compilations active; this run verifies only build/driver/correctness.",
+    "report": "smoke.json",
+    "harness_metadata_note": "The unchanged benchmark harness labels reused archives as flags unverified and compiler null when --executable is supplied. This provenance, exact command list and compiler trace establish the flags for THIS newly built archive/driver; the harness itself was not modified."
+  },
+  "sha256": {
+    "/common/dev/oneloop/OneLOopBridge/oneloop/avh_olo.f90": "196e3533edf89746ae8bbf38cb98d9594f924aae1278b0831ea852a86e4f9fb8",
+    "/common/dev/oneloop/OneLOopBridge/oneloop/libavh_olo.a": "8b429a58d6e9404608d447d3a7e0a542fc74ed2adb545cc71d35ebeafb8c854b",
+    "/common/dev/oneloop/oneloopmaster/tests/support/bench_oracle.f90": "932535341bfe6a4b270dc591f59d10b4158e540dce65652a912bc0ff4c1c05ab",
+    "/common/dev/oneloop/oneloopmaster/tests/data/benchmark.txt": "23ff8c35b099bdf54b0296be9eb3e5c492ff1101511d64d2b84b70eb4a6dd2e6",
+    "/common/dev/oneloop/oneloopmaster/tests/benchmark_fortran.py": "4b6c347c957c4136789ce80b961cedb169259a0e6c513d61fb4ab384b7fca909",
+    "/nix/store/5km6kqfhjr16939ak9l1crzsh6x96f68-gfortran-wrapper-15.2.0/bin/gfortran": "30c6495dcb18cc324629fc230302d9cd8d81143f0ca1635d752b3f8552d48cae",
+    "/nix/store/g825z4hlkyiqm8zpv4kbjkvw5fl901pz-gfortran-15.2.0/bin/gfortran": "261201fddc88fe36d2f7935148fe2063473a973e4db7927cbd5de459b008d748",
+    "/nix/store/g825z4hlkyiqm8zpv4kbjkvw5fl901pz-gfortran-15.2.0/libexec/gcc/x86_64-unknown-linux-gnu/15.2.0/f951": "927ef01f88a53bd976cfe8e0bb1cdbf3c15eaf13a0e87c69b50dec2050ee2dea",
+    "/nix/store/4yi6jj75bb5hhdzpzlxfyf69d35wsf2x-binutils-wrapper-2.44/bin/ar": "abdf962fafe68d5db5aced3adf25dd32b0c82ec7d313a63f1cf0a6e85bf05c9a",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo.o": "8ffc116d8464f2fb1f0349cb051e50234804605bec40e113b87fde2e130ad712",
+    "/tmp/oneloop-fortran-o2.Tihpwf/libavh_olo.a": "9ea86b495d92a7bbbcf1d792bcffb5ad4cf1a11f5d629d83f8822c554ae3c903",
+    "/tmp/oneloop-fortran-o2.Tihpwf/bench_oracle": "54db01f9635388aaa214e1341db6179d801cd6954867b27afe586507abd34af8",
+    "/tmp/oneloop-fortran-o2.Tihpwf/smoke.json": "dbaca817389e5f420bce704b43c5ef36032628c3c7cfc6adc823474393b4aec7",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo.mod": "6b4b50062b58088918722005261398a4949af13cea4fda60e0daa0ceacd6d717",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp.mod": "91a9dd5a2308659a58cc64c6a6d5e4b32c162dff09094605cf6b7d5212723c87",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_arrays.mod": "483773eaa16eb8c4ca5aba9ca2b1b10725beb35b693d1d86a8d6bd99459ee468",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_auxfun.mod": "dda6e473bb2a0b39b7a1f8d0c499f79380760eabf41ab5b6a93f9082a4779a4f",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_bnlog.mod": "8c9249cf6713c78ca1aff9e02bf4a8dce8b7a838fb08924c6a7df02ac51b3a3a",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_box.mod": "28a0ef3666764bd88f6a92174c89f25956b6f49685ff2d89b88ada8ccf5862b2",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_boxc.mod": "1d6d3925735aba9bafbae6154441e14a27e3d2d69e266b7e794fe44844f2434b",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_bub.mod": "a94813a2ba2843a725c55e7c0a175eecab6fa2bdf48e41b16b9df8033a6bddf8",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_dilog.mod": "292a3f7a522801d93dae7406f4fe1aad6c767d578eab205d65dce3611493406e",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_kinds.mod": "1b198bdcc6eb679e8cc671e10b3978a1be986dde05ca453c7239752abc01406f",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_olog.mod": "406a3e4d66913b1446f7417c1f675f21e4d86dcca9d172481fdc1cd02c4afd76",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_prec.mod": "464ecde317ff3d894450cb42097b38fadc8689aee2fc06c1cd8bad8179352556",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_print.mod": "88ab46e4d8b26e9f55376eb5edcd4677eda9da0e3589903709746cf1ea3be088",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_qmplx.mod": "2b288b70ff7f0747fec5d224c7a4061eff501f47ecfb735e3d66d2d4d2936a15",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_dp_tri.mod": "ec1232b2239488c24416c575061df48874281b9aea210dc5ef69ab05f7af2982",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp.mod": "ea09bf2f25c0f2f8c9a9abdaf7891481d4a179620ae266308092d6ac20bdda86",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_arrays.mod": "8dd558802c1335770be123fafd4ae5ef086df5aa13e453ac434b61bcea81d3fa",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_auxfun.mod": "57e779fd7f7ecaf92e735dd848a618c13ebbf6c35e181593857303d240d5e8dc",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_bnlog.mod": "5a05479a17c3e96c3e42f1f275d2715c2ca75fb91c6d11f2caf9133de029f694",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_box.mod": "a4fea1060fa3fbdd5e4f6279cd6db969c7d8610f5334f85105029f7bb5f9112a",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_boxc.mod": "c719540cf55f2470a9e8148006b932e2edc53462f57b6f84e9ad15140eb05bfe",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_bub.mod": "07f1afc6d384d5b4f4277ea03735ba53df2b35ba06cc41d32a94c579bbeb0b24",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_dilog.mod": "925ee3c9850cca6c99736887b3d49066938cffcbc760313649fc57e64deb1e6c",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_kinds.mod": "16036e49c4bde79b773ace2daaa1794b011beb1a5b6bd1b45c9889ebbe237c5c",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_olog.mod": "06fbb9dc781a84e58acbff586b9a026aa1d42ca9803327a56b088f41e00d8def",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_prec.mod": "8a30cd75120c8ec881c88eaa3e385247988a4206f5abad1ba31c6711ec40c7ec",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_print.mod": "cbbedc159823d567cc10bc0894fa1182d32842e8d63bc03b83531c46bf59c1c0",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_qmplx.mod": "60e5321c9432866379be2df10740491fc00aaa96921dd644c231d22c2f9b009c",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_qp_tri.mod": "91cd746bd81b1172cfc38ffde693a6937382956a609b9c262659a991113be745",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_units.mod": "db99f33a597ddec54e74af96572126923cb81199a8f3015450c7ed9558948c24",
+    "/tmp/oneloop-fortran-o2.Tihpwf/avh_olo_version.mod": "6e737a82f7d04793102f3dab2fb8e09a489c74bc9b82732583eeb4baebbf6fc7"
+  }
+}

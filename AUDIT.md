@@ -1,5 +1,12 @@
 # Implementation audit — 2026-09-07
 
+For the subsequent direct-Rust/ArbPrec implementation, see the
+[current native release audit](NATIVE_RELEASE_AUDIT.md): 114 release Rust tests
+and 27 standalone Python tests pass. The independent precision audit, explicit
+14-failure native binary64 diagnostic, expression-inspection limits and matched
+new-backend timings are recorded there. The snapshots below preserve the earlier
+SymJIT-default implementation and must not be read as current backend status.
+
 For the **current 2026-09-08 release validation**, see the dated sections of
 [SCALAR_PARITY_AUDIT.md](SCALAR_PARITY_AUDIT.md) and
 [MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md). All 1,026 expanded Fortran

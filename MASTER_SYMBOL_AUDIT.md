@@ -1,6 +1,59 @@
 # Public master Symbols: API audit
 
-## Current implementation and release checks — 2026-09-08
+## Current implementation and focused checks — 2026-09-08
+
+The five public `oneloopmaster::` master Symbols have a leading Laurent tag
+(`0`, `-1`, or `-2`) and `mu_squared` as their last numeric argument.
+[Their evaluation hooks](src/masters.rs) now use the direct generic Rust backend
+for **all three supported domains**: `Complex<f64>`, `Complex<DoubleFloat>`, and
+`Complex<Float>`. Native evaluation is also the default for manual calls.
+Hooks do not select SymJIT or the expression interpreter; those remain explicit
+manual backend choices. A supplied native FunctionMap still takes precedence
+over a hook and exposes the symbolic coefficient bodies to the outer evaluator.
+
+The `initialize!` path registers the master/helper Symbols and eagerly prepares
+all five native binary64 workspaces and all five embedded portable SymJIT
+evaluators. Rust `initialize()` and Python module import force that startup.
+Arbitrary-precision workspaces are prepared on request, not for every possible
+precision at startup. Float hook caches use the maximum precision across every
+input component, including the scale. Conversion to that working precision
+cannot recover digits missing from an already rounded input. Domain rejection
+releases the shared cache lock before reporting the hook error, allowing a
+subsequent valid call to proceed.
+
+The former approximately 900-bit stopping cap in the master-reachable Li2 path
+has been removed. Precision-provenance repairs cover square roots, phases,
+integer/half-integer powers, zero arithmetic, and Float norms. These are not an
+adaptive accuracy guarantee. See the [independent ArbPrec audit](ARBITRARY_PRECISION_AUDIT.md),
+[precision contract](PRECISION.md), and [native backend design](NATIVE_BACKEND.md).
+The earlier recommendation against a direct Rust evaluation backend, preserved
+below, was superseded by the subsequent implementation request.
+
+Completed focused checks for this development pass:
+
+- Standalone Python suite: **27 tests passed**, 83.755 seconds.
+- Community adapter: **compile-only check passed**, 25.13 seconds; shared-host
+  community runtime validation remains pending.
+- Real-Symbolica numerical gates: **11 primitive tests passed** in 0.08 seconds
+  and **3 simple-sector tests passed** in 0.06 seconds, including arbitrary
+  precision and the repaired Float operations.
+- The independent precision audit records its separate five-test, fresh-Numerica
+  provenance gate and its exact test scope.
+
+The final rebuilt Rust suite passes **114 tests**, including the native hooks,
+with six ignored entries. The [matched performance survey](performance/2026-09-08-native/README.md)
+measures direct native, manual SymJIT, native-backed bare Symbols and Python
+separately. Bare compiled hooks are close to direct evaluation for the sampled
+expensive C0/D0 mixed workloads, not uniformly for cheap masters. The global
+1.5-times-Fortran target is not met. See [the release audit](NATIVE_RELEASE_AUDIT.md)
+for retained binary64 failures and the limits on precision/coverage conclusions.
+
+## Preserved SymJIT-default release audit — 2026-09-08
+
+This section preserves the earlier SymJIT-default snapshot and its measured
+results, before the direct Rust default and current arbitrary-precision changes.
+References to the "current" engine, suite, caches, or performance within this
+historical section refer to that snapshot, not to the final native-default gates above.
 
 `src/masters.rs` now defines the five requested `oneloopmaster::` Symbols, each
 with a leading Laurent-power tag and `EvaluationInfo` hooks for `Complex<f64>`
@@ -62,8 +115,10 @@ numeric domains remain separate integration concerns.
 Mixed-precision inputs retain their original precision; choosing a cache at the
 maximum input-component precision does not restore missing input digits. The
 precision cache currently retains an evaluator for each distinct requested
-precision without eviction. Accuracy beyond the underlying transcendental
-implementation's roughly 900-bit stopping threshold is not certified.
+precision without eviction. At that snapshot, accuracy beyond the underlying
+transcendental implementation's roughly 900-bit stopping threshold was not
+certified. The master-reachable Li2 cap has since been removed, as described
+above; this old statement is not a limit of the current precision API.
 The binary64 backend computes all three coefficients together. Distinct Laurent
 tags at bitwise-identical arguments reuse that result; signed zeros remain part
 of the key. A repeated tag starts a fresh group even at identical inputs, so
@@ -146,7 +201,7 @@ requirement, but a fallback numerical hook is still opaque when used without
 the map. It must not be advertised as equivalent to transparent native
 evaluation or automatic error-controlled precision.
 
-## Required acceptance checks
+## Required acceptance checks at the 2026-09-07 baseline
 
 - All five families and all three Laurent tags, comparing direct Symbol-hook
   evaluation, mapped evaluation, the existing expression bodies and the
@@ -158,5 +213,7 @@ evaluation or automatic error-controlled precision.
 - Invalid tag/arity handling, supported numeric domains, and serialization /
   export behavior when native definitions or external hooks are unavailable.
 
-Adding this interface will not repair the 44 coefficient mismatches documented
-in [SCALAR_PARITY_AUDIT.md](SCALAR_PARITY_AUDIT.md). Both audit criteria remain open.
+At that baseline, adding the interface alone did not repair the 44 coefficient
+mismatches documented in [SCALAR_PARITY_AUDIT.md](SCALAR_PARITY_AUDIT.md).
+These historical counts and recommendations must not be substituted for the
+current implementation and final release-gate status at the top of this file.

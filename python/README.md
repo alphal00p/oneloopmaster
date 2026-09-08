@@ -40,13 +40,15 @@ supported feature configuration, the unchanged reproducer and full API suite
 pass; no JIT-clone fix or extra cache/thread-lifetime restriction was required.
 
 Import eagerly registers every native symbol and the complete transparent
-function map, then prepares all five core scalar caches. With the core's default
+function map, then prepares all five Native and all five SymJIT caches. With the core's default
 `prebuilt` feature, this loads portable intermediate code and regenerates host
 machine code; it does not deserialize foreign native code. Without that feature,
 startup builds all five evaluators from the expressions instead. A missing or
 incompatible enabled cache raises `RuntimeError` during import. Subsequent
-ordinary calls use the warmed caches; `rebuild=True` explicitly recompiles the
-requested evaluator and is substantially more expensive than warmed evaluation.
+ordinary calls use the direct Rust backend. `backend="symjit", rebuild=True`
+explicitly recompiles the requested SymJIT evaluator and is substantially more
+expensive than warmed evaluation. Native rebuilding prepares fresh constants
+and a numeric workspace, without JIT compilation.
 
 The core enables its five embedded cache assets by default. The final release
 extension with the system allocator and native binary64 Li2 passes all eleven
@@ -77,11 +79,14 @@ values = evaluator.evaluate_batch([
 ])
 ```
 
-Every call returns three Python `complex` numbers ordered as
+Every call returns three coefficients ordered as
 `(finite, simple_pole, double_pole)`, corresponding to Laurent tags `(0, -1, -2)`.
-Numerical inputs and calculations use binary64 components; this interface does
-not preserve arbitrary-precision Python inputs. The direct functions have these
-argument orders:
+Ordinary numeric inputs with the default `prec=16` use binary64 components and
+return Python `complex` values through direct Rust arithmetic by default.
+Select `backend="symjit"` for the prepared SymJIT O2 path, or
+`backend="expression"` for the transparent Symbolica expression interpreter.
+Higher precision or Decimal inputs use the arbitrary-precision path below.
+The direct functions have these argument orders:
 
 | Function | Ordered arguments before optional `mu_squared=1.0` |
 | --- | --- |
@@ -115,6 +120,87 @@ value = olo.B0(-1.0, 1.0, 1.0, rebuild=True)  # One uncached rebuilt call.
 assert evaluator.family == "B0"
 assert evaluator.arity == 4
 ```
+
+### Arbitrary precision
+
+All five direct functions accept `prec=16`, `prec=32`, `prec=1000`, or another
+positive integer number of **decimal digits**. The reusable evaluator accepts
+the same keyword, and its methods can override it for one call:
+
+```python
+from decimal import Decimal, localcontext
+import oneloop_native as olo
+
+finite, pole, double_pole = olo.A0(Decimal("2"),
+                                 mu_squared=Decimal("4"), prec=1000)
+assert isinstance(finite.real, Decimal)
+assert isinstance(finite.imag, Decimal)
+print(finite.real)  # Approximately 3.386294361119890618834464242916...
+
+bubble = olo.Evaluator("B0", prec=32)
+row = [Decimal("-1"), Decimal("1"), Decimal("1"), Decimal("4")]
+values = bubble.evaluate_batch([row] * 1024)
+more_digits = bubble.evaluate(row, prec=1000)  # Does not change bubble.prec.
+assert bubble.prec == 32
+
+# Decimal arithmetic after evaluation follows Python's decimal context.
+with localcontext() as ctx:
+    ctx.prec = 1000
+    twice_real_part = finite.real * 2
+```
+
+`Decimal("...")` is parsed directly at the requested working precision, including
+`mu_squared`: there is no intermediate float conversion. Creating a Decimal
+from a string and creating the output Decimal objects do not depend on the
+global decimal context. In contrast, `Decimal(0.1)` already contains the Python
+float's rounding error; use `Decimal("0.1")` to specify that decimal value.
+Python float/complex inputs at higher `prec` retain their original binary64
+values exactly, but cannot supply missing input digits.
+
+Python's built-in `complex` cannot hold Decimal components. Use
+`DecimalComplex(real, imag)` for arbitrary-precision complex squared masses:
+
+```python
+mass = olo.DecimalComplex(Decimal("0.70000000000000000000000000000001"),
+                          Decimal("-0.03000000000000000000000000000002"))
+finite, _, _ = olo.B0(Decimal("3"), mass, Decimal("1.4"),
+                      mu_squared=Decimal("4"), prec=1000)
+print(finite.real, finite.imag)
+rounded = complex(finite)  # Explicitly lossy conversion to binary64.
+```
+
+High-precision calls return three `DecimalComplex` instances with standard-library
+Decimal `.real` and `.imag` properties, including for real-valued results.
+They are precision-preserving value containers, not a replacement complex
+arithmetic package; operate on their Decimal components under a suitable context.
+No additional Python numerical dependency is required.
+
+Selection rules are consistent across scalar and batch calls:
+
+- `prec != 16` always selects arbitrary precision.
+- At `prec=16`, any `Decimal`, `DecimalComplex`, or integer beyond the exact
+  binary64 integer range selects arbitrary precision too.
+- A mixed batch uses arbitrary precision for the entire batch if any input
+  requires it. Otherwise the default batch uses binary64 Native arithmetic.
+- Arbitrary-precision results use DecimalComplex; ordinary default calls retain
+  Python complex outputs. Precision must be a positive integer, not a Boolean.
+
+The core uses the generated generic Rust implementation with Symbolica
+`Complex<Float>` and fixed guard bits. `backend="expression"` evaluates the same
+exact formulas with Symbolica's interpreter; `"symjit"` is binary64-only.
+The reusable object keeps a precision-specific workspace for reuse; changing
+precision prepares its constants again. Both sets of five binary64 backends are
+loaded eagerly on import, but arbitrary precisions are prepared on request.
+Arbitrary-precision batches amortize Python overhead; they do not use binary64
+SymJIT SIMD. `rebuild=True` rebuilds the selected backend, and no custom
+automatic precision-escalation policy is added.
+
+Requested precision is a working-precision choice, not a certified error bound.
+Cancellation, exact singularities, or unverified analytic limits can still affect
+results. Returned decimal strings are limited by the computed Float precision,
+not padded to imply that lost digits were recovered. The historical binary64
+performance ratios do not apply to this backend. See the core
+[precision contract and checks](../PRECISION.md).
 
 ### Calling thread, stack, and license
 

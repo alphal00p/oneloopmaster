@@ -1,6 +1,7 @@
 //! Warm scalar and row-major batch throughput against shared Fortran fixtures.
 //! Usage: performance_survey [calls=20000] [repetitions=7] [family=all] [route=jit] [batches=1,4,32,256,1024]
-//! `jit` uses the prepared scalar backend; `symbols` compiles public master
+//! `native` uses ahead-of-time generic Rust; `jit` uses the prepared SymJIT backend;
+//! `symbols` compiles public master
 //! Symbols with their transparent native FunctionMap and supports the same batches.
 //! `hooks-jit` compiles the bare public calls without a FunctionMap and supports
 //! the same batches, invoking the automatically registered numerical callbacks.
@@ -10,7 +11,7 @@
 #[path = "../tests/support/fixtures.rs"]
 mod fixtures;
 use fixtures::Fixture;
-use oneloop::{JitEvaluator, OneLoopExpressions, ScalarEvaluator, ScalarIntegral};
+use oneloop::{JitEvaluator, NativeEvaluator, OneLoopExpressions, ScalarEvaluator, ScalarIntegral};
 use std::{hint::black_box, time::Instant};
 use symbolica::{
     evaluate::{ExpressionEvaluator, JITCompiledEvaluator},
@@ -19,10 +20,23 @@ use symbolica::{
 
 #[derive(Clone, Copy, Debug)]
 enum Route {
+    Native,
     Jit,
     Symbols,
     Hooks,
     HooksJit,
+}
+
+impl SurveyEvaluator for NativeEvaluator<f64> {
+    fn family(&self) -> ScalarIntegral {
+        NativeEvaluator::family(self)
+    }
+    fn point(&mut self, input: &[Complex<f64>], output: &mut [Complex<f64>]) {
+        self.evaluate(input, output).unwrap();
+    }
+    fn batch(&mut self, input: &[Complex<f64>], output: &mut [Complex<f64>], rows: usize) {
+        self.evaluate_batch(input, output, rows).unwrap();
+    }
 }
 
 trait SurveyEvaluator {
@@ -171,11 +185,12 @@ fn main() {
     let repetitions: usize = args.next().map(|s| s.parse().unwrap()).unwrap_or(7);
     let family = args.next().filter(|s| !s.eq_ignore_ascii_case("all"));
     let route = match args.next().as_deref().unwrap_or("jit") {
+        value if value.eq_ignore_ascii_case("native") => Route::Native,
         value if value.eq_ignore_ascii_case("jit") => Route::Jit,
         value if value.eq_ignore_ascii_case("symbols") => Route::Symbols,
         value if value.eq_ignore_ascii_case("hooks") => Route::Hooks,
         value if value.eq_ignore_ascii_case("hooks-jit") => Route::HooksJit,
-        value => panic!("unknown route {value}; expected jit, symbols, hooks or hooks-jit"),
+        value => panic!("unknown route {value}; expected native, jit, symbols, hooks or hooks-jit"),
     };
     let batches = args.next().map(|value| {
         let batches = value
@@ -240,6 +255,21 @@ fn run(
         let started = Instant::now();
         let rows: Vec<_> = fixtures.iter().filter(|r| r.family == family).collect();
         match route {
+            Route::Native => {
+                let evaluator = NativeEvaluator::<f64>::new(family).unwrap();
+                eprintln!(
+                    "route=native {} exact-constant setup {:?}",
+                    family.name(),
+                    started.elapsed()
+                );
+                family_workloads(
+                    evaluator,
+                    &rows,
+                    calls,
+                    repetitions,
+                    batches.as_deref().unwrap_or(&[1, 4, 32, 256, 1024]),
+                );
+            }
             Route::Jit => {
                 #[cfg(feature = "prebuilt")]
                 let evaluator = ScalarEvaluator::prebuilt(family).unwrap();

@@ -1,0 +1,32 @@
+
+running 1 test
+test native_expanded_binary64_diagnostic ... 
+thread '<unnamed>' (3581520) panicked at tests/native.rs:150:9:
+14 expanded native comparisons failed:
+B0 line_23 coefficient 0: (-0.38629441862114766+0.0i), expected (-0.38629436113126103+-0.0i), normalized error 0.00000005748988662901411
+B0 line_27 coefficient 0: (-0.030957897280927404+0.05157777933189464i), expected (-0.030958098596678866+0.05157776933287291i), normalized error 0.00000020156391597213257
+B0 line_31 coefficient 0: (0.30685215584935577+0.0i), expected (0.3068528194150547+0.0i), normalized error 0.0000006635656989439909
+B0 line_55 coefficient 0: (-0.38629441832114764+0.0i), expected (-0.3862943611085201+-0.0i), normalized error 0.00000005721262752445
+B0 line_59 coefficient 0: (-0.030958674512480744+0.051577824128994525i), expected (-0.030958098564277888+0.05157776933454048i), normalized error 0.0000005785488437173114
+B0 line_63 coefficient 0: (0.30685215584935577+0.0i), expected (0.3068528194650547+0.0i), normalized error 0.0000006636156989481279
+dB0 line_21 coefficient 0: (0.17064476013183594+0.0i), expected (0.16666666666289962+0.0i), normalized error 0.003978093468936322
+dB0 line_25 coefficient 0: (2073509135360.0+0.0i), expected (0.1137056388785528+0.0i), normalized error 4147018270719.7725
+dB0 line_29 coefficient 0: (8819803448320.0+170333764096.0i), expected (0.16200594518456848+0.008337779189033697i), normalized error 12350027330254.934
+dB0 line_33 coefficient 0: (-6635.406984329224+0.0i), expected (0.24999999999166667+0.0i), normalized error 13271.31396865843
+dB0 line_53 coefficient 0: (0.16666412353515625+0.0i), expected (0.16666666666999996+-0.0i), normalized error 0.0000025431348437132684
+dB0 line_57 coefficient 0: (2063509134336.0+0.0i), expected (0.11370563888166617+0.0i), normalized error 4127018268671.7725
+dB0 line_61 coefficient 0: (8740379175936.0+-435953048576.0i), expected (0.1620059451908727+0.008337779189683437i), normalized error 12251742532040.219
+dB0 line_65 coefficient 0: (6636.406984329224+0.0i), expected (0.25000000000833333+0.0i), normalized error 13272.31396865843
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'native_expanded_binary64_diagnostic' (3581519) panicked at tests/native.rs:21:10:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+FAILED
+
+failures:
+
+failures:
+    native_expanded_binary64_diagnostic
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.04s
+

@@ -23,11 +23,66 @@ index e344f00..ef9ae0a 100644
 +    }
      println!("cargo:rerun-if-changed=build.rs");
  }
+diff --git a/lib/numerica/src/domains/float.rs b/lib/numerica/src/domains/float.rs
+index f6f5271..f851201 100644
+--- a/lib/numerica/src/domains/float.rs
++++ b/lib/numerica/src/domains/float.rs
+@@ -145,6 +145,21 @@ pub trait Real: FloatLike {
+     fn conj(&self) -> Self;
+     fn norm(&self) -> Self;
+     fn sqrt(&self) -> Self;
++    /// The principal square root of `self + i * imaginary`, returned as its
++    /// real and imaginary components. Domains with component-dependent
++    /// precision may override the default polar construction.
++    #[inline]
++    fn complex_sqrt(&self, imaginary: &Self) -> (Self, Self) {
++        let radius = (self.clone() * self + imaginary.clone() * imaginary)
++            .sqrt()
++            .sqrt();
++        let phase = imaginary.atan2(self);
++        // The exact divisor inherits the phase's precision, not an unrelated
++        // possibly cancelled real component's precision.
++        let two = phase.from_usize(2);
++        let half_phase = phase / two;
++        (radius.clone() * half_phase.cos(), radius * half_phase.sin())
++    }
+     fn log(&self) -> Self;
+     fn exp(&self) -> Self;
+     fn sin(&self) -> Self;
 diff --git a/lib/numerica/src/domains/float/complex.rs b/lib/numerica/src/domains/float/complex.rs
-index 50fba8b..cd3096c 100644
+index 50fba8b..e8b2b84 100644
 --- a/lib/numerica/src/domains/float/complex.rs
 +++ b/lib/numerica/src/domains/float/complex.rs
-@@ -772,6 +772,11 @@ impl<T: Real> Real for Complex<T> {
+@@ -684,11 +684,24 @@ impl<T: FloatLike> FloatLike for Complex<T> {
+ 
+     fn pow(&self, e: u64) -> Self {
+         // TODO: use binary exponentiation
+-        let mut r = self.one();
+-        for _ in 0..e {
+-            r *= self;
++        if e != 0 {
++            // Starting at the first factor avoids both rounding against an
++            // unnecessary identity and adding opposite signed zeros.
++            let mut r = self.clone();
++            for _ in 1..e {
++                r *= self;
++            }
++            return r;
+         }
+-        r
++        // Construct the exact identity at the strongest component precision.
++        // A nearly zero, cancelled real part must not round an accurate
++        // imaginary component merely because the exponentiation starts at 1.
++        let prototype = if self.re.get_precision() >= self.im.get_precision() {
++            &self.re
++        } else {
++            &self.im
++        };
++        Self::new(prototype.one(), prototype.zero())
+     }
+ 
+     fn inv(&self) -> Self {
+@@ -772,13 +785,18 @@ impl<T: Real> Real for Complex<T> {
  
      #[inline]
      fn norm(&self) -> Self {
@@ -39,10 +94,290 @@ index 50fba8b..cd3096c 100644
          Complex::new(self.norm_squared().sqrt(), self.im.zero())
      }
  
+     #[inline]
+     fn sqrt(&self) -> Self {
+-        let (r, phi) = self.clone().to_polar_coordinates();
+-        Complex::from_polar_coordinates(r.sqrt(), phi / self.re.from_usize(2))
++        let (real, imaginary) = self.re.complex_sqrt(&self.im);
++        Complex::new(real, imaginary)
+     }
+ 
+     #[inline]
+@@ -885,8 +903,22 @@ impl<T: Real> Real for Complex<T> {
+     #[inline]
+     fn powf(&self, e: &Self) -> Self {
+         if e.re == self.re.zero() && e.im == self.im.zero() {
+-            self.one()
++            self.pow(0)
+         } else if e.im == self.im.zero() {
++            let half = e.re.one() / e.re.from_usize(2);
++            if e.re == half {
++                return self.sqrt();
++            }
++            if e.re == -half {
++                return self.sqrt().inv();
++            }
++            let three_halves = e.re.from_usize(3) / e.re.from_usize(2);
++            if e.re == three_halves {
++                return self.clone() * self.sqrt();
++            }
++            if e.re == -three_halves {
++                return self.sqrt().inv().pow(3);
++            }
+             let (r, phi) = self.clone().to_polar_coordinates();
+             Self::from_polar_coordinates(r.powf(&e.re), phi * e.re.clone())
+         } else {
+diff --git a/lib/numerica/src/domains/float/multiprecision.rs b/lib/numerica/src/domains/float/multiprecision.rs
+index 59bd837..00b4867 100644
+--- a/lib/numerica/src/domains/float/multiprecision.rs
++++ b/lib/numerica/src/domains/float/multiprecision.rs
+@@ -164,6 +164,13 @@ impl Add<&Float> for Float {
+     #[inline]
+     fn add(mut self, rhs: &Self) -> Self::Output {
+         let sp = self.prec();
++        let nonzero_precision = if rhs.0.is_zero() {
++            Some(sp)
++        } else if self.0.is_zero() {
++            Some(rhs.prec())
++        } else {
++            None
++        };
+         if self.prec() < rhs.prec() {
+             self.set_prec(rhs.prec());
+         }
+@@ -172,7 +179,13 @@ impl Add<&Float> for Float {
+ 
+         let mut r = self.0 + &rhs.0;
+ 
+-        if let Some(e) = r.get_exp()
++        if r.get_exp().is_some()
++            && let Some(precision) = nonzero_precision
++        {
++            // Adding an exact zero cannot recover bits already lost in the
++            // nonzero operand. Keep the arithmetic itself for signed zeros.
++            r.set_prec(precision);
++        } else if let Some(e) = r.get_exp()
+             && let Some(e1) = e1
+             && let Some(e2) = rhs.0.get_exp()
+         {
+@@ -206,6 +219,13 @@ impl Sub<&Float> for Float {
+     #[inline]
+     fn sub(mut self, rhs: &Self) -> Self::Output {
+         let sp = self.prec();
++        let nonzero_precision = if rhs.0.is_zero() {
++            Some(sp)
++        } else if self.0.is_zero() {
++            Some(rhs.prec())
++        } else {
++            None
++        };
+         if self.prec() < rhs.prec() {
+             self.set_prec(rhs.prec());
+         }
+@@ -214,7 +234,11 @@ impl Sub<&Float> for Float {
+ 
+         let mut r = self.0 - &rhs.0;
+ 
+-        if let Some(e) = r.get_exp()
++        if r.get_exp().is_some()
++            && let Some(precision) = nonzero_precision
++        {
++            r.set_prec(precision);
++        } else if let Some(e) = r.get_exp()
+             && let Some(e1) = e1
+             && let Some(e2) = rhs.0.get_exp()
+         {
+@@ -295,6 +319,13 @@ impl AddAssign<&Float> for Float {
+     #[inline]
+     fn add_assign(&mut self, rhs: &Float) {
+         let sp = self.prec();
++        let nonzero_precision = if rhs.0.is_zero() {
++            Some(sp)
++        } else if self.0.is_zero() {
++            Some(rhs.prec())
++        } else {
++            None
++        };
+         if self.prec() < rhs.prec() {
+             self.set_prec(rhs.prec());
+         }
+@@ -303,7 +334,11 @@ impl AddAssign<&Float> for Float {
+ 
+         self.0.add_assign(&rhs.0);
+ 
+-        if let Some(e) = self.0.get_exp()
++        if self.0.get_exp().is_some()
++            && let Some(precision) = nonzero_precision
++        {
++            self.set_prec(precision);
++        } else if let Some(e) = self.0.get_exp()
+             && let Some(e1) = e1
+             && let Some(e2) = rhs.0.get_exp()
+         {
+@@ -324,6 +359,13 @@ impl SubAssign<&Float> for Float {
+     #[inline]
+     fn sub_assign(&mut self, rhs: &Float) {
+         let sp = self.prec();
++        let nonzero_precision = if rhs.0.is_zero() {
++            Some(sp)
++        } else if self.0.is_zero() {
++            Some(rhs.prec())
++        } else {
++            None
++        };
+         if self.prec() < rhs.prec() {
+             self.set_prec(rhs.prec());
+         }
+@@ -332,7 +374,11 @@ impl SubAssign<&Float> for Float {
+ 
+         self.0.sub_assign(&rhs.0);
+ 
+-        if let Some(e) = self.0.get_exp()
++        if self.0.get_exp().is_some()
++            && let Some(precision) = nonzero_precision
++        {
++            self.set_prec(precision);
++        } else if let Some(e) = self.0.get_exp()
+             && let Some(e1) = e1
+             && let Some(e2) = rhs.0.get_exp()
+         {
+@@ -931,6 +977,78 @@ impl Real for Float {
+         MultiPrecisionFloat::with_val(self.prec() + 1, self.0.sqrt_ref()).into()
+     }
+ 
++    fn complex_sqrt(&self, imaginary: &Self) -> (Self, Self) {
++        let bits = self.prec().max(imaginary.prec());
++        let signed = |value: Self| {
++            if imaginary.is_negative() {
++                -value
++            } else {
++                value
++            }
++        };
++
++        // Resolve infinite limits before scaling: otherwise infinity divided
++        // by infinity would turn a well-defined component into NaN.
++        if !imaginary.is_finite() && !imaginary.0.is_nan() {
++            return (imaginary.norm(), imaginary.clone());
++        }
++        if !self.is_finite() && !self.0.is_nan() {
++            return if self.is_negative() {
++                (
++                    if imaginary.0.is_nan() {
++                        imaginary.clone()
++                    } else {
++                        Self::new(bits)
++                    },
++                    signed(self.norm()),
++                )
++            } else {
++                (
++                    self.clone(),
++                    if imaginary.0.is_nan() {
++                        imaginary.clone()
++                    } else {
++                        signed(Self::new(bits))
++                    },
++                )
++            };
++        }
++        if self.0.is_nan() || imaginary.0.is_nan() {
++            let nan = Self::with_val(bits, f64::NAN);
++            return (nan.clone(), nan);
++        }
++
++        // Exact axes retain signed-zero lips without trigonometric residue.
++        if imaginary.is_fully_zero() {
++            let root = self.norm().sqrt();
++            return if self.is_negative() {
++                (Self::new(bits), signed(root))
++            } else {
++                (root, imaginary.clone())
++            };
++        }
++
++        // Cartesian construction avoids assigning a well-determined dominant
++        // root component the poor relative precision of a tiny phase. Scaling
++        // bounds both squares; tracked arithmetic retains genuine component
++        // uncertainty. Only the exact divisor is created at the larger input
++        // precision: no computed value is padded.
++        let x = self.norm();
++        let y = imaginary.norm();
++        let scale = if x >= y { x } else { y };
++        let x = self.clone() / &scale;
++        let y = imaginary.clone() / &scale;
++        let radius = (x.clone() * &x + y.clone() * &y).sqrt();
++        let two = Self::with_val(bits, 2);
++        let large = scale.sqrt() * ((radius + x.norm()) / &two).sqrt();
++        if self.is_negative() {
++            (imaginary.norm() / &large / two, signed(large))
++        } else {
++            let small = imaginary.clone() / &large / two;
++            (large, small)
++        }
++    }
++
+     #[inline(always)]
+     fn log(&self) -> Self {
+         // Log grows in precision if the input is less than 1/e and more than e
+@@ -988,7 +1106,43 @@ impl Real for Float {
+ 
+     #[inline(always)]
+     fn atan2(&self, x: &Self) -> Self {
+-        self.0.clone().atan2(&x.0).into()
++        if self.prec() == x.prec() {
++            return self.0.clone().atan2(&x.0).into();
++        }
++        let precision = self.prec().max(x.prec());
++        if !self.is_finite() || !x.is_finite() || self.is_zero() || x.is_zero() {
++            // Axis angles are exact zeros or exact multiples of pi. Preserve
++            // the backend's signed-zero/nonfinite conventions without making
++            // the precision of an exact zero throttle a known angle.
++            return MultiPrecisionFloat::with_val(precision, &self.0)
++                .atan2(&x.0)
++                .into();
++        }
++
++        // A tiny component can retain few relative bits after cancellation,
++        // yet the phase near +/-pi or +/-pi/2 is accurately known in absolute
++        // terms. Compute only the small correction at the ratio's precision;
++        // Float subtraction then tracks its absolute uncertainty against a
++        // freshly computed exact constant. Never pad a computed small angle.
++        let pi = || Float::with_val(precision, Constant::Pi);
++        if x.norm() >= self.norm() {
++            let correction: Float = (self.clone() / x.norm()).0.atan().into();
++            if x.is_negative() {
++                let axis = if self.is_negative() { -pi() } else { pi() };
++                axis - correction
++            } else {
++                correction
++            }
++        } else {
++            let correction: Float = (x.clone() / self).0.atan().into();
++            let half_pi = pi() / 2;
++            let axis = if self.is_negative() {
++                -half_pi
++            } else {
++                half_pi
++            };
++            axis - correction
++        }
+     }
+ 
+     #[inline(always)]
 diff --git a/src/evaluate.rs b/src/evaluate.rs
-index 061b59d..fad5f45 100644
+index 061b59d..2240bc5 100644
 --- a/src/evaluate.rs
 +++ b/src/evaluate.rs
+@@ -47,7 +47,7 @@ pub use export::*;
+ pub use external::*;
+ pub use function_map::*;
+ pub use instruction::{
+-    ComplexPhase, ExportedInstructions, ExportedSubEvaluator, Instruction, InstructionList, Label,
++    ComplexPhase, ExportedConstantFunction, ExportedInstructions, ExportedSubEvaluator, Instruction, InstructionList, Label,
+     Slot, VectorInstruction,
+ };
+ pub use optimize::*;
 @@ -189,6 +189,198 @@ mod test {
          assert_eq!(r, 54.761021719902196);
      }
@@ -544,6 +879,98 @@ index ada06ef..3c90ede 100644
 +        );
 +    }
 +}
+diff --git a/src/evaluate/function_map.rs b/src/evaluate/function_map.rs
+index f7d4ab3..1220f01 100644
+--- a/src/evaluate/function_map.rs
++++ b/src/evaluate/function_map.rs
+@@ -233,6 +233,17 @@ impl FunctionMap {
+         self.tag.get(symbol).cloned().unwrap_or(0)
+     }
+ 
++    /// Inspect the exact definition selected by a variable or tagged function call.
++    ///
++    /// Returns the number of leading tag arguments, the formal parameters and
++    /// the unsubstituted body. This read-only view does not apply the evaluator's
++    /// inlining policy or perform argument substitution. A function with no
++    /// matching definition (including an unmatched tag) returns `None`.
++    pub fn get_definition(&self, call: AtomView<'_>) -> Option<(usize, &[Indeterminate], &Atom)> {
++        self.get(call)
++            .map(|definition| (definition.tag_len, definition.args.as_slice(), &definition.body))
++    }
++
+     pub(super) fn get(&self, a: AtomView) -> Option<&Expr> {
+         if let AtomView::Var(s) = a {
+             return self.tagged_fn_map.get(&(s.get_symbol(), vec![]));
+diff --git a/src/evaluate/instruction.rs b/src/evaluate/instruction.rs
+index 831d0ef..d5f9d98 100644
+--- a/src/evaluate/instruction.rs
++++ b/src/evaluate/instruction.rs
+@@ -151,6 +151,12 @@ pub struct ExportedInstructions<T> {
+     pub temporary_count: usize,
+     /// Constant values referenced by [`Slot::Const`].
+     pub constants: Vec<T>,
++    /// Symbolic definitions of constant slots evaluated by registered functions.
++    ///
++    /// In exact evaluators these slots can contain rational placeholders, not
++    /// the value of the registered constant. A consumer must resolve these
++    /// definitions at its target precision before using the constant slots.
++    pub constant_functions: Vec<ExportedConstantFunction>,
+     /// Locally defined evaluators called by [`Instruction::Fun`] instructions in this stream.
+     ///
+     /// A call resolves to a sub-evaluator when its symbol and tags match the corresponding fields
+@@ -159,6 +165,19 @@ pub struct ExportedInstructions<T> {
+     pub sub_evaluators: Vec<ExportedSubEvaluator<T>>,
+ }
+ 
++/// An exact registered constant or fixed-argument function in a constant slot.
++#[derive(Debug, Clone)]
++pub struct ExportedConstantFunction {
++    /// Index in [`ExportedInstructions::constants`], not in temporary storage.
++    pub index: usize,
++    /// Registered function or constant symbol.
++    pub symbol: Symbol,
++    /// Canonical function tags, in their original order.
++    pub tags: Vec<String>,
++    /// Exact numerical arguments; empty for a registered constant such as pi.
++    pub fixed_args: Vec<Complex<Rational>>,
++}
++
+ /// A non-inlined function body exported alongside an instruction stream.
+ ///
+ /// The `symbol` and `tags` fields form the call signature and match the corresponding values in an
+@@ -195,6 +214,24 @@ impl<T: Clone> ExpressionEvaluator<T> {
+     pub fn export_instructions(&self) -> ExportedInstructions<T> {
+         let mut instr = vec![];
+         let constants: Vec<_> = self.stack[self.param_count..self.reserved_indices].to_vec();
++        let constant_functions = self
++            .external_fns
++            .iter()
++            .filter_map(|external| {
++                external
++                    .constant_index
++                    .map(|index| ExportedConstantFunction {
++                        index,
++                        symbol: external.symbol,
++                        tags: external
++                            .tags
++                            .iter()
++                            .map(|tag| tag.to_canonical_string())
++                            .collect(),
++                        fixed_args: external.fixed_args.clone(),
++                    })
++            })
++            .collect();
+         let sub_evaluators = self
+             .external_fns
+             .iter()
+@@ -330,6 +367,7 @@ impl<T: Clone> ExpressionEvaluator<T> {
+             instructions: instr,
+             temporary_count: self.stack.len() - self.reserved_indices,
+             constants,
++            constant_functions,
+             sub_evaluators,
+         }
+     }
 diff --git a/src/evaluate/tree.rs b/src/evaluate/tree.rs
 index 4bcd331..20c86a5 100644
 --- a/src/evaluate/tree.rs
@@ -728,10 +1155,76 @@ index 4bcd331..20c86a5 100644
              .external_fns
              .retain(|external| external.constant_index.is_none());
 diff --git a/src/transcendental.rs b/src/transcendental.rs
-index 6461e5c..3d6483f 100644
+index 6461e5c..f5ca81c 100644
 --- a/src/transcendental.rs
 +++ b/src/transcendental.rs
-@@ -559,10 +559,16 @@ impl SpecialSymbols {
+@@ -1,4 +1,7 @@
+-use std::sync::{Arc, LazyLock};
++use std::{
++    ops::Deref,
++    sync::{Arc, OnceLock},
++};
+ 
+ mod cpp;
+ 
+@@ -26,7 +29,37 @@ use crate::{
+     utils::Settable,
+ };
+ 
+-static SPECIALS: LazyLock<SpecialSymbols> = LazyLock::new(|| SpecialSymbols {
++// State initialization runs dependent crates' callbacks, which may themselves
++// request a transcendental symbol. Enter State BEFORE acquiring this cache's
++// initialization lock; the opposite order would re-enter the same pending
++// LazyLock/OnceLock from such a callback. Warm accesses need no State lookup.
++struct SymbolCache<T> {
++    value: OnceLock<T>,
++    initialize: fn() -> T,
++}
++
++impl<T> SymbolCache<T> {
++    const fn new(initialize: fn() -> T) -> Self {
++        Self {
++            value: OnceLock::new(),
++            initialize,
++        }
++    }
++}
++
++impl<T> Deref for SymbolCache<T> {
++    type Target = T;
++
++    fn deref(&self) -> &Self::Target {
++        if let Some(value) = self.value.get() {
++            return value;
++        }
++        let _ = State::get_global_state();
++        self.value.get_or_init(self.initialize)
++    }
++}
++
++static SPECIALS: SymbolCache<SpecialSymbols> = SymbolCache::new(|| SpecialSymbols {
+     euler_gamma: get_symbol!("euler_gamma").expect("Euler gamma not defined"),
+     gamma: get_symbol!("gamma").expect("gamma not defined"),
+     erf: get_symbol!("erf").expect("erf not defined"),
+@@ -36,7 +69,7 @@ static SPECIALS: LazyLock<SpecialSymbols> = LazyLock::new(|| SpecialSymbols {
+     root_var: get_symbol!("root_var").expect("root_var not defined"),
+     zeta: get_symbol!("zeta").expect("zeta not defined"),
+ });
+-static GEOMETRICS: LazyLock<GeometricSymbols> = LazyLock::new(|| GeometricSymbols {
++static GEOMETRICS: SymbolCache<GeometricSymbols> = SymbolCache::new(|| GeometricSymbols {
+     tan: get_symbol!("tan").expect("tan not defined"),
+     cot: get_symbol!("cot").expect("cot not defined"),
+     sec: get_symbol!("sec").expect("sec not defined"),
+@@ -60,7 +93,7 @@ static GEOMETRICS: LazyLock<GeometricSymbols> = LazyLock::new(|| GeometricSymbol
+     asech: get_symbol!("asech").expect("asech not defined"),
+     acsch: get_symbol!("acsch").expect("acsch not defined"),
+ });
+-static BESSELS: LazyLock<BesselSymbols> = LazyLock::new(|| BesselSymbols {
++static BESSELS: SymbolCache<BesselSymbols> = SymbolCache::new(|| BesselSymbols {
+     bessel_j: get_symbol!("bessel_j").expect("bessel_j not defined"),
+     bessel_y: get_symbol!("bessel_y").expect("bessel_y not defined"),
+     bessel_i: get_symbol!("bessel_i").expect("bessel_i not defined"),
+@@ -559,10 +592,16 @@ impl SpecialSymbols {
                          })
                      })
                      .register_tagged(|tags| {
@@ -748,7 +1241,7 @@ index 6461e5c..3d6483f 100644
                          let order = complex_float_tag("polylog", tags, 53).ok();
                          Box::new(move |args: &[Complex<f64>]| {
                              polylog_eval_complex_f64(order.clone(), args)
-@@ -2930,6 +2936,133 @@ fn polylog_eval_complex_f64(order: Option<Complex<Float>>, args: &[Complex<f64>]
+@@ -2930,6 +2969,159 @@ fn polylog_eval_complex_f64(order: Option<Complex<Float>>, args: &[Complex<f64>]
          .unwrap_or_else(|| Complex::new(f64::NAN, f64::NAN))
  }
  
@@ -794,7 +1287,12 @@ index 6461e5c..3d6483f 100644
 +    -3.0874198024267403e-24, // -3392780147/1098904704936220100064706560000000
 +];
 +
-+/// Principal binary64 dilogarithm for finite complex arguments.
++/// Evaluate the principal complex dilogarithm directly in binary64, without
++/// constructing an expression or initializing symbolic state.
++///
++/// Exact real arguments above one use the negative-imaginary value for either
++/// imaginary signed zero. Nonzero imaginary arguments retain their cut side.
++/// Nonfinite inputs use the same generic fallback as the numeric callback.
 +///
 +/// Inversion (DLMF 25.12.4) followed by reflection (25.12.6, analytically
 +/// continued off the cut) reduces to |u| <= 1, Re(u) <= 1/2. With
@@ -803,13 +1301,18 @@ index 6461e5c..3d6483f 100644
 +/// On this domain |w| <= hypot(log(2), pi/3). The omitted tail after B28 is
 +/// bounded by 2*zeta(2)*|w|*q^15/(31*(1-q)) < 1.5e-22, q=|w/(2*pi)|^2.
 +/// This is a truncation bound, not a bound on binary64 arithmetic/log errors
-+/// or a correct-rounding guarantee. Arbitrary-precision evaluation is unchanged.
++/// or a correct-rounding guarantee.
 +/// References: https://dlmf.nist.gov/25.12 and https://dlmf.nist.gov/24.2.E1.
-+fn dilog_complex_f64(z: Complex<f64>) -> Complex<f64> {
++pub fn dilog_complex_f64(z: Complex<f64>) -> Complex<f64> {
 +    use std::f64::consts::PI;
 +    const PI_SQUARED_OVER_SIX: f64 = std::f64::consts::PI * std::f64::consts::PI / 6.0;
 +
-+    debug_assert!(z.re.is_finite() && z.im.is_finite());
++    if !z.re.is_finite() || !z.im.is_finite() {
++        return polylog_eval_complex_f64(
++            Some(Complex::new(Float::with_val(53, 2), Float::new(53))),
++            &[z],
++        );
++    }
 +    if z.im == 0.0 {
 +        if z.re == 0.0 {
 +            return Complex::new(0.0, 0.0);
@@ -868,6 +1371,22 @@ index 6461e5c..3d6483f 100644
 +    result
 +}
 +
++/// Evaluate the principal complex dilogarithm directly at a binary precision,
++/// without constructing an expression or initializing symbolic state.
++///
++/// Uses guarded arbitrary-precision arithmetic and rounds components down to
++/// at most `binary_prec` bits; any lower precision reported by the arithmetic
++/// is retained rather than padded. Existing input values are not reparsed.
++/// Exact real arguments above one use the negative-imaginary value for either
++/// imaginary signed zero. Returns `None` for zero/overflowing precision requests
++/// or if the continuation/series cannot converge within its checked work limit.
++pub fn dilog_complex_float(z: &Complex<Float>, binary_prec: u32) -> Option<Complex<Float>> {
++    if binary_prec == 0 {
++        return None;
++    }
++    polylog_integer_numeric_eval(2, z, binary_prec, 0)
++}
++
 +/// Principal logarithm without overflow/underflow from a squared norm.
 +fn dilog_log_f64(z: Complex<f64>) -> Complex<f64> {
 +    let larger = z.re.abs().max(z.im.abs());
@@ -882,9 +1401,121 @@ index 6461e5c..3d6483f 100644
  fn zeta_eval_f64(args: &[f64]) -> f64 {
      let [arg] = args else {
          return f64::NAN;
-@@ -3677,11 +3810,13 @@ fn polylog_integer_numeric_eval(
+@@ -3567,49 +3759,53 @@ fn polylog_numeric_eval(
+     let zero = Float::new(binary_prec);
+     let one = Float::with_val(binary_prec, 1);
+ 
+-    if z.norm().re.to_f64() == 0.0 {
++    if z.is_fully_zero() {
+         return Some(Complex::new(zero.clone(), zero.clone()));
+     }
+ 
+-    if s.im.to_f64() == 0.0 && s.re.to_f64() == 0.0 {
++    if s.is_fully_zero() {
+         return Some(z.clone() / (Complex::new(one.clone(), zero.clone()) - z.clone()));
+     }
+ 
+-    if s.im.to_f64() == 0.0 && s.re.to_f64() == 1.0 {
++    if s.im.is_fully_zero() && s.re == one {
+         return Some(-(Complex::new(one.clone(), zero.clone()) - z.clone()).log());
+     }
+ 
+-    if s.im.to_f64() == 0.0 {
+-        let rounded = s.re.to_f64().round();
+-        if (s.re.to_f64() - rounded).abs() < 1e-14
+-            && rounded >= i64::MIN as f64
+-            && rounded <= i64::MAX as f64
+-        {
+-            return polylog_integer_numeric_eval(rounded as i64, z, binary_prec, 0);
+-        }
++    if let Some(order) = complex_float_to_integer(s) {
++        return polylog_integer_numeric_eval(order, z, binary_prec, 0);
+     }
+ 
+-    if z.norm().re.to_f64() >= 0.95 {
++    let radius = z.norm().re;
++    if radius >= Float::with_val(binary_prec, 19) / Float::with_val(binary_prec, 20) {
+         return None;
+     }
+ 
+-    let threshold = 2f64.powi(-(binary_prec.min(900) as i32));
++    let threshold = binary_series_threshold(binary_prec);
+     let mut z_pow = z.clone();
+     let mut sum = Complex::new(zero.clone(), zero.clone());
+ 
+-    for k in 1..(12 * binary_prec.max(16)) {
++    for k in 1..64u32.checked_mul(binary_prec.max(16))? {
+         let base = Complex::new(Float::with_val(binary_prec, k), zero.clone());
+         let denom = base.powf(s);
+         let term = z_pow.clone() / denom;
+-        let term_size = term.norm().re.to_f64().abs();
++        let term_size = complex_l1_norm(&term);
+         sum += term;
+-        if k > 16 && (term_size == 0.0 || term_size < threshold) {
++        if k > 16 && term_size <= complex_l1_norm(&sum) * &threshold {
+             return Some(sum);
+         }
+         z_pow *= z.clone();
+     }
+ 
+-    Some(sum)
++    // Do not silently return an unconverged partial sum for difficult orders.
++    None
++}
++
++fn binary_series_threshold(binary_prec: u32) -> Float {
++    Float::with_val(binary_prec, 0.5).pow(u64::from(binary_prec))
++}
++
++fn complex_l1_norm(value: &Complex<Float>) -> Float {
++    value.re.norm() + value.im.norm()
+ }
+ 
+ fn polylog_minus_one_exact_rational(s: &Rational) -> Option<Atom> {
+@@ -3667,6 +3863,35 @@ fn polylog_integer_numeric_eval(
+     z: &Complex<Float>,
+     binary_prec: u32,
+     depth: u32,
++) -> Option<Complex<Float>> {
++    // Guard summation/continuation cancellation before rounding once to the
++    // requested precision. A tiny nonzero imaginary component near the real
++    // axis can be recovered as a difference of O(1) Jonquiere terms; preserve
++    // its exponent gap as well. This uses backend exponents, never binary64.
++    let component_gap = match (z.re.as_raw().get_exp(), z.im.as_raw().get_exp()) {
++        (Some(re), Some(im)) => re.abs_diff(im),
++        _ => 0,
++    };
++    let guard = 64u32.checked_add(binary_prec.max(1).ilog2())?;
++    let work_prec = binary_prec.checked_add(guard)?.checked_add(component_gap)?;
++    let mut argument = z.clone();
++    argument.re.set_prec(work_prec);
++    argument.im.set_prec(work_prec);
++    let mut result = polylog_integer_numeric_work(order, &argument, work_prec, depth)?;
++    if result.re.prec() > binary_prec {
++        result.re.set_prec(binary_prec);
++    }
++    if result.im.prec() > binary_prec {
++        result.im.set_prec(binary_prec);
++    }
++    Some(result)
++}
++
++fn polylog_integer_numeric_work(
++    order: i64,
++    z: &Complex<Float>,
++    binary_prec: u32,
++    depth: u32,
+ ) -> Option<Complex<Float>> {
+     if depth > 8 {
+         return None;
+@@ -3674,14 +3899,18 @@ fn polylog_integer_numeric_eval(
+ 
+     let zero = Float::new(binary_prec);
+     if order <= 0 {
++        u32::try_from(order.checked_neg()?).ok()?;
          return Some(polylog_negative_integer_numeric_eval(order, z, binary_prec));
      }
++    let positive_order = u32::try_from(order).ok()?;
  
 -    if z.im.to_f64() == 0.0 && z.re.to_f64() == 1.0 {
 +    // Endpoint and branch predicates must preserve the input precision. Nearby
@@ -898,7 +1529,7 @@ index 6461e5c..3d6483f 100644
          let zeta = zeta_integer_numeric_eval(order, binary_prec);
          let exponent = Complex::new(Float::with_val(binary_prec, 1 - order), zero.clone());
          let factor = complex_one(binary_prec)
-@@ -3694,7 +3829,7 @@ fn polylog_integer_numeric_eval(
+@@ -3694,33 +3923,36 @@ fn polylog_integer_numeric_eval(
      }
  
      #[cfg(feature = "float-mpfr")]
@@ -907,7 +1538,15 @@ index 6461e5c..3d6483f 100644
          return Some(Complex::new(
              z.re.clone().into_raw().li2().into(),
              zero.clone(),
-@@ -3707,7 +3842,10 @@ fn polylog_integer_numeric_eval(
+         ));
+     }
+ 
+-    let abs_z = z.norm().re.to_f64().abs();
+-    if abs_z < 0.95 {
+-        return polylog_series_integer(order as u32, z, binary_prec, 64);
++    let abs_z = z.norm().re;
++    if abs_z < Float::with_val(binary_prec, 19) / Float::with_val(binary_prec, 20) {
++        return polylog_series_integer(positive_order, z, binary_prec, 64);
      }
  
      let log_z = z.log();
@@ -915,23 +1554,187 @@ index 6461e5c..3d6483f 100644
 +    // The logarithmic expansion converges for |log(z)| < 2*pi (DLMF 25.12.12).
 +    // Cover the unit circle, where the direct power series converges too slowly
 +    // to reach the requested precision before its iteration cap.
-+    if log_z.norm().re.to_f64().abs() < 4.0 {
++    if log_z.norm().re < Float::with_val(binary_prec, 4) {
          return Some(polylog_real_branch_fix(
              z,
-             polylog_jonquiere_integer(order as u32, &log_z, binary_prec),
-@@ -3837,7 +3975,10 @@ fn polylog_jonquiere_integer(order: u32, mu: &Complex<Float>, binary_prec: u32)
+-            polylog_jonquiere_integer(order as u32, &log_z, binary_prec),
++            polylog_jonquiere_integer(positive_order, &log_z, binary_prec)?,
+         ));
+     }
  
-         let term_size = term.norm().re.to_f64().abs();
+-    if abs_z <= 1.0 + 1e-14 {
+-        return polylog_series_integer(order as u32, z, binary_prec, 64);
++    if abs_z <= Float::with_val(binary_prec, 1) {
++        return polylog_series_integer(positive_order, z, binary_prec, 64);
+     }
+ 
+     let inv = z.inv();
+     if order == 2 {
+-        let continued = polylog_integer_numeric_eval(order, &inv, binary_prec, depth + 1)?;
++        let continued = polylog_integer_numeric_work(order, &inv, binary_prec, depth + 1)?;
+         let log_minus_z = polylog_log_minus(z, binary_prec);
+         let pi_sq_over_six = Complex::new(
+             Float::with_val(binary_prec, Constant::Pi).pow(2) / Float::with_val(binary_prec, 6),
+@@ -3735,7 +3967,7 @@ fn polylog_integer_numeric_eval(
+         ));
+     }
+ 
+-    let continued = polylog_integer_numeric_eval(order, &inv, binary_prec, depth + 1)?;
++    let continued = polylog_integer_numeric_work(order, &inv, binary_prec, depth + 1)?;
+     let log_minus_z = polylog_log_minus(z, binary_prec);
+     let i = log_minus_z.i();
+     let bernoulli = bernoulli_polynomial(
+@@ -3796,32 +4028,60 @@ fn polylog_series_integer(
+     max_terms_factor: u32,
+ ) -> Option<Complex<Float>> {
+     let zero = Float::new(binary_prec);
+-    let threshold = 2f64.powi(-(binary_prec.min(900) as i32));
++    let radius = z.norm().re;
++    if radius >= Float::with_val(binary_prec, 1) {
++        return None;
++    }
++    // For positive integer order, the remaining tail is bounded by the
++    // current term's magnitude divided by (1-|z|). The extra factor two
++    // covers conversion between componentwise and Euclidean norms.
++    let threshold = binary_series_threshold(binary_prec)
++        * (Float::with_val(binary_prec, 1) - radius)
++        / Float::with_val(binary_prec, 2);
+     let mut z_pow = z.clone();
+     let mut sum = Complex::new(zero.clone(), zero.clone());
+ 
+-    for k in 1..(max_terms_factor * binary_prec.max(16)) {
++    for k in 1..max_terms_factor.checked_mul(binary_prec.max(16))? {
+         let denom = Float::with_val(binary_prec, k).pow(order as u64);
+         let term = z_pow.clone() / Complex::new(denom, zero.clone());
+-        let term_size = term.norm().re.to_f64().abs();
++        let term_size = complex_l1_norm(&term);
+         sum += term;
+-        if k > 16 && (term_size == 0.0 || term_size < threshold) {
++        if k > 16 && term_size <= complex_l1_norm(&sum) * &threshold {
+             return Some(sum);
+         }
+         z_pow *= z.clone();
+     }
+ 
+-    Some(sum)
++    None
+ }
+ 
+-fn polylog_jonquiere_integer(order: u32, mu: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
++fn polylog_jonquiere_integer(
++    order: u32,
++    mu: &Complex<Float>,
++    binary_prec: u32,
++) -> Option<Complex<Float>> {
++    if order == 2 {
++        return dilog_jonquiere(mu, binary_prec);
++    }
+     let zero = Float::new(binary_prec);
+-    let threshold = 2f64.powi(-(binary_prec.min(900) as i32));
++    let ratio = mu.norm().re
++        / (Float::with_val(binary_prec, 2) * Float::with_val(binary_prec, Constant::Pi));
++    if ratio >= Float::with_val(binary_prec, 1) {
++        return None;
++    }
++    // Beyond the exceptional logarithmic term, successive nonzero terms
++    // have magnitude ratio at most (|mu|/(2*pi))^2. Structural zeta zeros
++    // must not terminate the series. See DLMF 25.12.12 and 25.6.3.
++    let threshold = binary_series_threshold(binary_prec)
++        * (Float::with_val(binary_prec, 1) - ratio.pow(2))
++        / Float::with_val(binary_prec, 2);
+     let mut sum = Complex::new(zero.clone(), zero.clone());
+     let mut mu_pow = Complex::new(Float::with_val(binary_prec, 1), zero.clone());
+     let mut factorial = Float::with_val(binary_prec, 1);
+ 
+-    for k in 0u32..(32 * binary_prec.max(16)) {
++    let first_convergence_check = order.checked_add(8)?;
++    let max_terms = 32u32.checked_mul(binary_prec.max(16))?.checked_add(order)?;
++    for k in 0u32..max_terms {
+         let term = if k + 1 == order {
+             mu_pow.clone() / Complex::new(factorial.clone(), zero.clone())
+                 * Complex::new(
+@@ -3835,20 +4095,76 @@ fn polylog_jonquiere_integer(order: u32, mu: &Complex<Float>, binary_prec: u32)
+                 * zeta_integer_numeric_eval(order as i64 - k as i64, binary_prec)
+         };
+ 
+-        let term_size = term.norm().re.to_f64().abs();
++        let term_size = complex_l1_norm(&term);
          sum += term;
 -        if k > order + 8 && (term_size == 0.0 || term_size < threshold) {
+-            return sum;
 +        // Zeta(-2n) vanishes identically. A structural zero is not a
 +        // convergence estimate for the following nonzero term.
 +        let trivial_zeta_zero = k > order && (k - order) % 2 == 0;
-+        if k > order + 8 && !trivial_zeta_zero && (term_size == 0.0 || term_size < threshold) {
-             return sum;
++        if k > first_convergence_check
++            && !trivial_zeta_zero
++            && term_size <= complex_l1_norm(&sum) * &threshold
++        {
++            return Some(sum);
          }
  
-@@ -3871,7 +4012,7 @@ fn bernoulli_polynomial(n: u32, x: &Complex<Float>, binary_prec: u32) -> Complex
+         mu_pow *= mu.clone();
+         factorial *= Float::with_val(binary_prec, k + 1);
+     }
+ 
+-    sum
++    None
++}
++
++fn dilog_jonquiere(mu: &Complex<Float>, binary_prec: u32) -> Option<Complex<Float>> {
++    let zero = Float::new(binary_prec);
++    let one = Float::with_val(binary_prec, 1);
++    let two = Float::with_val(binary_prec, 2);
++    let pi = Float::with_val(binary_prec, Constant::Pi);
++    let scaled_mu = mu.clone() / (two.clone() * &pi);
++    let ratio_squared = scaled_mu.norm_squared();
++    if ratio_squared >= one {
++        return None;
++    }
++    let threshold = binary_series_threshold(binary_prec) * (one.clone() - ratio_squared) / &two;
++    let mut sum = Complex::new(pi.pow(2) / Float::with_val(binary_prec, 6), zero.clone())
++        + mu.clone() * (Complex::new(one, zero.clone()) - (-mu.clone()).log())
++        - mu.clone() * mu.clone() / Float::with_val(binary_prec, 4);
++
++    // Reflect the negative-integer zeta coefficients analytically rather than
++    // repeatedly evaluating MPFR zeta at large negative integers:
++    // zeta(2-k)/k! = (-1)^((k-1)/2) * 2*zeta(k-1)
++    //                 / (k*(k-1)*(2*pi)^(k-1)), odd k >= 3.
++    // This is the SAME Jonquiere series (DLMF 25.12.12, 25.6.2--25.6.3).
++    // Recurrent powers also avoid separately growing factorials and zeta
++    // values which cancel in their quotient. Even k>2 terms vanish exactly.
++    let step = -scaled_mu.clone() * scaled_mu;
++    let mut power = mu.clone() * step.clone();
++    let max_terms = 16u32.checked_mul(binary_prec.max(16))?;
++    for n in 1..max_terms {
++        let k = n.checked_mul(2)?.checked_add(1)?;
++        let coefficient = zeta_integer_numeric_eval(i64::from(k - 1), binary_prec).re * &two
++            / (Float::with_val(binary_prec, k) * Float::with_val(binary_prec, k - 1));
++        let term = power.clone() * coefficient;
++        let term_size = complex_l1_norm(&term);
++        sum += term;
++        if n > 8 && term_size <= complex_l1_norm(&sum) * &threshold {
++            return Some(sum);
++        }
++        power *= step.clone();
++    }
++    None
+ }
+ 
+ fn zeta_integer_numeric_eval(order: i64, binary_prec: u32) -> Complex<Float> {
++    #[cfg(feature = "float-mpfr")]
++    if let Ok(order) = u32::try_from(order) {
++        use crate::domains::backend::float::MultiPrecisionFloat;
++        // MPFR has a specialized integer-order algorithm; constructing a
++        // floating-order argument instead invokes its general zeta routine.
++        return Complex::new(
++            MultiPrecisionFloat::with_val(binary_prec, MultiPrecisionFloat::zeta_u(order)).into(),
++            Float::new(binary_prec),
++        );
++    }
+     zeta_numeric_eval(
+         &Complex::new(Float::with_val(binary_prec, order), Float::new(binary_prec)),
+         binary_prec,
+@@ -3871,7 +4187,7 @@ fn bernoulli_polynomial(n: u32, x: &Complex<Float>, binary_prec: u32) -> Complex
  }
  
  fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
@@ -940,7 +1743,7 @@ index 6461e5c..3d6483f 100644
          return z.log()
              + Complex::new(
                  Float::new(binary_prec),
-@@ -3883,7 +4024,10 @@ fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+@@ -3883,7 +4199,10 @@ fn polylog_log_minus(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
  }
  
  fn polylog_real_branch_fix(z: &Complex<Float>, value: Complex<Float>) -> Complex<Float> {
@@ -952,12 +1755,306 @@ index 6461e5c..3d6483f 100644
          return Complex::new(value.re, -value.im);
      }
  
-@@ -4565,6 +4709,207 @@ mod tests {
+@@ -3919,7 +4238,7 @@ fn zeta_numeric_eval(s: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+     let zero = Float::new(binary_prec);
+ 
+     if s.is_real() {
+-        if s.re.to_f64() == 1.0 {
++        if s.re == Float::with_val(binary_prec, 1) {
+             return Complex::new(Float::with_val(binary_prec, f64::INFINITY), zero);
+         }
+ 
+@@ -3934,10 +4253,6 @@ fn zeta_numeric_eval(s: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+         }
+     }
+ 
+-    if (s.re.to_f64() - 1.0).abs() < 1e-14 && s.im.to_f64().abs() < 1e-14 {
+-        return Complex::new(Float::with_val(binary_prec, f64::INFINITY), zero);
+-    }
+-
+     let work_prec = binary_prec
+         .saturating_mul(4)
+         .max(binary_prec.saturating_add(64));
+@@ -3947,7 +4262,7 @@ fn zeta_numeric_eval(s: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+     s_im.set_prec(work_prec);
+     let s = Complex::new(s_re, s_im);
+ 
+-    let result = if s.re.to_f64() < 0.0 {
++    let result = if s.re < zero {
+         zeta_complex_reflection(&s, work_prec)
+     } else {
+         zeta_complex_hasse(&s, work_prec)
+@@ -3977,7 +4292,7 @@ fn zeta_complex_reflection(s: &Complex<Float>, binary_prec: u32) -> Complex<Floa
+         (pi_c * s.clone() / Complex::new(Float::with_val(binary_prec, 2), zero.clone())).sin();
+     let gamma = gamma_numeric_eval(&reflected, binary_prec);
+     #[cfg(feature = "float-mpfr")]
+-    let zeta = if reflected.im.to_f64() == 0.0 {
++    let zeta = if reflected.im.is_fully_zero() {
+         Complex::new(reflected.re.clone().into_raw().zeta().into(), zero.clone())
+     } else {
+         zeta_complex_hasse(&reflected, binary_prec)
+@@ -3997,11 +4312,14 @@ fn zeta_complex_hasse(s: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+     let two_c = Complex::new(two.clone(), zero.clone());
+ 
+     let denominator = one_c.clone() - two_c.powf(&(one_c - s.clone()));
+-    let threshold = 2f64.powi(-(binary_prec.min(900) as i32));
++    let threshold = binary_series_threshold(binary_prec);
+     let mut outer = Complex::new(zero.clone(), zero.clone());
+     let mut two_power = Float::with_val(binary_prec, 2);
+ 
+-    for n in 0..(8 * binary_prec.max(16)) {
++    let Some(max_terms) = 8u32.checked_mul(binary_prec.max(16)) else {
++        return Complex::new(Float::with_val(binary_prec, f64::NAN), zero);
++    };
++    for n in 0..max_terms {
+         let mut inner = Complex::new(zero.clone(), zero.clone());
+         let mut binom = Float::with_val(binary_prec, 1);
+ 
+@@ -4020,16 +4338,16 @@ fn zeta_complex_hasse(s: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+         }
+ 
+         let term = inner / Complex::new(two_power.clone(), zero.clone());
+-        let term_size = term.norm().re.to_f64().abs();
++        let term_size = complex_l1_norm(&term);
+         outer += term;
+-        if n > 16 && (term_size == 0.0 || term_size < threshold) {
+-            break;
++        if n > 16 && term_size <= complex_l1_norm(&outer) * &threshold {
++            return outer / denominator;
+         }
+ 
+         two_power *= Float::with_val(binary_prec, 2);
+     }
+ 
+-    outer / denominator
++    Complex::new(Float::with_val(binary_prec, f64::NAN), zero)
+ }
+ 
+ fn gamma_complex_spouge(z: &Complex<Float>, binary_prec: u32) -> Complex<Float> {
+@@ -4565,6 +4883,425 @@ mod tests {
          );
      }
  
 +    // These tests intentionally call only numerical functions and Rational/
 +    // MPFR arithmetic: no Atom, Symbol, State initializer, or license access.
++    #[cfg(feature = "float-mpfr")]
++    fn assert_precision_complex(
++        actual: &Complex<Float>,
++        expected: &Complex<Float>,
++        bits: u32,
++        label: &str,
++    ) {
++        use crate::domains::float::FloatLike;
++        let error = super::complex_l1_norm(&(actual.clone() - expected.clone()));
++        let scale = if expected.is_fully_zero() {
++            Float::with_val(bits, 1)
++        } else {
++            super::complex_l1_norm(expected)
++        };
++        let bound = scale * Float::with_val(bits, 0.5).pow(u64::from(bits - 16));
++        assert!(
++            error <= bound,
++            "{label}: error exponent {:?}, bound exponent {:?}",
++            error.as_raw().get_exp(),
++            bound.as_raw().get_exp()
++        );
++    }
++
++    #[test]
++    #[cfg(feature = "float-mpfr")]
++    fn polylog_thousand_digit_reflected_coefficients() {
++        use super::{Constant, factorial_float, zeta_integer_numeric_eval};
++        use crate::domains::float::FloatLike;
++        for bits in [128, 256] {
++            let mu = Complex::new(Float::with_val(bits, 0.25), Float::with_val(bits, 0.5));
++            let scaled =
++                mu.clone() / (Float::with_val(bits, 2) * Float::with_val(bits, Constant::Pi));
++            let step = -scaled.clone() * scaled;
++            let mut power = mu.clone() * step.clone();
++            for n in 1..=100 {
++                let k = 2 * n + 1;
++                let coefficient = zeta_integer_numeric_eval(i64::from(k - 1), bits).re
++                    * Float::with_val(bits, 2)
++                    / (Float::with_val(bits, k) * Float::with_val(bits, k - 1));
++                let actual = power.clone() * coefficient;
++                let expected = mu.pow(u64::from(k))
++                    * zeta_integer_numeric_eval(2 - i64::from(k), bits)
++                    / factorial_float(k, bits);
++                assert_precision_complex(&actual, &expected, bits, "reflected coefficient");
++                power *= step.clone();
++            }
++        }
++    }
++
++    #[test]
++    #[cfg(feature = "float-mpfr")]
++    fn polylog_thousand_digit_continuation_identities() {
++        use super::{
++            Constant, complex_one, complex_pi, dilog_complex_float, polylog_integer_numeric_eval,
++        };
++        use crate::domains::float::FloatLike;
++        // 3456 bits exceed 1000 decimal digits; all comparisons remain MPFR.
++        const BITS: u32 = 3456;
++        let zero = Float::new(BITS);
++        let one = Float::with_val(BITS, 1);
++        let pi = Float::with_val(BITS, Constant::Pi);
++        let li2 = |z: &Complex<Float>| dilog_complex_float(z, BITS).expect("convergent Li2");
++        let i = Complex::new(zero.clone(), one.clone());
++        let expected_i = Complex::new(
++            -pi.clone().pow(2) / Float::with_val(BITS, 48),
++            Float::with_val(BITS, Constant::Catalan),
++        );
++        assert_precision_complex(&li2(&i), &expected_i, BITS, "Li2(i)");
++        let z = Complex::new(
++            one.clone() / Float::with_val(BITS, 2),
++            one.clone() / Float::with_val(BITS, 3),
++        );
++        let complement = complex_one(BITS) - z.clone();
++        let expected = complex_pi(BITS).pow(2) / Float::with_val(BITS, 6)
++            - z.clone().log() * complement.clone().log();
++        assert_precision_complex(
++            &(li2(&z) + li2(&complement)),
++            &expected,
++            BITS,
++            "complex reflection",
++        );
++        // Exercise the inversion path, outside the Jonquiere disk.
++        let large = Complex::new(Float::with_val(BITS, 100), Float::with_val(BITS, 7));
++        let logarithm = (-large.clone()).log();
++        let expected = -complex_pi(BITS).pow(2) / Float::with_val(BITS, 6)
++            - logarithm.clone() * logarithm / Float::with_val(BITS, 2);
++        assert_precision_complex(
++            &(li2(&large) + li2(&large.inv())),
++            &expected,
++            BITS,
++            "complex inversion",
++        );
++        // Independent precision refinement on both series/continuation paths.
++        for argument in [z, i, large] {
++            let actual = li2(&argument);
++            let mut refined = argument;
++            refined.re.set_prec(BITS + 384);
++            refined.im.set_prec(BITS + 384);
++            let expected = polylog_integer_numeric_eval(2, &refined, BITS + 384, 0).unwrap();
++            assert_eq!(actual.re.prec(), BITS);
++            assert_eq!(actual.im.prec(), BITS);
++            assert_precision_complex(&actual, &expected, BITS, "precision refinement");
++        }
++    }
++
++    #[test]
++    #[cfg(feature = "float-mpfr")]
++    fn polylog_thousand_digit_tiny_inputs_and_cut_sides() {
++        use super::{Constant, polylog_integer_numeric_eval, polylog_numeric_eval};
++        use crate::domains::float::FloatLike;
++        const BITS: u32 = 3456;
++        let tiny = Float::parse("1e-1000", Some(BITS)).unwrap();
++        let z = Complex::new(tiny.clone(), tiny.clone() * Float::with_val(BITS, 2));
++        let order = Complex::new(Float::with_val(BITS, 2), Float::new(BITS));
++        let actual = polylog_numeric_eval(&order, &z, BITS).unwrap();
++        // The omitted z^3/9 is far below a 3456-bit relative error here.
++        let expected = z.clone() + z.clone() * z / Float::with_val(BITS, 4);
++        assert!(!actual.is_fully_zero());
++        assert_precision_complex(&actual, &expected, BITS, "tiny nonzero argument");
++
++        let pi = Float::with_val(BITS, Constant::Pi);
++        let log_two = Float::with_val(BITS, 2).log();
++        for sign in [-1, 1] {
++            let width = tiny.clone() * Float::with_val(BITS, sign);
++            let negative_axis = Complex::new(Float::with_val(BITS, -1), width.clone());
++            let value = polylog_integer_numeric_eval(2, &negative_axis, BITS, 0).unwrap();
++            // Im Li2(-1+iy)=log(2)*y+O(y^3); unlike a normwise comparison,
++            // this verifies the tiny component itself to 1000 digits.
++            assert_precision_complex(
++                &Complex::new(value.im, Float::new(BITS)),
++                &Complex::new(log_two.clone() * &width, Float::new(BITS)),
++                BITS,
++                "tiny imaginary continuation",
++            );
++            let cut = Complex::new(Float::with_val(BITS, 2), width);
++            let value = polylog_integer_numeric_eval(2, &cut, BITS, 0).unwrap();
++            let expected = Complex::new(
++                pi.clone().pow(2) / Float::with_val(BITS, 4)
++                    - pi.clone() * &tiny / Float::with_val(BITS, 2),
++                pi.clone() * &log_two * Float::with_val(BITS, sign),
++            );
++            assert_precision_complex(&value, &expected, BITS, "nonzero cut side");
++        }
++        for zero in [0.0, -0.0] {
++            let axis = Complex::new(Float::with_val(BITS, 2), Float::with_val(BITS, zero));
++            let value = polylog_integer_numeric_eval(2, &axis, BITS, 0).unwrap();
++            assert_precision_complex(
++                &value,
++                &Complex::new(
++                    pi.clone().pow(2) / Float::with_val(BITS, 4),
++                    -pi.clone() * &log_two,
++                ),
++                BITS,
++                "exact-real cut convention",
++            );
++        }
++    }
++
++    #[test]
++    #[cfg(feature = "float-mpfr")]
++    fn polylog_thousand_digit_predicates_constants_and_caps() {
++        use super::{polylog_numeric_eval, polylog_series_integer, zeta_numeric_eval};
++        use crate::domains::float::FloatLike;
++        const BITS: u32 = 3456;
++        let tiny = Float::parse("1e-1000", Some(BITS)).unwrap();
++        let z = Complex::new(Float::with_val(BITS, 0.25), Float::new(BITS));
++        let nonreal_order = Complex::new(Float::new(BITS), tiny.clone());
++        let value = polylog_numeric_eval(&nonreal_order, &z, BITS).unwrap();
++        assert!(!value.im.is_fully_zero(), "tiny order is not exact zero");
++        let almost_two = Complex::new(
++            Float::with_val(BITS, 2) + Float::with_val(BITS, 0.5).pow(200),
++            Float::new(BITS),
++        );
++        let nearby = polylog_numeric_eval(&almost_two, &z, BITS).unwrap();
++        let integer = polylog_numeric_eval(
++            &Complex::new(Float::with_val(BITS, 2), Float::new(BITS)),
++            &z,
++            BITS,
++        )
++        .unwrap();
++        assert!(
++            nearby.re < integer.re,
++            "near-integer order is not rounded to two"
++        );
++        let s = Complex::new(Float::with_val(BITS, 1) + &tiny, Float::new(BITS));
++        let zeta = zeta_numeric_eval(&s, BITS);
++        assert!(
++            zeta.re.as_raw().is_finite(),
++            "near-one is not the zeta pole"
++        );
++        let mut refined = s;
++        refined.re.set_prec(BITS + 384);
++        refined.im.set_prec(BITS + 384);
++        assert_precision_complex(
++            &zeta,
++            &zeta_numeric_eval(&refined, BITS + 384),
++            BITS,
++            "zeta near pole",
++        );
++        // The high-order value differs from one beyond the old 900-bit limit.
++        let order = Complex::new(Float::with_val(BITS, 1002), Float::new(BITS));
++        let zeta = zeta_numeric_eval(&order, BITS);
++        let mut expected = Float::new(BITS);
++        for n in 1..=32 {
++            expected += Float::with_val(BITS, 1) / Float::with_val(BITS, n).pow(1002);
++        }
++        assert_precision_complex(
++            &zeta,
++            &Complex::new(expected, Float::new(BITS)),
++            BITS,
++            "high-order zeta constant",
++        );
++        assert!(polylog_series_integer(2, &z, 128, u32::MAX).is_none());
++        assert!(super::polylog_integer_numeric_eval(2, &z, u32::MAX, 0).is_none());
++        assert!(super::dilog_complex_float(&z, 0).is_none());
++        assert!(super::dilog_complex_float(&z, u32::MAX).is_none());
++    }
++
 +    #[test]
 +    fn dilog_f64_bernoulli_coefficients_and_tail() {
 +        use super::{DILOG_BERNOULLI_F64, bernoulli_number};
@@ -1160,7 +2257,7 @@ index 6461e5c..3d6483f 100644
      #[test]
      fn polylog_basic_normalization() {
          assert_eq!(parse!("polylog(s,0)"), Atom::new());
-@@ -4587,6 +4932,29 @@ mod tests {
+@@ -4587,6 +5324,29 @@ mod tests {
          assert!(Complex::<Float>::try_from(parse!("polylog(2,0.5)")).is_ok());
      }
  
@@ -1190,7 +2287,7 @@ index 6461e5c..3d6483f 100644
      #[test]
      fn polylog_matches_ginac_for_dilog() {
          if Command::new("ginsh").arg("--help").output().is_err() {
-@@ -4873,7 +5241,8 @@ mod tests {
+@@ -4873,7 +5633,8 @@ mod tests {
                      // Independent Wronskian identities exercise both integer
                      // limits without comparing two perturbed approximations.
                      let one = complex_one(prec);
@@ -1200,3 +2297,132 @@ index 6461e5c..3d6483f 100644
                          - (one.clone() + one.clone()) / (complex_pi(prec) * z.clone());
                      let k_residual = i * k_next + i_next * k - one / z.clone();
                      for residual in [y_residual, k_residual] {
+diff --git a/lib/numerica/tests/complex_sqrt_precision.rs b/lib/numerica/tests/complex_sqrt_precision.rs
+new file mode 100644
+index 0000000..d1b0524
+--- /dev/null
++++ b/lib/numerica/tests/complex_sqrt_precision.rs
+@@ -0,0 +1,123 @@
++#![cfg(feature = "float-mpfr")]
++
++use numerica::domains::float::{Complex, Float, FloatLike, Real};
++
++fn compare_mpc(value: &Complex<Float>, root: &Complex<Float>, bits: u32) {
++    // MPC independently implements complex sqrt; promote the represented
++    // input values only in this reference, never in the production operation.
++    let reference =
++        rug::Complex::with_val(bits + 128, (value.re.as_raw(), value.im.as_raw())).sqrt();
++    for (actual, expected) in [(&root.re, reference.real()), (&root.im, reference.imag())] {
++        if expected.is_zero() {
++            assert!(actual.is_fully_zero(), "{value:?}: {root:?}");
++            assert_eq!(actual.is_negative(), expected.is_sign_negative());
++        } else {
++            let delta = rug::Float::with_val(bits + 128, actual.as_raw() - expected).abs();
++            let mut tolerance = rug::Float::with_val(bits + 128, expected).abs();
++            tolerance >>= actual.prec().min(bits).saturating_sub(8);
++            assert!(delta <= tolerance, "{value:?}: {root:?} vs {reference:?}");
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_disparate_precision() {
++    for (bits, tiny_text) in [(512, "1e-154"), (3456, "1e-1100")] {
++        let tiny = Float::parse(tiny_text, Some(2)).unwrap();
++        for sign_re in [-1, 1] {
++            for sign_im in [-1, 1] {
++                let value = Complex::new(
++                    tiny.clone() * Float::with_val(2, sign_re),
++                    Float::with_val(bits, 1.25 * f64::from(sign_im)),
++                );
++                let root = value.sqrt();
++                assert!(root.re.prec() >= bits - 16, "{root:?}");
++                assert!(root.im.prec() >= bits - 16, "{root:?}");
++                compare_mpc(&value, &root, bits);
++
++                let value = Complex::new(
++                    Float::with_val(bits, 2 * sign_re),
++                    tiny.clone() * Float::with_val(2, sign_im),
++                );
++                let root = value.sqrt();
++                let (large, small) = if sign_re > 0 {
++                    (&root.re, &root.im)
++                } else {
++                    (&root.im, &root.re)
++                };
++                assert!(large.prec() >= bits - 16, "{root:?}");
++                assert!(small.prec() <= tiny.prec() + 4, "{root:?}");
++                compare_mpc(&value, &root, bits);
++            }
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_axes_and_extremes() {
++    for bits in [128, 3456] {
++        for x in [-4., -0., 0., 4.] {
++            for y in [-0., 0.] {
++                let value = Complex::new(Float::with_val(bits, x), Float::with_val(2, y));
++                compare_mpc(&value, &value.sqrt(), bits);
++            }
++        }
++        for y in [-4., 4.] {
++            let value = Complex::new(Float::with_val(2, 0), Float::with_val(bits, y));
++            compare_mpc(&value, &value.sqrt(), bits);
++        }
++        for text in ["1e-10000", "1e10000"] {
++            for sign in [-1, 1] {
++                let v = Float::parse(text, Some(bits)).unwrap();
++                let value = Complex::new(v.clone(), v * Float::with_val(bits, sign));
++                compare_mpc(&value, &value.sqrt(), bits);
++            }
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_component_precision_matrix() {
++    for real_bits in [2, 32, 128] {
++        for imaginary_bits in [2, 32, 128] {
++            for real_text in ["-1e100", "-1.25", "-1e-100", "1e-100", "1.25", "1e100"] {
++                for imaginary_text in ["-1e100", "-1.25", "-1e-100", "1e-100", "1.25", "1e100"] {
++                    let value = Complex::new(
++                        Float::parse(real_text, Some(real_bits)).unwrap(),
++                        Float::parse(imaginary_text, Some(imaginary_bits)).unwrap(),
++                    );
++                    compare_mpc(&value, &value.sqrt(), real_bits.max(imaginary_bits));
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_nonfinite_limits() {
++    let at = |v| Float::with_val(128, v);
++    for sign in [-1., 1.] {
++        for real in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 2.] {
++            let root = Complex::new(at(real), at(sign * f64::INFINITY)).sqrt();
++            assert_eq!(root.re, at(f64::INFINITY));
++            assert_eq!(root.im, at(sign * f64::INFINITY));
++        }
++        let root = Complex::new(at(f64::INFINITY), at(sign)).sqrt();
++        assert_eq!(root.re, at(f64::INFINITY));
++        assert!(root.im.is_fully_zero());
++        assert_eq!(root.im.is_negative(), sign.is_sign_negative());
++        let root = Complex::new(at(f64::NEG_INFINITY), at(sign)).sqrt();
++        assert!(root.re.is_fully_zero());
++        assert!(!root.re.is_negative());
++        assert_eq!(root.im, at(sign * f64::INFINITY));
++    }
++    for value in [
++        Complex::new(at(f64::NAN), at(0.)),
++        Complex::new(at(0.), at(f64::NAN)),
++        Complex::new(at(f64::NAN), at(f64::NAN)),
++    ] {
++        let root = value.sqrt();
++        assert!(root.re.as_raw().is_nan());
++        assert!(root.im.as_raw().is_nan());
++    }
++}

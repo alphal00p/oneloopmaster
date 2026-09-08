@@ -309,27 +309,32 @@ impl CoefficientGroup {
     }
 }
 
-struct CoefficientGroups {
+pub(crate) struct CoefficientGroups {
     groups: [CoefficientGroup; 4],
     oldest: usize,
 }
 
 impl CoefficientGroups {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             groups: core::array::from_fn(|_| CoefficientGroup::new()),
             oldest: 0,
         }
     }
 
-    fn invalidate(&mut self) {
+    pub(crate) fn invalidate(&mut self) {
         for group in &mut self.groups {
             group.invalidate();
         }
         self.oldest = 0;
     }
 
-    fn evaluate(&mut self, arguments: &[C], tag: usize, evaluate: impl FnOnce(&mut [C; 3])) -> C {
+    pub(crate) fn evaluate(
+        &mut self,
+        arguments: &[C],
+        tag: usize,
+        evaluate: impl FnOnce(&mut [C; 3]),
+    ) -> C {
         for offset in 0..self.groups.len() {
             let index = (self.oldest + offset) % self.groups.len();
             let group = &mut self.groups[index];
@@ -357,7 +362,6 @@ impl CoefficientGroups {
 
 struct PreparedBackend {
     evaluator: ScalarEvaluator,
-    group: CoefficientGroups,
 }
 
 type Backends = [Mutex<PreparedBackend>; 5];
@@ -380,7 +384,6 @@ pub(crate) fn initialize_all() -> Result<(), String> {
             evaluator: evaluator.map_err(|error| {
                 format!("could not initialize {} evaluator: {error}", family.name())
             })?,
-            group: CoefficientGroups::new(),
         }));
     }
     let backends = backends
@@ -396,16 +399,6 @@ fn cache(family: ScalarIntegral) -> Result<&'static Mutex<PreparedBackend>, Stri
     Ok(&CACHED.get().ok_or("OneLOop backends are not initialized")?[family as usize])
 }
 
-/// Evaluate one point using the already prepared shared family backend.
-/// Inputs end in `mu_squared`; outputs are finite, simple pole and double pole.
-pub fn evaluate(family: ScalarIntegral, args: &[C], output: &mut [C]) -> Result<(), String> {
-    let mut backend = cache(family)?
-        .lock()
-        .map_err(|_| "OneLOop JIT cache poisoned")?;
-    backend.group.invalidate();
-    backend.evaluator.evaluate(args, output)
-}
-
 /// Evaluate flat row-major points using the already prepared shared backend.
 /// No expression construction or evaluator compilation takes place here.
 pub fn evaluate_batch(
@@ -417,32 +410,17 @@ pub fn evaluate_batch(
     let mut backend = cache(family)?
         .lock()
         .map_err(|_| "OneLOop JIT cache poisoned")?;
-    backend.group.invalidate();
     backend.evaluator.evaluate_batch(args, output, rows)
 }
 
-pub(crate) fn evaluate_cached(family: ScalarIntegral, tag: usize, args: &[C]) -> C {
-    let mut backend = cache(family)
-        .expect("initialized OneLOop backends")
-        .lock()
-        .expect("OneLOop JIT cache poisoned");
-    let PreparedBackend { evaluator, group } = &mut *backend;
-    group.evaluate(args, tag, |output| {
-        evaluator
-            .evaluate(args, output)
-            .expect("validated master arguments");
-    })
-}
-
-/// Explicitly rebuild and replace the evaluator used by a family's f64 Symbol
-/// hooks. Other existing manual evaluators are unaffected.
+/// Rebuild and replace a family's shared manual SymJIT evaluator.
+/// Direct Rust Symbol hooks and other existing manual evaluators are unaffected.
 pub fn rebuild_cached_evaluator(family: ScalarIntegral) -> Result<(), String> {
     let evaluator = ScalarEvaluator::rebuild(family)?;
     let mut backend = cache(family)?
         .lock()
         .map_err(|_| "OneLOop JIT cache poisoned")?;
     backend.evaluator = evaluator;
-    backend.group.invalidate();
     Ok(())
 }
 

@@ -146,6 +146,8 @@ def main():
     parser.add_argument("--family", choices=list(support.FAMILIES.values()))
     parser.add_argument("--fixtures", type=Path, default=support.DEFAULT_FIXTURES)
     parser.add_argument("--module", default="oneloop_native")
+    parser.add_argument("--backend", choices=("auto", "native", "symjit", "expression"), default="auto",
+                        help="explicit binary64 implementation; auto keeps the module's default")
     parser.add_argument("--build-label", default="unverified", help="caller-supplied label, e.g. release; not inferred or verified")
     parser.add_argument("--output", type=Path, required=True, help="JSON file; engine diagnostics may use stdout")
     parser.add_argument("--tsv", type=Path, help="optional comparator-compatible timing records")
@@ -175,13 +177,16 @@ def main():
     startup_ns = time.perf_counter_ns() - started
     if not module.is_initialized():
         raise ValueError("module import did not eagerly initialize every scalar family")
+    resolved_backend = (getattr(module, "DEFAULT_BACKEND", "unreported")
+                        if args.backend == "auto" else args.backend)
     metadata = {
         "schema": "oneloop_python_benchmark_v1",
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "machine": support.machine_metadata(), "python_implementation": platform.python_implementation(),
         "module": args.module, "symbolica_revision": module.SYMBOLICA_REVISION,
         "build_label_unverified": args.build_label, "numeric_domain": "Python complex / binary64 components",
-        "route": "Evaluator.evaluate_batch (cloned eager cache)",
+        "route": "Evaluator.evaluate_batch (reusable selected-backend workspace)",
+        "backend_requested": args.backend, "backend_resolved": resolved_backend,
         "batch": args.batch, "iterations": args.iterations, "repetitions": args.repetitions,
         "warmup": WARMUP, "eager_import_wall_ns_excluded": startup_ns,
         "main_thread": threading.current_thread() is threading.main_thread(),
@@ -208,7 +213,10 @@ def main():
         cases = [case for case in fixtures if case["family"] == family]
         if not cases:
             continue
-        evaluator = module.Evaluator(family)
+        # Preserve compatibility with older adapters for auto, while explicit
+        # requests must be honored (never silently substituted on TypeError).
+        evaluator = (module.Evaluator(family) if args.backend == "auto"
+                     else module.Evaluator(family, backend=args.backend))
         for case in cases:
             actual[case["id"]] = checked_output(case, evaluator.evaluate(arguments(case)))
         for mode, name, rows in [*(('SAME', case["name"], [case]) for case in cases), ('HETERO', 'all', cases)]:

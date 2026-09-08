@@ -5,16 +5,25 @@
 //! `[epsilon^0, epsilon^-1, epsilon^-2]`.
 #![forbid(unsafe_code)]
 
+mod backend;
 mod evaluators;
 mod expressions;
 mod initialization;
+mod inspection;
+mod native;
+mod precision;
 mod sheet_exact;
 mod triangle_hv;
-pub use evaluators::{
-    JitEvaluator, ScalarEvaluator, evaluate, evaluate_batch, jit_settings, rebuild_cached_evaluator,
+pub use backend::{
+    DEFAULT_BACKEND, EvaluationBackend, evaluate, evaluate_batch, evaluate_batch_with_backend,
+    evaluate_with_backend,
 };
+pub use evaluators::{JitEvaluator, ScalarEvaluator, jit_settings, rebuild_cached_evaluator};
 pub use expressions::OneLoopExpressions;
 pub use initialization::{initialize, is_initialized};
+pub use inspection::{ExpressionOptions, get_expression, get_expression_with_options};
+pub use native::{NativeEvaluator, NativeFloat};
+pub use precision::PrecisionEvaluator;
 
 symbolica::initialize!(
     initialization::from_symbolica,

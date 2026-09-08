@@ -1,0 +1,1463 @@
+    Blocking waiting for file lock on build directory
+warning: allow(uncommon_codepoints) is ignored unless specified at crate level
+ --> /common/dev/oneloop/symjit-2.24.1-patched/src/symjit/mod.rs:1:10
+  |
+1 | #![allow(uncommon_codepoints)]
+  |          ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `symjit` (lib) generated 1 warning
+   Compiling oneloop v0.1.0 (/common/dev/oneloop/oneloopmaster)
+    Finished `release` profile [optimized] target(s) in 13m 00s
+     Running unittests src/lib.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/oneloop-bec32fbcf66efb03)
+
+running 39 tests
+test box_complex::tests::complex_box_finite_continuation_regression ... 2026-09-08T16:54:14.904120Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:14.904300Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:14.904776Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:14.904812Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:14.905336Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:14.905355Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:14.905548Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:14.905565Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:14.905934Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:14.905955Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:14.906123Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:14.906139Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test box_complex::tests::contour_quadratic_roots_preserve_exact_axes ... ok
+test evaluators::tests::coefficient_groups_evict_fifo_without_reusing_consumed_tags ... ok
+test evaluators::tests::coefficient_groups_execute_again_for_signed_zeros_and_changed_points ... ok
+test evaluators::tests::coefficient_groups_execute_once_per_point_in_every_tag_order ... ok
+test evaluators::tests::coefficient_groups_invalidate_explicitly_and_before_backend_failure ... 
+thread 'evaluators::tests::coefficient_groups_invalidate_explicitly_and_before_backend_failure' (3542128) panicked at src/evaluators.rs:561:17:
+simulated backend failure after partial output
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test evaluators::tests::coefficient_groups_manual_invalidation_clears_all_lanes ... ok
+test evaluators::tests::coefficient_groups_repeated_tags_always_start_another_execution ... ok
+test evaluators::tests::coefficient_groups_tag_major_lanes_reuse_oldest_matching_point ... ok
+test inspection::tests::substitution_is_scoped_and_dead_branches_are_not_expanded ... ok
+test sheet_exact::tests::continued_dilog_reference_values ... ok
+test sheet_exact::tests::sheet_product_and_quotient_reference_values ... ok
+test tests::a0_is_a_transparent_native_expression ... ok
+test tests::a0_matches_the_existing_rust_reference ... ok
+test tests::a0_zero_mass_is_scaleless ... ok
+test tests::b001_matches_existing_reference_branches ... ok
+test tests::b00_matches_existing_reference_branches ... ok
+test tests::b0_is_a_transparent_native_expression ... ok
+test tests::b0_matches_existing_reference_and_elementary_limits ... ok
+test tests::b111_matches_existing_reference_branches ... ok
+test tests::b11_matches_existing_reference_branches ... ok
+test tests::b1_is_a_transparent_native_expression ... ok
+test tests::b1_matches_existing_reference_branches ... ok
+test tests::bubble_axis_lips_survive_arbitrary_precision_arithmetic ... branch diagnostic 256bits: [(2.828427124746190097603377448419396157139343750753896146353359475981464956924204+0i), (2.265409196609864215997587536843288459186183035175788466890457517156096459339848e-1+-0i), (-3.414213562373095048801688724209698078569671875376948073176679737990732478462085+0i), (0+0i), (1.227947177299515679941225385708880593065910395441763037813635613400073995206866+3.141592653589793238462643383279502884197169399375105820974944592307816406286198i), (1.227947177299515679941225385708880593065910395441763037813635613400073995206866+-3.141592653589793238462643383279502884197169399375105820974944592307816406286198i)]
+branch diagnostic 384bits: [(2.82842712474619009760337744841939615713934375075389614635335947598146495692421407770077506865528314547002769246182459+0i), (2.26540919660986421599758753684328845918618303517578846689045751715609645933984708735658923667479775323569450538441106e-1+-0i), (-3.41421356237309504880168872420969807856967187537694807317667973799073247846210703885038753432764157273501384623091224+0i), (0+0i), (1.227947177299515679941225385708880593065910395441763037813635613400073995206873445636638555408465386627740556702391817+3.14159265358979323846264338327950288419716939937510582097494459230781640628620899862803482534211706798214808651328229i), (1.227947177299515679941225385708880593065910395441763037813635613400073995206873445636638555408465386627740556702391817+-3.14159265358979323846264338327950288419716939937510582097494459230781640628620899862803482534211706798214808651328229i)]
+ok
+test tests::c0_matches_reference_sectors ... ok
+test tests::db0_is_a_transparent_native_expression ... ok
+test tests::db0_matches_existing_reference_branches ... ok
+test tests::equal_mass_box_vacuum_limit ... ok
+test tests::mapped_d0_routes_reference_sectors ... ok
+test tests::massive_d0_infrared_formulas_match_reference ... ok
+test tests::massless_d0_infrared_sectors_match_reference ... 2026-09-08T16:54:42.382349Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:42.382397Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:42.383969Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:42.383988Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test tests::native_definition_construction_stages ... ignored, diagnoses construction cost of individual native definition groups
+test tests::rank_four_bubbles_match_existing_reference ... ok
+test tests::reciprocal_root_real_axis_preserves_its_sheet ... ok
+test tests::scaleless_db0_is_not_silently_zero ... ok
+test tests::tensor_rank_contract_matches_oneloop ... ok
+test tests::tensor_tadpoles_use_exact_rationals ... ok
+test tests::triangle_single_width_regression ... ok
+test triangle_hv::tests::hv_continuation_regression ... ok
+
+test result: ok. 38 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 28.38s
+
+     Running tests/box_limits.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/box_limits-11b4771750fa93b5)
+
+running 2 tests
+test repeated_root_threshold_boxes_have_physical_limits ... 2026-09-08T16:54:43.502074Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:43.502263Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:43.502751Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:43.502783Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:43.503321Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:43.503339Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:43.503530Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:43.503545Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:43.503919Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:43.503947Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:54:43.504121Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:54:43.504136Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+threshold s=4 t=-3 width=0 bits=128: (0.4375081204794338+8.816207631167156e-39i)
+threshold s=4 t=-3 width=0.0001 bits=128: (0.43195424250857994+0.005520973441756335i)
+threshold s=4 t=-3 width=0.00000001 bits=128: (0.43745258444242924+5.553280119586031e-5i)
+threshold s=4 t=-3 width=0.0000000000000001 bits=128: (0.4375081149258302+5.553603640345423e-9i)
+threshold s=4 t=-3 width=0.000000000000000000000000000001 bits=128: (0.43750812047943327+5.553603672697954e-16i)
+threshold s=2 t=-4 width=0 bits=128: (0.1621729232572178+5.877471754111438e-39i)
+threshold s=2 t=-4 width=0.0001 bits=128: (0.16217291737184863+3.472549161960276e-5i)
+threshold s=2 t=-4 width=0.00000001 bits=128: (0.16217292325721774+3.472549255398694e-9i)
+threshold s=2 t=-4 width=0.0000000000000001 bits=128: (0.1621729232572178+3.472559136290284e-17i)
+threshold s=2 t=-4 width=0.000000000000000000000000000001 bits=128: (0.1621729303151369+3.725290298461914e-9i)
+threshold s=4 t=-3 width=0 bits=256: (0.4375081204794338+3.454467422037778e-77i)
+threshold s=4 t=-3 width=0.0001 bits=256: (0.43195424250857994+0.005520973441756335i)
+threshold s=4 t=-3 width=0.00000001 bits=256: (0.43745258444242924+5.553280119586031e-5i)
+threshold s=4 t=-3 width=0.0000000000000001 bits=256: (0.4375081149258302+5.553603640345423e-9i)
+threshold s=4 t=-3 width=0.000000000000000000000000000001 bits=256: (0.43750812047943327+5.553603672697954e-16i)
+threshold s=2 t=-4 width=0 bits=256: (0.1621729232572178+0.0i)
+threshold s=2 t=-4 width=0.0001 bits=256: (0.16217291737184863+3.472549161960276e-5i)
+threshold s=2 t=-4 width=0.00000001 bits=256: (0.16217292325721774+3.472549255398694e-9i)
+threshold s=2 t=-4 width=0.0000000000000001 bits=256: (0.1621729232572178+3.472549255398695e-17i)
+threshold s=2 t=-4 width=0.000000000000000000000000000001 bits=256: (0.1621729232572178+3.4725492553986953e-31i)
+ok
+test zero_channel_and_negative_mass_boxes_match_original ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.67s
+
+     Running tests/branch_limits.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/branch_limits-e86bfa7a0c0692e2)
+
+running 5 tests
+test all_exploratory_bubbles_converge_at_high_precision ... 2026-09-08T16:55:06.253588Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:06.254125Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:06.254455Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:06.254474Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:06.254881Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:06.254899Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:06.255025Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:06.255036Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:06.255303Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:06.255332Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:06.255489Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:06.255507Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test derivative_coincident_roots_match_the_original_convention ... ok
+test derivative_negative_real_mass_limits_match_original_ratio_lips ... ok
+test derivative_normal_threshold_prescription_is_mass_symmetric ... ok
+test lower_lip_is_independent_of_signed_zero ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.06s
+
+     Running tests/complex_precision_provenance.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/complex_precision_provenance-c4800b5820fcffb2)
+
+running 5 tests
+test a_small_uncertain_component_does_not_spoil_a_known_large_phase ... ok
+test exact_integer_power_identity_uses_the_strong_component ... ok
+test half_powers_use_the_precision_safe_square_root ... ok
+test integer_powers_preserve_real_axis_signed_lips ... ok
+test phase_preserves_axis_and_signed_zero_conventions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/complex_sqrt_precision.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/complex_sqrt_precision-aca17216843d80e6)
+
+running 1 test
+test nearly_imaginary_sqrt_does_not_inherit_cancelled_real_precision ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/evaluators.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/evaluators-43975244f9e8337d)
+
+running 1 test
+test portable_scalar_caches_and_mixed_batches_match_original_fixtures ... 2026-09-08T16:55:13.421706Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:13.422225Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:13.422547Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:13.422558Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:13.422914Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:13.422924Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:13.423053Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:13.423062Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:13.423277Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:13.423287Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:13.423398Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:13.423407Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+A0: 4 scalar fixtures, six batch layouts, 1437 serialized bytes
+B0: 13 scalar fixtures, six batch layouts, 8968 serialized bytes
+dB0: 12 scalar fixtures, six batch layouts, 39225 serialized bytes
+C0: 125 scalar fixtures, six batch layouts, 545750 serialized bytes
+D0: 139 scalar fixtures, six batch layouts, 10441150 serialized bytes
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.49s
+
+     Running tests/float_zero_precision.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/float_zero_precision-d7539e73dbae8e35)
+
+running 2 tests
+test signed_zero_and_nonfinite_addition_keep_numerical_behavior ... ok
+test zero_addition_and_subtraction_preserve_nonzero_precision ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/initialization.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/initialization-3fad3bf698f0e2e9)
+
+running 2 tests
+test every_first_entry_prepares_all_symbols_and_backends ... ok
+test initialization_child ... ignored, fresh-process helper invoked by every_first_entry_prepares_all_symbols_and_backends
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.76s
+
+     Running tests/inspection.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/inspection-0a2de1637801193a)
+
+running 5 tests
+test all_five_families_have_complete_exact_vacuum_bodies ... 2026-09-08T16:55:53.803503Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:53.803678Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:53.804100Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:53.804134Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:53.804601Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:53.804614Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:53.804793Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:53.804806Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:53.805126Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:53.805140Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:55:53.805284Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:55:53.805295Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test compact_real_one_mass_triangle_matches_independent_mapped_regions ... 
+thread '<unnamed>' (3594006) panicked at tests/inspection.rs:276:37:
+ratio=-1e-30, mass=1.250000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e-1, mu_squared=(3.125000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e-2+0i), mass_index=0, coefficient=0 real: -560.620422318570964164317949124525720035423642752987673222561005032825886913743658341965 vs -560.62042231857096416431794912452572003542364275298767322; error=3.3e-55
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'compact_real_one_mass_triangle_matches_independent_mapped_regions' (3594005) panicked at tests/inspection.rs:19:10:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+FAILED
+test exact_massless_regions_and_resource_errors_are_explicit ... ok
+test native_real_attributes_simplify_but_do_not_discard_zero_branches ... ok
+test one_mass_triangle_accepts_real_expressions_and_prunes_specialized_regions ... complete real one-mass C0: 220 output nodes, 1.102785ms
+ok
+
+failures:
+
+failures:
+    compact_real_one_mass_triangle_matches_independent_mapped_regions
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.66s
+
+error: test failed, to rerun pass `--test inspection`
+     Running tests/inspection_complex.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/inspection_complex-5a3f4d4a29febc85)
+
+running 2 tests
+test complete_complex_triangle_preserves_a_thousand_digits ... 2026-09-08T16:56:10.568591Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:10.568797Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:10.569289Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:10.569305Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:10.569901Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:10.569918Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:10.570116Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:10.570129Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:10.570493Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:10.570516Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:10.570698Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:10.570710Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test complex_one_mass_triangle_matches_original_mapped_continuation ... complete complex one-mass C0: 316 output nodes
+complex/default-untyped one-mass C0: 4410 original mapped-reference rows at 512 bits, all three coefficients
+failed input mass/width groups: {}
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.79s
+
+     Running tests/manual_evaluators.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/manual_evaluators-727167540ca8c0b2)
+
+running 1 test
+test manual_cache_clones_batches_and_constant_only_expressions ... 2026-09-08T16:56:42.442196Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:42.442393Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:42.442926Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:42.442952Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:42.443489Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:42.443527Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:42.443723Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:42.443742Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:42.444117Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:42.444138Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:42.444328Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:42.444346Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.42s
+
+     Running tests/master_callbacks_jit.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/master_callbacks_jit-10dc9e1171edbf98)
+
+running 1 test
+test bare_master_outer_jit_and_portable_batches_match_all_acceptance_rows ... 2026-09-08T16:56:57.950296Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:57.951043Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:57.951502Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:57.951524Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:57.952084Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:57.952104Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:57.952293Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:57.952311Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:57.952673Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:57.952691Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:56:57.952986Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:56:57.953006Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+A0: 4 acceptance rows, scalar + five batch layouts, six tag orders, original/restored bare JIT
+B0: 13 acceptance rows, scalar + five batch layouts, six tag orders, original/restored bare JIT
+dB0: 12 acceptance rows, scalar + five batch layouts, six tag orders, original/restored bare JIT
+C0: 125 acceptance rows, scalar + five batch layouts, six tag orders, original/restored bare JIT
+D0: 139 acceptance rows, scalar + five batch layouts, six tag orders, original/restored bare JIT
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.11s
+
+     Running tests/masters.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/masters-b0ddd442ca8a3c29)
+
+running 3 tests
+test constant_and_variable_master_calls_preserve_arbitrary_precision ... 2026-09-08T16:57:05.188828Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:57:05.188985Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:57:05.189441Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:57:05.189475Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:57:05.189982Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:57:05.189996Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:57:05.190173Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:57:05.190198Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:57:05.190522Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:57:05.190536Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:57:05.190694Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:57:05.190705Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+compiling master precision controls for family 0
+compiling master precision controls for family 1
+compiling master precision controls for family 2
+compiling master precision controls for family 3
+compiling master precision controls for family 4
+checking master precision controls for family 0 at 128 bits
+checking master precision controls for family 1 at 128 bits
+checking master precision controls for family 2 at 128 bits
+checking master precision controls for family 3 at 128 bits
+checking master precision controls for family 4 at 128 bits
+checking master precision controls for family 0 at 256 bits
+checking master precision controls for family 1 at 256 bits
+checking master precision controls for family 2 at 256 bits
+checking master precision controls for family 3 at 256 bits
+checking master precision controls for family 4 at 256 bits
+ok
+test malformed_master_tags_and_arities_are_deliberate_errors ... 
+thread '<unnamed>' (3622622) panicked at src/masters.rs:85:5:
+assertion `left == right` failed: oneloopmaster::A0 requires one Laurent tag
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::A0 Laurent tag 1; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::A0 Laurent tag -3; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::A0 Laurent tag 1/2; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::A0 Laurent tag invalid_master_tag; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::A0 expects 2 numeric arguments after its Laurent tag; received 0
+  left: 0
+ right: 2
+
+thread '<unnamed>' (3622622) panicked at /common/dev/oneloop/symbolica-dev-v3/src/evaluate/evaluator.rs:575:72:
+called `Result::unwrap()` on an `Err` value: "oneloopmaster::A0 expects 2 numeric arguments after its Laurent tag; received 0"
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::A0 expects 2 numeric arguments after its Laurent tag; received 1
+  left: 1
+ right: 2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::A0 expects 2 numeric arguments after its Laurent tag; received 1
+  left: 1
+ right: 2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::A0 expects 2 numeric arguments after its Laurent tag; received 3
+  left: 3
+ right: 2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::A0 expects 2 numeric arguments after its Laurent tag; received 3
+  left: 3
+ right: 2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:85:5:
+assertion `left == right` failed: oneloopmaster::B0 requires one Laurent tag
+  left: 0
+ right: 1
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::B0 Laurent tag 1; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::B0 Laurent tag -3; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::B0 Laurent tag 1/2; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::B0 Laurent tag invalid_master_tag; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::B0 expects 4 numeric arguments after its Laurent tag; received 0
+  left: 0
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at /common/dev/oneloop/symbolica-dev-v3/src/evaluate/evaluator.rs:575:72:
+called `Result::unwrap()` on an `Err` value: "oneloopmaster::B0 expects 4 numeric arguments after its Laurent tag; received 0"
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::B0 expects 4 numeric arguments after its Laurent tag; received 3
+  left: 3
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::B0 expects 4 numeric arguments after its Laurent tag; received 3
+  left: 3
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::B0 expects 4 numeric arguments after its Laurent tag; received 5
+  left: 5
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::B0 expects 4 numeric arguments after its Laurent tag; received 5
+  left: 5
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:85:5:
+assertion `left == right` failed: oneloopmaster::dB0 requires one Laurent tag
+  left: 0
+ right: 1
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::dB0 Laurent tag 1; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::dB0 Laurent tag -3; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::dB0 Laurent tag 1/2; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::dB0 Laurent tag invalid_master_tag; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::dB0 expects 4 numeric arguments after its Laurent tag; received 0
+  left: 0
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at /common/dev/oneloop/symbolica-dev-v3/src/evaluate/evaluator.rs:575:72:
+called `Result::unwrap()` on an `Err` value: "oneloopmaster::dB0 expects 4 numeric arguments after its Laurent tag; received 0"
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::dB0 expects 4 numeric arguments after its Laurent tag; received 3
+  left: 3
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::dB0 expects 4 numeric arguments after its Laurent tag; received 3
+  left: 3
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::dB0 expects 4 numeric arguments after its Laurent tag; received 5
+  left: 5
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::dB0 expects 4 numeric arguments after its Laurent tag; received 5
+  left: 5
+ right: 4
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:85:5:
+assertion `left == right` failed: oneloopmaster::C0 requires one Laurent tag
+  left: 0
+ right: 1
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::C0 Laurent tag 1; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::C0 Laurent tag -3; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::C0 Laurent tag 1/2; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::C0 Laurent tag invalid_master_tag; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::C0 expects 7 numeric arguments after its Laurent tag; received 0
+  left: 0
+ right: 7
+
+thread '<unnamed>' (3622622) panicked at /common/dev/oneloop/symbolica-dev-v3/src/evaluate/evaluator.rs:575:72:
+called `Result::unwrap()` on an `Err` value: "oneloopmaster::C0 expects 7 numeric arguments after its Laurent tag; received 0"
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::C0 expects 7 numeric arguments after its Laurent tag; received 6
+  left: 6
+ right: 7
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::C0 expects 7 numeric arguments after its Laurent tag; received 6
+  left: 6
+ right: 7
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::C0 expects 7 numeric arguments after its Laurent tag; received 8
+  left: 8
+ right: 7
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::C0 expects 7 numeric arguments after its Laurent tag; received 8
+  left: 8
+ right: 7
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:85:5:
+assertion `left == right` failed: oneloopmaster::D0 requires one Laurent tag
+  left: 0
+ right: 1
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::D0 Laurent tag 1; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::D0 Laurent tag -3; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::D0 Laurent tag 1/2; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:98:9:
+invalid oneloopmaster::D0 Laurent tag invalid_master_tag; expected 0, -1, or -2
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::D0 expects 11 numeric arguments after its Laurent tag; received 0
+  left: 0
+ right: 11
+
+thread '<unnamed>' (3622622) panicked at /common/dev/oneloop/symbolica-dev-v3/src/evaluate/evaluator.rs:575:72:
+called `Result::unwrap()` on an `Err` value: "oneloopmaster::D0 expects 11 numeric arguments after its Laurent tag; received 0"
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::D0 expects 11 numeric arguments after its Laurent tag; received 10
+  left: 10
+ right: 11
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::D0 expects 11 numeric arguments after its Laurent tag; received 10
+  left: 10
+ right: 11
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::D0 expects 11 numeric arguments after its Laurent tag; received 12
+  left: 12
+ right: 11
+
+thread '<unnamed>' (3622622) panicked at src/masters.rs:73:9:
+assertion `left == right` failed: oneloopmaster::D0 expects 11 numeric arguments after its Laurent tag; received 12
+  left: 12
+ right: 11
+ok
+test public_master_hooks_and_maps_match_every_acceptance_fixture ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 55.92s
+
+     Running tests/mixed.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/mixed-a412031b5ab75a92)
+
+running 1 test
+test triangle_and_box_share_one_function_map ... 2026-09-08T16:58:01.241476Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:01.241652Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:01.242025Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:01.242065Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:01.242422Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:01.242436Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:01.242561Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:01.242593Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:01.242846Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:01.242860Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:01.242974Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:01.242986Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.81s
+
+     Running tests/native.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native-4ccf45b188722ae1)
+
+running 6 tests
+test native_arbitrary_precision_matches_expressions_at_1000_digits ... 2026-09-08T16:58:14.110802Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:14.111000Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:14.111542Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:14.111564Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:14.112117Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:14.112138Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:14.112344Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:14.112365Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:14.112714Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:14.112733Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:14.112924Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:14.112953Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test native_double_float_acceptance ... ok
+test native_expanded_binary64_diagnostic ... ignored, exploratory binary64 stress audit; report failures without accepting them
+test native_expanded_fortran_fixtures_at_256_bits ... ok
+test native_f64_acceptance_scalar_and_mixed_batches ... ok
+test native_shape_and_domain_errors_do_not_modify_outputs ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 37.89s
+
+     Running tests/native_contract.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_contract-feb721cd0ac7fbc1)
+
+running 4 tests
+test native_double_float_keeps_compensated_mass ... ok
+test native_float_validation_precedes_precision_rounding ... ok
+test native_precision_and_clone_contract ... ok
+test native_shape_domain_and_batch_errors_are_atomic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/native_evaluator.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_evaluator-a0ac5910d94bed82)
+
+running 3 tests
+test audit_near_zero_bubble_precision ... ignored, targeted precision diagnostic for the exploratory scalar audit
+test native_predicates_and_noninlined_functions ... 2026-09-08T16:58:52.170921Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:52.171673Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:52.172186Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:52.172207Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:52.172758Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:52.172789Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:52.173004Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:52.173018Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:52.173373Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:52.173386Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:52.173572Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:52.173586Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test polylog_preserves_high_precision_endpoint_neighborhoods ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.63s
+
+     Running tests/native_hook_errors.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_hook_errors-874d46024d085da3)
+
+running 1 test
+test invalid_native_hook_domains_leave_all_numeric_caches_usable ... 2026-09-08T16:58:58.906347Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:58.906850Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:58.907185Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:58.907197Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:58.907537Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:58.907547Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:58.907662Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:58.907671Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:58.907897Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:58.907907Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:58:58.908007Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:58:58.908015Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/backend.rs:165:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:170:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "squared masses require nonpositive imaginary parts"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+
+thread '<unnamed>' (3650130) panicked at src/masters.rs:199:12:
+valid master arguments: "mu_squared must be positive and real"
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.44s
+
+     Running tests/native_hooks.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_hooks-2c502c9234ac9be3)
+
+running 1 test
+test double_float_master_hooks_preserve_the_numeric_domain ... 2026-09-08T16:59:05.401442Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:05.401576Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:05.401892Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:05.401904Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:05.402261Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:05.402271Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:05.402388Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:05.402396Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:05.402619Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:05.402628Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:05.402732Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:05.402740Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.02s
+
+     Running tests/native_primitives.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_primitives-3c37ae5297866d04)
+
+running 11 tests
+test native_float_hypot_tracks_component_precision ... ok
+test native_integer_powers_preserve_real_axis_signed_lips ... ok
+test native_inverse_three_halves_avoids_overflowing_intermediates ... ok
+test native_primitives_binary64_hypot_exact_axes_and_nonfinite_values ... ok
+test native_primitives_binary64_subnormals_and_extremes ... ok
+test native_primitives_disparate_component_precision ... ok
+test native_primitives_double_float_retains_low_components ... ok
+test native_primitives_exact_axes_all_types ... ok
+test native_primitives_general_powers_and_quadrants ... ok
+test native_primitives_thousand_decimal_digits ... ok
+test native_scalar_half_powers_preserve_unbalanced_precision ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/native_simple.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_simple-4040dd69448ee298)
+
+running 1 test
+test compact_massless_sectors_match_mapped_expressions ... 2026-09-08T16:59:13.675172Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:13.675325Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:13.675654Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:13.675696Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:13.676060Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:13.676071Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:13.676199Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:13.676209Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:13.676456Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:13.676467Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:13.676581Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:13.676590Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.23s
+
+     Running tests/native_simple_primitives.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_simple_primitives-325c946a47a2e415)
+
+running 3 tests
+test simple_massless_coefficients_binary64 ... ok
+test simple_massless_coefficients_thousand_decimal_digits ... ok
+test simple_sector_selection_uses_exact_zeros ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/native_startup.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/native_startup-da21b683e12114f6)
+
+running 2 tests
+test first_transcendental_call_initializes_linked_inventory ... ok
+test native_startup_child ... ignored, fresh-process helper; the parent supplies a timeout
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 19.51s
+
+     Running tests/parity.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/parity-c96edbb8f375face)
+
+running 2 tests
+test audit_extra_fortran_fixtures ... ignored, requires an explicitly supplied exploratory Fortran fixture table
+test fortran_fixtures ... Compiling Fortran audit evaluators at f64
+2026-09-08T16:59:56.623780Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:56.624391Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:56.624735Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:56.624815Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:56.625194Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:56.625209Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:56.625341Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:56.625365Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:56.625602Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:56.625614Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T16:59:56.625737Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T16:59:56.625750Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+Compiled A0/B0/dB0/C0; compiling D0
+Family points [A0,B0,dB0,C0,D0]: [4, 13, 12, 125, 139]; with poles: [3, 12, 1, 12, 20]
+Checked 879 Fortran coefficients; 0 failures
+ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 24.47s
+
+     Running tests/precision.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/precision-6daec9d2c7536348)
+
+running 5 tests
+test all_scalar_families_have_elementary_limits_at_16_32_and_1000_digits ... elementary A0 at 16 decimal digits
+2026-09-08T17:00:21.197358Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:21.197443Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:21.197871Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:21.197895Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:21.198494Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:21.198517Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:21.198717Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:21.198737Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:21.199213Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:21.199248Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:21.199428Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:21.199447Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+elementary B0 at 16 decimal digits
+elementary dB0 at 16 decimal digits
+elementary C0 at 16 decimal digits
+elementary D0 at 16 decimal digits
+elementary A0 at 32 decimal digits
+elementary B0 at 32 decimal digits
+elementary dB0 at 32 decimal digits
+elementary C0 at 32 decimal digits
+elementary D0 at 32 decimal digits
+elementary A0 at 1000 decimal digits
+elementary B0 at 1000 decimal digits
+elementary dB0 at 1000 decimal digits
+elementary C0 at 1000 decimal digits
+elementary D0 at 1000 decimal digits
+ok
+test bare_master_float_callbacks_preserve_1000_decimal_digits ... ok
+test complex_triangle_and_box_are_stable_from_1000_to_1120_digits ... complex C0 at 1000 decimal digits
+complex C0 at 1120 decimal digits
+complex D0 at 1000 decimal digits
+complex D0 at 1120 decimal digits
+ok
+test decimal_inputs_survive_large_integers_tiny_exponents_and_lower_lips ... ok
+test shape_and_exact_domain_validation_are_transactional ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.08s
+
+     Running tests/triangle_limits.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/triangle_limits-6aa874d96796dc95)
+
+running 1 test
+test accepted_triangle_limits_and_real_mass_lips ... 2026-09-08T17:00:31.353679Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:31.353844Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:31.354175Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:31.354187Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:31.354545Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:31.354559Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:31.354678Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:31.354687Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:31.354928Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:31.354948Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:31.355057Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:31.355066Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.27s
+
+     Running tests/vacuum_symmetry.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/deps/vacuum_symmetry-e756675d58c3c356)
+
+running 1 test
+test vacuum_triangle_preserves_mass_permutations_and_lower_lips ... 2026-09-08T17:00:42.730438Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:42.730652Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:42.731064Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:42.731109Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:42.731454Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:42.731464Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:42.731581Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:42.731607Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:42.731860Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:42.731874Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:42.731984Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:42.731993Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.37s
+
+     Running unittests examples/arbitrary_precision.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/arbitrary_precision-fda2c3ea1340538c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/basic.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/basic-88aaa40134141395)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/complex_branch_probe.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/complex_branch_probe-1db23cb4444e5553)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/generate_native.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/generate_native-dc483659365d2ff4)
+
+running 8 tests
+test tests::common_branch_alias_overwrites_the_old_live_slot ... ok
+test tests::native_branches_merge_live_slots_without_eager_evaluation ... ok
+test tests::nested_native_branch_phi_liveness_is_edge_specific ... ok
+test tests::registered_constants_are_exported_symbolically_not_as_zero_placeholders ... 2026-09-08T17:00:54.202575Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:54.202790Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:54.203244Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:54.203265Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:54.203754Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:54.203782Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:54.203990Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:54.204006Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:54.204325Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:54.204339Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:00:54.204511Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:00:54.204524Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test tests::scoped_cse_reuses_dominating_values_but_not_sibling_or_escaped_bindings ... ok
+test tests::shared_nested_branches_deduplicate_and_keep_selected_tuple_outputs ... ok
+test tests::whole_if_keys_keep_capture_identity_aliases_constants_and_output_order ... ok
+test tests::whole_if_reuse_executes_once_without_conflating_inputs_or_tuple_outputs ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.85s
+
+     Running unittests examples/get_expression.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/get_expression-85dca7777f473c55)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/jit_probe.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/jit_probe-4aff44b4469dc167)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/performance_survey.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/performance_survey-53e3b80f63c84aa5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/power_branch_probe.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/power_branch_probe-542aa4b853f6e86d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/rebuild_evaluators.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/rebuild_evaluators-5117b1c159cc6ff7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/simd_probe.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/simd_probe-0fffce1d1bb2fd13)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/triangle_branch_probe.rs (/common/dev/oneloop/symbolica-community/oneloop/target/release/examples/triangle_branch_probe-30fe63a65bb9c6c3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `--test inspection`

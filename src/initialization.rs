@@ -17,6 +17,7 @@ pub(crate) fn from_symbolica() {
         // Register every master, native helper and argument symbol together.
         // The transparent definitions are also ready for manual compilation.
         let _ = crate::expressions::shared_definitions();
+        crate::backend::initialize_native_all()?;
         crate::evaluators::initialize_all()
     });
 }

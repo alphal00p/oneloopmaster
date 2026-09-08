@@ -1,0 +1,28 @@
+
+running 6 tests
+test all_five_families_have_complete_exact_vacuum_bodies ... 2026-09-08T17:02:43.551345Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:02:43.551483Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:02:43.551823Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:02:43.551835Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:02:43.552176Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:02:43.552186Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:02:43.552302Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:02:43.552311Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:02:43.552520Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:02:43.552535Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+2026-09-08T17:02:43.552637Z  WARN symbolica::coefficient: Created infinity by raising 0 to the power of -1
+2026-09-08T17:02:43.552646Z  WARN symbolica::coefficient: Created indeterminate by raising (0+0i) to the power of ⧞
+ok
+test compact_real_one_mass_triangle_matches_independent_mapped_regions ... compact real one-mass C0: 864 rows, compact 384 bits / original reference 512 bits, all three coefficients
+ok
+test exact_massless_regions_and_resource_errors_are_explicit ... ok
+test native_real_attributes_simplify_but_do_not_discard_zero_branches ... ok
+test near_zero_reference_converges_without_relaxing_accuracy ... near-zero C0 at 384 bits: compact precision=291, original precision=188, difference=-3.3e-55
+near-zero C0 at 512 bits: compact precision=419, original precision=316, difference=1.9e-93
+near-zero C0 at 768 bits: compact precision=675, original precision=572, difference=1.7e-170
+ok
+test one_mass_triangle_accepts_real_expressions_and_prunes_specialized_regions ... complete real one-mass C0: 220 output nodes, 991.974µs
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.57s
+

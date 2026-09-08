@@ -104,6 +104,25 @@ class SurveyTests(unittest.TestCase):
             self.assertTrue(report["timing_contract"]["python_boundary_conversion_included"])
             self.assertTrue(report["timing_contract"]["output_validation_and_checksums_excluded"])
 
+    def test_explicit_backend_is_forwarded_and_recorded(self):
+        factory = mock.Mock(side_effect=lambda family, **options: FakeEvaluator(
+            [case for case in self.cases if case["family"] == family]))
+        fake_module = types.SimpleNamespace(is_initialized=lambda: True,
+            SYMBOLICA_REVISION="synthetic-test-only", DEFAULT_BACKEND="symjit", Evaluator=factory)
+        with tempfile.TemporaryDirectory(prefix="oneloop-python-backend-unit-") as directory:
+            output = Path(directory, "report.json")
+            argv = [str(SPEC.origin), "--module", "fake_oneloop", "--family", "B0",
+                    "--backend", "native", "--iterations", "5", "--repetitions", "1",
+                    "--batch", "4", "--output", str(output)]
+            with mock.patch.object(survey.sys, "argv", argv), \
+                    mock.patch.object(survey.importlib, "import_module", return_value=fake_module), \
+                    mock.patch.object(survey.sys, "stderr", io.StringIO()):
+                self.assertEqual(survey.main(), 0)
+            factory.assert_called_once_with("B0", backend="native")
+            report = json.loads(output.read_text())
+            self.assertEqual(report["backend_requested"], "native")
+            self.assertEqual(report["backend_resolved"], "native")
+
 
 if __name__ == "__main__":
     unittest.main()

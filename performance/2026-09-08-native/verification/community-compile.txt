@@ -1,0 +1,15 @@
+warning: allow(uncommon_codepoints) is ignored unless specified at crate level
+ --> /common/dev/oneloop/symjit-2.24.1-patched/src/symjit/mod.rs:1:10
+  |
+1 | #![allow(uncommon_codepoints)]
+  |          ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `symjit` (lib) generated 1 warning
+    Checking numerica v2.2.0 (/common/dev/oneloop/symbolica-dev-v3/lib/numerica)
+    Checking graphica v2.1.0 (/common/dev/oneloop/symbolica-dev-v3/lib/graphica)
+    Checking symbolica v2.2.0 (/common/dev/oneloop/symbolica-dev-v3)
+    Checking oneloop v0.1.0 (/common/dev/oneloop/oneloopmaster)
+    Checking oneloop-python v0.1.0 (/common/dev/oneloop/oneloopmaster/python)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.13s

@@ -2,15 +2,16 @@
 
 An independent Rust library whose only direct dependency is Symbolica. It does
 not link the Fortran wrapper or the standalone numerical Rust implementation.
-All integral algorithms are native symbolic expressions; continuation definitions
-are transparent `FunctionMap` entries. Public master Symbols also have dedicated
-evaluation hooks that evaluate those same expressions, never Fortran or a second
+All integral algorithms are exact symbolic expressions; continuation definitions
+are transparent `FunctionMap` entries. The same expression graph also generates
+inspectable generic Rust arithmetic for direct numerical evaluation. Public
+master-Symbol hooks use that direct native backend, never Fortran or a separate
 numerical OneLOop algorithm.
 
 Development status: the expanded audit passes at 256 bits, but retains 14
 fixed-binary64 B0/dB0 disagreements. The measured 1.5×-Fortran performance target
-is also not met across all workloads. See `SCALAR_PARITY_AUDIT.md` and the
-[performance report](performance/2026-09-08/README.md). Full scalar parity is not
+is also not met across all workloads. See the [native release audit](NATIVE_RELEASE_AUDIT.md)
+and [performance report](performance/2026-09-08-native/README.md). Full scalar parity is not
 established; this is not publication-ready.
 
 This work is based on **Andreas van Hameren's OneLOop package**. The original
@@ -33,6 +34,13 @@ evaluator compilation. Symbolica is based on dev revision
 That checkout still declares version 2.2.0; this is preparation for the future
 3.0, not a claim that 3.0 has been released. Portable JIT restoration and complex
 function registration also require the local patch.
+The arbitrary-precision path also requires the precision-scaled complex
+dilogarithm repair and mixed-component precision fixes for roots, phases,
+exact power identities and zero arithmetic. Requesting more digits alone
+does not repair those avoidable losses in the unpatched dependency.
+The independent [arbitrary-precision audit](ARBITRARY_PRECISION_AUDIT.md)
+documents the reproduced defects, repairs, operation inventory, and remaining
+limits of fixed working precision.
 See [patches/README.md](patches/README.md) for a fresh-checkout
 bootstrap. Keep Symbolica, numerica and graphica compatible. This temporary path
 setup is **not a publishable dependency configuration**. A consuming project's
@@ -126,14 +134,27 @@ Symbolica directly. Compact function calls alone are not self-contained formulas
 The context caches the native definitions once per process; cyclic mass sectors
 reuse canonical formulas instead of constructing copies.
 
+For a self-contained formula, `oneloop::get_expression(family, arguments)` (also
+`family.get_expression(arguments)`) returns the three exact Laurent coefficients
+with every OneLOop helper expanded into Symbolica primitives. It preserves the
+supplied symbols' assumptions. `get_expression_with_options` sets explicit node
+and depth limits; exceeding a limit returns an error, not a truncated formula.
+Expansion can duplicate work and change numerical conditioning: use the compact
+function map for routine numerical compilation. See the
+[inspection implementation](src/inspection.rs),
+[native source generator](examples/generate_native.rs), and
+[generated Rust families](src/native/).
+
 ## Compact master Symbols
 
 `oneloop::{A0(), B0(), dB0(), C0(), D0()}` return the Symbolica
 Symbols `oneloopmaster::{A0,B0,dB0,C0,D0}` with dedicated `EvaluationInfo` hooks.
 The crate registers a Symbolica `initialize!` hook, ordered after Symbolica's
 special-function initializer. At global-state startup it registers all master and
-native-helper symbols, prepares their shared definitions, and loads **all five**
-SymJIT backends together. Parsing a master does not require a prior accessor call.
+native-helper symbols, prepares their shared definitions, and prepares **all five
+binary64 Native and all five SymJIT backends** together. Precision-specific Float
+and DoubleFloat workspaces are constructed when requested. Parsing a master does
+not require a prior accessor call.
 Rust crates have no Python-style import event: call `oneloop::initialize()?` at
 application startup to force this work and receive startup errors immediately;
 otherwise Symbolica's first state access triggers the hook. `is_initialized()` is
@@ -154,10 +175,12 @@ let exact_evaluator = context.evaluator(&[finite, pole], &[p])?;
 
 The context supplies transparent tagged native definitions; Symbolica gives them
 precedence over the hooks. Bare calls can instead evaluate through cached hooks
-for `Complex<f64>` and `Complex<Float>`. Those hooks evaluate the same native
-bodies but are opaque to the *outer* evaluator's optimizer, so prefer the context
-for combined amplitudes. They do not supply every Symbolica numeric domain or
-automatic error-controlled precision. Invalid tags/arities produce descriptive
+for `Complex<f64>`, `Complex<DoubleFloat>` and `Complex<Float>`. These hooks
+always use the generated direct native backend, independently of the manual
+backend selection. They construct no per-point Atom or expression evaluator.
+They are opaque to the *outer* evaluator's optimizer, so prefer the context
+when optimization across combined expressions is wanted. They do not supply
+every Symbolica numeric domain or automatic error-controlled precision. Invalid tags/arities produce descriptive
 errors or panics; numeric callbacks have no `Result` return channel. Stack and
 license requirements below apply to either route. See
 [MASTER_SYMBOL_AUDIT.md](MASTER_SYMBOL_AUDIT.md) for verification status.
@@ -182,16 +205,50 @@ let mut output = vec![Complex::new(0., 0.); 1024 * 3];
 evaluator.batch_evaluate(&input, &mut output, 1024);
 ```
 
-The outer evaluator is compiled here; the five family backends are already ready
-from eager initialization. Passing the native map instead allows optimization
+The outer evaluator is compiled here; the five native family backends are
+already ready from eager initialization. Passing the native map allows optimization
 across transparent definitions. Both routes are measured separately below.
 
 ## Numerical evaluators and batches
 
-`ScalarEvaluator` represents one generic A0/B0/dB0/C0/D0 family and returns all
-three Laurent coefficients. Its parameters are runtime inputs, including
+Each prepared family evaluator returns all three Laurent coefficients. Its
+parameters are runtime inputs, including
 `mu_squared` as the **last argument of every row**; the scale is not baked in.
-The API preserves manual expression construction and adds
+
+| API | Numerical backend | Numeric types |
+| --- | --- | --- |
+| `NativeEvaluator<T>` | Generated, ahead-of-time Rust arithmetic | `f64`, `DoubleFloat`, `Float` |
+| `ScalarEvaluator` | Portable SymJIT O2, with binary64 SIMD batches | `f64` |
+| `PrecisionEvaluator` | Explicit Native or exact-expression interpreter | `Float` |
+
+`NativeEvaluator` owns reusable constants and a workspace. Its raw constructor
+and evaluation do not initialize Symbolica State, build expressions, or compile
+a JIT. Rational constants are converted directly at construction.
+Clones have independent workspaces; batches run the generated scalar function
+for each row, without a SIMD promise or hidden worker threads. See
+[the native evaluator](src/native/mod.rs) and
+[its generic primitives](src/native/primitives.rs).
+
+```rust,ignore
+use oneloop::{NativeEvaluator, ScalarIntegral};
+use symbolica::domains::float::{Complex, DoubleFloat};
+
+let mut evaluator = NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::B0)?;
+let input = [-1., 1., 1., 4.].map(|x| {
+    Complex::new(DoubleFloat::from(x), DoubleFloat::from(0.))
+});
+let zero = Complex::new(DoubleFloat::from(0.), DoubleFloat::from(0.));
+let mut output = [zero; 3];
+evaluator.evaluate(&input, &mut output)?;
+```
+
+For `NativeEvaluator`, fixed precisions are 53 bits (`f64`) and 106 bits
+(`DoubleFloat`); `Float` defaults to 128 bits or accepts explicit working bits
+through `with_binary_precision`. Basic DoubleFloat arithmetic and elementary
+functions retain both components. Its Li2 primitive alone uses Symbolica Float
+at 160 bits and converts back without narrowing the input to f64.
+
+The API also preserves manual expression construction and provides
 `OneLoopExpressions::jit_evaluator` / `MappedLaurentSeries::jit_evaluator` for
 compiling combinations to SymJIT O2.
 
@@ -199,7 +256,7 @@ compiling combinations to SymJIT O2.
 use oneloop::{ScalarEvaluator, ScalarIntegral};
 use symbolica::domains::float::Complex;
 
-oneloop::initialize()?; // All symbols and five backends are now ready.
+oneloop::initialize()?; // All symbols, five Native and five SymJIT backends ready.
 // Clone the prepared O2 backend; no additional IR loading or JIT compilation.
 let mut evaluator = ScalarEvaluator::prebuilt(ScalarIntegral::B0)?;
 let rows = [-1., 1., 1., 1.,  // p², m0², m1², mu²
@@ -211,20 +268,29 @@ evaluator.evaluate_batch(&input, &mut output, 2)?;
 ```
 
 `evaluate` handles one point; `evaluate_batch` accepts flat row-major arrays and
-checks their exact dimensions, including empty batches and partial SIMD tails.
+checks their exact dimensions, including empty batches and, for SymJIT, partial
+SIMD tails.
 For default manual evaluation without constructing an evaluator object,
 `oneloop::evaluate(family, input, output)` and
-`oneloop::evaluate_batch(family, input, output, rows)` use the same eagerly
-prepared cache as the master-Symbol hooks. `ScalarEvaluator::cached(family)`
-clones a prepared backend into an independently reusable workspace; an explicitly
-compiled custom expression keeps using its own evaluator.
+`oneloop::evaluate_batch(family, input, output, rows)` use `DEFAULT_BACKEND`,
+currently `EvaluationBackend::Native`. Select a route explicitly with
+`evaluate_with_backend(family, input, output, EvaluationBackend::Native)` or
+`evaluate_batch_with_backend(family, input, output, rows, backend)`; `Expression`
+selects Symbolica's native expression interpreter. These convenience routes
+retain eager initialization, unlike a raw `NativeEvaluator`.
+Native is faster on the measured mixed-family workloads, but some uniform
+SIMD-friendly workloads still favor SymJIT. The selector does not control
+the native-only Symbol hooks. `ScalarEvaluator::cached(family)` clones the
+prepared SymJIT backend into an independently reusable workspace; an explicitly
+compiled custom expression keeps its own evaluator. See the
+[backend selectors](src/backend.rs).
 `to_bytes` / `from_bytes` serialize portable SymJIT intermediate code **and nested
 function definitions**, not machine code or process pointers. Loading regenerates
 host machine code. Cache compatibility is tied to the patched Symbolica/SymJIT
-versions; load only trusted artifacts. Float/arbitrary-precision evaluators remain
-available through the original exact-expression API and do not use these f64 blobs.
+versions; load only trusted artifacts. Float/arbitrary-precision evaluators use
+`PrecisionEvaluator` or the original exact-expression API, not these f64 blobs.
 Those evaluators are constructed for the requested precision; eager startup
-prepares the five binary64 SymJIT backends, not every possible precision.
+prepares both binary64 backend sets, not every possible precision.
 Keep `SYMJIT_TOML` unset and do not place `symjit.toml` in the working directory
 when building/loading portable caches: these overrides can pin SymJIT to a
 particular machine architecture, so the portable API rejects them. Register
@@ -239,13 +305,14 @@ call `ScalarEvaluator::rebuild` or run:
 cargo run --release --no-default-features --example rebuild_evaluators -- assets/evaluators
 ```
 
-Without `prebuilt`, startup eagerly builds all five backends from the native
+Without `prebuilt`, startup eagerly builds all five SymJIT backends from the native
 expressions. An optional final family argument writes only that rebuilt asset.
-Applications can also
-explicitly replace the f64 master-Symbol cache with
-`rebuild_cached_evaluator(ScalarIntegral::B0)`. Those hooks use the same numerical
-evaluator API, whereas a supplied native function map remains visible to the
-outer optimizer. Restored scalar and mixed-batch regression checks pass; the
+Applications can explicitly replace a shared SymJIT manual cache with
+`rebuild_cached_evaluator(ScalarIntegral::B0)`; this does not replace the direct
+native Symbol-hook cache. Native Rust source is generated by
+`cargo run --release --example generate_native` and compiled with the crate,
+not loaded from the portable blobs. Restored SymJIT scalar and mixed-batch
+regression checks pass; the
 requested performance target is not met across all sampled workloads. A batch
 method does not guarantee a speedup for divergent conditional branches.
 The current manifest also patches the published SymJIT 2.24.1 crate in a sibling
@@ -272,7 +339,7 @@ adequately stacked calling thread:
 ```python
 import oneloop_native as olo
 
-bubble = olo.Evaluator("B0")  # Reuses an embedded O2 evaluator.
+bubble = olo.Evaluator("B0")  # Reuses a direct Rust numeric workspace.
 values = bubble.evaluate_batch([
     [-1.0, 1.0, 1.0, 1.0],
     [3.0, 0.7 - 0.03j, 1.4 - 0.08j, 4.0],
@@ -280,15 +347,48 @@ values = bubble.evaluate_batch([
 # Each row returns (finite, simple_pole, double_pole); final input is mu_squared.
 ```
 
-Convenience functions `olo.A0/B0/dB0/C0/D0(..., mu_squared=1.0)` use reusable
-caches by default and also accept `rebuild=True`. Python inputs/results are
-binary64 complex numbers; this list API makes no arbitrary-precision or
-Python-throughput guarantee.
+Convenience functions `olo.A0/B0/dB0/C0/D0(..., mu_squared=1, prec=16)` also
+accept `rebuild=True` and `backend="auto"`. Reusable evaluators and their methods
+likewise accept a backend choice: `"native"`, `"symjit"` or `"expression"`.
+`prec` counts **decimal digits**. With `"auto"`, ordinary Python numbers at the
+default precision use direct binary64 Rust and return Python `complex` results.
+Higher precision, large integers, `Decimal` inputs, or `DecimalComplex` inputs
+use direct generic Rust with Float and return `DecimalComplex` coefficients.
+`backend="expression"` selects the transparent expression interpreter;
+`"symjit"` selects the embedded O2 backend and rejects arbitrary-precision requests.
+Use `backend="symjit", rebuild=True` to recompile that backend. Rebuilding a
+Native evaluator only prepares fresh constants and a numeric workspace.
+
+```python
+from decimal import Decimal
+import oneloop_native as olo
+
+mass = olo.DecimalComplex(Decimal("2.0000000000000000000000000000001"),
+                          Decimal("-0.0000000000000000000000000000003"))
+finite, pole, double_pole = olo.A0(
+    mass, mu_squared=Decimal("4"), prec=1000, backend="native")
+print(finite.real, finite.imag)  # Decimal components, not binary64 approximations.
+
+bubble = olo.Evaluator("B0", prec=32, backend="native")
+values = bubble.evaluate_batch([
+    [Decimal("-1"), Decimal("1"), Decimal("1"), Decimal("1")],
+    [Decimal("-2"), Decimal("1"), Decimal("1"), Decimal("4")],
+])
+```
+
+Supply decimal text to `Decimal`, not an already rounded Python float. Decimal
+construction and conversion preserve the supplied digits independently of the
+global decimal context; subsequent arithmetic on returned Decimal components
+uses Python's context as usual. See [the Python precision guide](python/README.md#arbitrary-precision)
+for return types, per-call overrides, and complex inputs. Arbitrary precision
+uses `Complex<Float>` through the selected Native or Expression backend, not
+SymJIT SIMD; the binary64
+performance measurements below do not bound high-precision runtime.
 The optional [Python performance survey](python/performance_survey.py) defaults
 to 1024-row batches and records Python conversion/allocation overhead separately
 from initialization. The completed 1024-row survey includes the one-row tail,
 all three outputs, and matched Rust/Fortran measurements; see the
-[performance report](performance/2026-09-08/README.md).
+[performance report](performance/2026-09-08-native/README.md).
 
 ## Stack and precision
 
@@ -304,12 +404,58 @@ startup checks pass on main threads capped at 8 MiB, but this is not a general
 stack bound for arbitrary expressions or explicit rebuilding. Sequential thread
 handoff is separately tested; the initializing thread need not remain alive for
 the verified cached-evaluator use case.
+Raw `NativeEvaluator<T>` is different: it performs no State initialization or
+expression-graph compilation. It uses only the calling thread and its owned
+numeric workspace. This distinction does not change Symbolica's licensing terms;
+the eager initialization contract still applies to Symbol access, Python import,
+and the higher-level convenience APIs, even when selecting Native there.
 
-Use exact rational inputs when testing precision convergence. Mapping coefficients
-and supplying values as `Complex<f64>` is fixed-precision evaluation; it cannot
-recover digits already rounded out of the input. `Complex<Float>` evaluators can
-be built at a chosen precision using `map_coeff_with_prec`. No custom adaptive
-precision or near-degeneracy gate is implemented here.
+`PrecisionEvaluator` evaluates the same formulas at a fixed arbitrary working
+precision, with explicit Native or Expression selection and no additional direct
+dependency. `new` defaults to Native; SymJIT is binary64-only.
+An explicit direct native request looks like:
+
+```rust,ignore
+use oneloop::{EvaluationBackend, PrecisionEvaluator, ScalarIntegral};
+use symbolica::domains::float::{Complex, Float};
+
+let mut evaluator = PrecisionEvaluator::with_backend(
+    ScalarIntegral::B0, 1000, EvaluationBackend::Native)?;
+let bits = evaluator.binary_precision();
+let input: Vec<_> = ["-1", "1", "1", "4"].into_iter().map(|text| {
+    Complex::new(Float::parse(text, Some(bits)).unwrap(), Float::new(bits))
+}).collect();
+let mut output = core::array::from_fn::<_, 3, _>(|_| {
+    Complex::new(Float::new(bits), Float::new(bits))
+});
+evaluator.evaluate(&input, &mut output)?;
+println!("{} + ({}) i", output[0].re, output[0].im);
+```
+
+The complete [arbitrary-precision example](examples/arbitrary_precision.rs)
+arranges the calling-thread stack and evaluates two rows; run it with
+`cargo run --release --example arbitrary_precision -- 1000`.
+
+`new` / `with_backend` add fixed guard bits to the requested decimal precision;
+`with_binary_precision` / `with_binary_precision_and_backend` instead use exactly
+the supplied bit count. Raw `NativeEvaluator::<Float>::with_binary_precision`
+also uses exactly its supplied bits, without eager symbolic startup.
+The API supports reusable scalar and flat row-major batched evaluation
+with the same argument order as `ScalarEvaluator`. Exact rational coefficients
+are converted directly at working precision. Public master-Symbol hooks support
+`Complex<Float>` with native workspaces keyed by the maximum input-component
+precision (including the squared scale), and `Complex<DoubleFloat>` at 106 bits.
+Map a bare-Symbol evaluator with `map_coeff_with_prec` to use Float hooks, or map
+the transparent expressions directly.
+
+Use exact rational or decimal-text inputs when testing precision convergence.
+Mapping coefficients and supplying values as `Complex<f64>` cannot recover digits
+already rounded out of the input. Increasing precision provides more working
+digits, not a guarantee of that many accurate output digits at every kinematic
+point. Outputs retain Symbolica/Numerica's computed precision; we do not pad lost
+digits back to the requested precision. No custom adaptive precision or
+near-degeneracy gate is implemented here. See [PRECISION.md](PRECISION.md) for
+the precision contract and validation coverage.
 
 ## Verification
 
@@ -330,11 +476,18 @@ ONELOOP_AUDIT_FIXTURES=tests/data/scalar_audit.txt cargo test --test parity \
   audit_extra_fortran_fixtures -- --ignored --test-threads=1 --nocapture
 ```
 
-The current release suite passes 57 tests, with four ignored test entries
-(three opt-in diagnostics and a subprocess helper invoked by the startup test).
-The broader table passes at 256 bits after the branch/limit repairs; the fixed-f64
-command above still fails on 14
-small-momentum B0/dB0 coefficients. No comparison tolerance has been relaxed
+The final native-default release suite passes **114 tests**, with six ignored
+entries (four opt-in diagnostics and two subprocess helpers invoked by parent
+tests). The direct native backend passes the broader table at 256 bits; its
+explicit binary64 diagnostic still fails on 14 small-momentum B0/dB0 coefficients:
+
+```sh
+cargo test --release --test native native_expanded_binary64_diagnostic -- \
+  --ignored --test-threads=1 --nocapture
+```
+
+This is a retained failing test, not an accepted tolerance exception. No
+comparison tolerance has been relaxed
 and no disagreement is converted into a passing assertion. Passing the sampled
 tables or default suite is not a full-parity certificate. The acceptance and
 expanded tables have 613 unique ordered inputs, not 635 independent points.
@@ -343,9 +496,9 @@ permutations, independent analytic targets, and gaps in region coverage. Analyti
 symmetry takes precedence over inconsistent reference outputs there. See the dated audit
 for the latest completed runs and additional exact-boundary findings.
 The restored strict-v3 scalar caches separately pass all three outputs for the
-293 acceptance rows and 31 benchmark rows. The release Python suite passes all
-11 tests (seven API/startup/thread tests and four benchmark-harness tests), using
-the original fresh-worker mode. Arbitrary-precision, callback, mapped-expression,
+293 acceptance rows and 31 benchmark rows. The final release Python suite passes
+all **27 tests**, including native/SymJIT selection, arbitrary precision, Decimal
+inputs, inspection and 1024-row batches. Arbitrary-precision, callback, mapped-expression,
 portable-cache and batched routes are tested separately, not inferred from one
 another. Bare master calls compiled without a FunctionMap pass every acceptance
 row in canonical tag order, scalar and five mixed/repeated batch layouts, before
@@ -367,13 +520,17 @@ cargo run --release --example performance_survey -- 2000 7 all jit \
 python3 tests/compare_performance.py /tmp/oneloop-fortran.json /tmp/oneloop-native.tsv
 ```
 
-Use `all symbols` instead of `all jit` to compile public master calls with their
+Use `all native` instead of `all jit` to measure the generated Rust evaluator;
+its batch loop is scalar. The [current report](performance/2026-09-08-native/README.md)
+measures this backend and native-only hooks separately from manual SymJIT.
+Use `all symbols` to compile public master calls with their
 transparent native FunctionMap, using the same batch sizes. Use `all hooks-jit`
 to JIT-compile bare master calls without that map, invoking the automatically
-registered cached callbacks. `all hooks` keeps that bare outer evaluator
+registered direct native callbacks. `all hooks` keeps that bare outer evaluator
 interpreted and is scalar-only (compare with `--batch 1`). These are distinct
 measurements; mapped compilation is not the automatic callback path.
-Distinct Laurent tags at bitwise-identical inputs reuse one backend result.
+Binary64 hooks reuse one backend result for distinct Laurent tags at
+bitwise-identical inputs.
 A bounded four-entry FIFO accommodates tag-major SIMD lanes, including identical
 points, but each tag is consumed only once per group: repeated same-tag calls
 cannot be memoized away. Seven counting-backend tests cover every tag order,
@@ -392,7 +549,7 @@ same machine without competing benchmark/build jobs, with matching call counts
 and repetitions. The comparator rejects incomplete or invalid measurements and
 returns exit 2 if any selected median exceeds 1.5 times the Fortran time.
 The 1.5× target is not met across all workloads; full measurements and limitations
-are in the [performance report](performance/2026-09-08/README.md).
+are in the [performance report](performance/2026-09-08-native/README.md).
 The comparator's independent protocol tests
 run with `python3 -m unittest discover -s tests -p test_compare_performance.py -v`.
 

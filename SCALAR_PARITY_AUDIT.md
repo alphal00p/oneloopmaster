@@ -1,6 +1,16 @@
 # Scalar-integral parity audit
 
-## Current release validation — 2026-09-08
+## Native/ArbPrec follow-up — 2026-09-08
+
+The [new native release audit](NATIVE_RELEASE_AUDIT.md) records 114 passing Rust
+tests, 27 passing standalone Python tests, native-only master hooks, arbitrary
+precision and complete-expression inspection. The direct native backend passes
+the 342-point table at 256 bits; its separately selected binary64 stress audit
+still fails on 14 finite coefficients (six B0, eight dB0), with unchanged
+tolerances. Global scalar parity remains unestablished. The following section
+preserves the earlier SymJIT-default snapshot and its historical test counts.
+
+## Preserved SymJIT-default release validation — 2026-09-08
 
 **Full scalar parity is not established, and the requested performance target is
 not met.** The current release checks use Symbolica dev

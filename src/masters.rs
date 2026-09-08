@@ -15,7 +15,7 @@ use std::{
 use symbolica::{
     atom::{AtomView, EvaluationInfo},
     domains::{
-        float::{Complex, Float, SingleFloat},
+        float::{Complex, DoubleFloat, Float},
         rational::Rational,
     },
     evaluate::ExpressionEvaluator,
@@ -124,7 +124,7 @@ impl Drop for EvaluationGuard {
 }
 
 type ExactEvaluator = ExpressionEvaluator<Complex<Rational>>;
-type PrecisionEvaluator = ExpressionEvaluator<Complex<Float>>;
+type PrecisionEvaluator = crate::NativeEvaluator<Float>;
 
 pub(crate) fn exact_evaluator(family: ScalarIntegral) -> &'static ExactEvaluator {
     initialization::ensure_symbolica_state();
@@ -144,7 +144,31 @@ pub(crate) fn exact_evaluator(family: ScalarIntegral) -> &'static ExactEvaluator
 fn scalar_f64(family: Family, tag: usize, args: &[Complex<f64>]) -> Complex<f64> {
     family.check_arity(args.len());
     let _guard = EvaluationGuard::enter();
-    evaluators::evaluate_cached(family, tag, args)
+    crate::backend::native_coefficient(family, tag, args)
+}
+
+fn scalar_double_float(
+    family: Family,
+    tag: usize,
+    args: &[Complex<DoubleFloat>],
+) -> Complex<DoubleFloat> {
+    family.check_arity(args.len());
+    let _guard = EvaluationGuard::enter();
+    static CACHE: [OnceLock<Mutex<crate::NativeEvaluator<DoubleFloat>>>; 5] =
+        [const { OnceLock::new() }; 5];
+    let mut evaluator = CACHE[family as usize]
+        .get_or_init(|| {
+            Mutex::new(crate::NativeEvaluator::new(family).expect("native DoubleFloat constants"))
+        })
+        .lock()
+        .expect("OneLOop DoubleFloat cache poisoned");
+    let mut output = core::array::from_fn::<_, 3, _>(|_| Complex::new(0.0.into(), 0.0.into()));
+    let result = evaluator.evaluate(args, &mut output);
+    drop(evaluator);
+    // Domain rejection must not poison a reusable shared evaluator when the
+    // caller catches the numeric callback's deliberate panic.
+    result.expect("valid master arguments");
+    output[tag]
 }
 
 fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<Float> {
@@ -164,21 +188,15 @@ fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<
         .lock()
         .expect("OneLOop precision evaluator cache poisoned");
     let evaluator = cache.entry(precision).or_insert_with(|| {
-        let converter = Float::new(precision);
-        exact_evaluator(family).clone().map_coeff_with_prec(
-            &|value| {
-                Complex::new(
-                    converter.from_rational(&value.re),
-                    converter.from_rational(&value.im),
-                )
-            },
-            precision,
-        )
+        crate::NativeEvaluator::with_binary_precision(family, precision)
+            .expect("native arbitrary-precision constants")
     });
     let mut output = core::array::from_fn::<_, 3, _>(|_| {
         Complex::new(Float::new(precision), Float::new(precision))
     });
-    evaluator.evaluate(args, &mut output);
+    let result = evaluator.evaluate(args, &mut output);
+    drop(cache);
+    result.expect("valid master arguments");
     output[tag].clone()
 }
 
@@ -203,12 +221,16 @@ fn info(family: Family) -> EvaluationInfo {
         let tag = coefficient_index(family, tags);
         Box::new(move |args: &[Complex<Float>]| scalar_float(family, tag, args))
     })
+    .register_tagged::<Complex<DoubleFloat>>(move |tags| {
+        let tag = coefficient_index(family, tags);
+        Box::new(move |args: &[Complex<DoubleFloat>]| scalar_double_float(family, tag, args))
+    })
 }
 
 /// Initializes and returns `oneloopmaster::A0(tag, m², mu²)`.
 ///
-/// All master accessors attach callbacks for `Complex<f64>` and
-/// `Complex<Float>`. Invalid tags or numeric arities panic with a descriptive
+/// All master accessors attach direct Rust callbacks for `Complex<f64>`,
+/// `Complex<DoubleFloat>` and `Complex<Float>`. Invalid tags, domains or numeric arities panic with a descriptive
 /// message because Symbolica's numeric callback interface returns a number,
 /// not a `Result`. The native map performs its own function validation.
 #[allow(non_snake_case)]

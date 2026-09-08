@@ -2,7 +2,7 @@
 
 Invoked by test_api.py, or directly as: python cold_start.py D0 evaluator.
 Import must eagerly initialize all scalar families before any master call.
-Only the numerical prebuilt paths are exercised. Explicit source rebuilding
+Only ready-workspace paths (Native or prebuilt SymJIT) are exercised. Source rebuilding
 still belongs on the adequately stacked calling thread described in the README.
 """
 
@@ -49,6 +49,7 @@ def main():
     parser.add_argument("family", choices=tuple(FAMILIES.values()))
     parser.add_argument("entry", choices=("direct", "evaluator", "guard-env", "guard-file"))
     parser.add_argument("--rebuild-only", action="store_true")
+    parser.add_argument("--backend", choices=("auto", "native", "symjit"), default="auto")
     args = parser.parse_args()
     stack_limit = bounded_main_stack()
     kind = next(kind for kind, name in FAMILIES.items() if name == args.family)
@@ -57,6 +58,7 @@ def main():
         "family": args.family, "entry": args.entry,
         "main_thread": threading.current_thread() is threading.main_thread(),
         "stack_soft_limit_bytes": stack_limit, "checked_rows": 0, "batch_rows": 0,
+        "backend_requested": args.backend,
     }
     if args.entry.startswith("guard-"):
         expected = (
@@ -81,6 +83,7 @@ def main():
     module = importlib.import_module("oneloop_native")
     if module.EXPRESSION_INTEROP:
         raise AssertionError("this smoke test requires the standalone extension")
+    record["backend_resolved"] = module.DEFAULT_BACKEND if args.backend == "auto" else args.backend
     # This query is read-only in the core: it cannot make this assertion pass
     # by lazily creating a master symbol, function map, or scalar cache.
     if not module.is_initialized():
@@ -98,10 +101,10 @@ def main():
             function = getattr(module, family)
             for case in cases:
                 inputs = case[1]
-                check_output(function(*inputs[:-1], mu_squared=inputs[-1]), case)
-            evaluator = module.Evaluator(family)
+                check_output(function(*inputs[:-1], mu_squared=inputs[-1], backend=args.backend), case)
+            evaluator = module.Evaluator(family, backend=args.backend)
         else:
-            evaluator = module.Evaluator(family)
+            evaluator = module.Evaluator(family, backend=args.backend)
             for case in cases:
                 check_output(evaluator.evaluate(case[1]), case)
         ordered = [cases[index % len(cases)] for index in range(9)]

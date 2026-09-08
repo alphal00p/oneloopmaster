@@ -2,7 +2,8 @@
 
 Build/install the local adapter first. Set ONELOOP_PYTHON_MODULE to the actual
 shared-kernel module for community integration tests. ONELOOP_PYTHON_REBUILD=1
-passes explicit rebuild=True to numeric calls without disabling eager startup.
+passes explicit rebuild=True, backend="symjit" to numeric calls without disabling
+eager startup. Native workspace rebuilding is tested independently as well.
 Cold-start subprocess tests run first, sequentially on their main threads with
 at most an 8 MiB stack on POSIX. Remaining Symbolica work runs on one explicitly
 created, persistent 128 MiB test thread. Never run this suite concurrently with
@@ -50,11 +51,15 @@ def read_fixture_groups():
 
 def new_evaluator(module, family, **options):
     options.setdefault("rebuild", REBUILD)
+    if REBUILD:
+        options.setdefault("backend", "symjit")
     return module.Evaluator(family, **options)
 
 
 def scalar(module, name, *arguments, **options):
     options.setdefault("rebuild", REBUILD)
+    if REBUILD:
+        options.setdefault("backend", "symjit")
     return getattr(module, name)(*arguments, **options)
 
 
@@ -143,7 +148,7 @@ def tearDownModule():
 
 
 class AdapterTests(unittest.TestCase):
-    def run_standalone_child(self, family, entry, *, guard=None):
+    def run_standalone_child(self, family, entry, *, guard=None, backend="auto"):
         environment = os.environ.copy()
         environment.pop("SYMJIT_TOML", None)
         if "PYTHONPATH" in environment:
@@ -154,6 +159,7 @@ class AdapterTests(unittest.TestCase):
         command = [
             sys.executable, "-X", "faulthandler",
             str(Path(__file__).with_name("cold_start.py").resolve()), family, entry,
+            "--backend", backend,
         ]
         if REBUILD:
             command.append("--rebuild-only")
@@ -184,7 +190,11 @@ class AdapterTests(unittest.TestCase):
         # distinguish first-call entry routes without ten redundant startups.
         for entry in ("direct", "evaluator"):
             with self.subTest(entry=entry):
-                record = self.run_standalone_child("D0", entry)
+                backend = "auto" if entry == "direct" else "symjit"
+                record = self.run_standalone_child("D0", entry, backend=backend)
+                self.assertEqual(record["backend_requested"], backend)
+                if backend == "symjit":
+                    self.assertEqual(record["backend_resolved"], "symjit")
                 self.assertTrue(record["main_thread"])
                 self.assertEqual(record["family"], "D0")
                 self.assertEqual(record["entry"], entry)
@@ -259,14 +269,17 @@ class AdapterTests(unittest.TestCase):
                             self.assertTrue(math.isfinite(abs(a - b)))
                             self.assertLess(abs(a - b), 1e-12)
             self.assertAlmostEqual(singles[0][0].real, -0.1520447048200202, places=12)
-            rebuilt = new_evaluator(module, "B0", rebuild=True)
-            for actual, expected in zip(rebuilt.evaluate(rows[0]), singles[0]):
-                self.assertLess(abs(actual - expected), 1e-12)
-            rebuilt.rebuild()
-            for actual, expected in zip(rebuilt.evaluate(rows[0]), singles[0]):
-                self.assertLess(abs(actual - expected), 1e-12)
-            for actual, expected in zip(module.B0(-1, 1, 1, rebuild=True), singles[0]):
-                self.assertLess(abs(actual - expected), 1e-12)
+            # Explicitly distinguish SymJIT source rebuilding from a fresh
+            # Native constant/workspace setup, independent of DEFAULT_BACKEND.
+            for backend in ("symjit", "native"):
+                rebuilt = new_evaluator(module, "B0", rebuild=True, backend=backend)
+                for actual, expected in zip(rebuilt.evaluate(rows[0]), singles[0]):
+                    self.assertLess(abs(actual - expected), 1e-12)
+                rebuilt.rebuild()
+                for actual, expected in zip(rebuilt.evaluate(rows[0]), singles[0]):
+                    self.assertLess(abs(actual - expected), 1e-12)
+                for actual, expected in zip(module.B0(-1, 1, 1, rebuild=True, backend=backend), singles[0]):
+                    self.assertLess(abs(actual - expected), 1e-12)
         on_symbolica_thread(check)
 
     def test_every_shared_benchmark_fixture(self):
