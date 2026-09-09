@@ -2,7 +2,7 @@
 from decimal import Decimal, localcontext
 import unittest
 
-from test_api import FAMILIES, on_symbolica_thread, read_fixture_groups, tearDownModule  # noqa: F401
+from test_api import family_selector, FAMILIES, on_symbolica_thread, read_fixture_groups, tearDownModule  # noqa: F401
 from test_precision import vacuum_coefficients
 
 
@@ -24,9 +24,9 @@ class BackendSelection(unittest.TestCase):
         def check(module):
             for kind, rows in read_fixture_groups().items():
                 family = FAMILIES[kind]
-                native = module.Evaluator(family, backend="native")
-                jit = module.Evaluator(family, backend="symjit")
-                expression = module.Evaluator(family, backend="expression")
+                native = module.Evaluator(family_selector(module, family), backend="native")
+                jit = module.Evaluator(family_selector(module, family), backend="symjit")
+                expression = module.Evaluator(family_selector(module, family), backend="expression")
                 inputs = [arguments for _, arguments, _, _ in rows]
                 native_batch = native.evaluate_batch(inputs)
                 jit_batch = jit.evaluate_batch(inputs)
@@ -51,7 +51,7 @@ class BackendSelection(unittest.TestCase):
                         reference = vacuum_coefficients(family, mass_pair, scale, digits)
                         for backend in ("native", "expression"):
                             with self.subTest(family=family, prec=digits, backend=backend):
-                                evaluator = module.Evaluator(family, prec=digits, backend=backend)
+                                evaluator = module.Evaluator(family_selector(module, family), prec=digits, backend=backend)
                                 self.assert_decimal_close(evaluator.evaluate(arguments), reference, digits)
                                 self.assert_decimal_close(evaluator.evaluate_batch([arguments])[0], reference, digits)
                                 self.assert_decimal_close(getattr(module, family)(*arguments, prec=digits, backend=backend), reference, digits)
@@ -66,7 +66,7 @@ class BackendSelection(unittest.TestCase):
             for digits in (32, 1000):
                 reference = module.C0(*arguments, prec=digits, backend="expression")
                 expected = [(z.real, z.imag) for z in reference]
-                native = module.Evaluator("C0", prec=digits, backend="native")
+                native = module.Evaluator(family_selector(module, "C0"), prec=digits, backend="native")
                 self.assert_decimal_close(native.evaluate(arguments), expected, digits)
                 self.assert_decimal_close(native.evaluate_batch([arguments])[0], expected, digits)
         on_symbolica_thread(check)
@@ -74,16 +74,16 @@ class BackendSelection(unittest.TestCase):
     def test_batched_1024_native_machine_and_decimal(self):
         def check(module):
             machine_rows = [[1.125 + index / 1024, 4.75] for index in range(1024)]
-            native = module.Evaluator("A0", backend="native")
-            expected = module.Evaluator("A0", backend="symjit").evaluate_batch(machine_rows)
+            native = module.Evaluator(family_selector(module, "A0"), backend="native")
+            expected = module.Evaluator(family_selector(module, "A0"), backend="symjit").evaluate_batch(machine_rows)
             actual = native.evaluate_batch(machine_rows)
             self.assertEqual(len(actual), 1024)
             for a, b in zip(actual, expected):
                 self.assert_machine_close(a, b)
             decimal_rows = [[Decimal("1.125") + Decimal(index) / 1024, Decimal("4.75")] for index in range(1024)]
-            native = module.Evaluator("A0", prec=32, backend="native")
+            native = module.Evaluator(family_selector(module, "A0"), prec=32, backend="native")
             actual = native.evaluate_batch(decimal_rows)
-            expected = module.Evaluator("A0", prec=32, backend="expression").evaluate_batch(decimal_rows)
+            expected = module.Evaluator(family_selector(module, "A0"), prec=32, backend="expression").evaluate_batch(decimal_rows)
             for a, b in zip(actual, expected):
                 self.assert_decimal_close(a, [(z.real, z.imag) for z in b], 32)
             native.rebuild()
@@ -93,13 +93,13 @@ class BackendSelection(unittest.TestCase):
     def test_selection_overrides_and_arbitrary_symjit_rejection(self):
         def check(module):
             self.assertIn(module.DEFAULT_BACKEND, ("native", "symjit", "expression"))
-            evaluator = module.Evaluator("A0", backend="native")
+            evaluator = module.Evaluator(family_selector(module, "A0"), backend="native")
             for backend in ("native", "symjit", "expression", "symbolica", "auto"):
                 expected = module.A0(2.125, 4.75, backend=backend)
                 self.assert_machine_close(evaluator.evaluate([2.125, 4.75], backend=backend), expected)
             self.assertEqual(evaluator.backend, "native")
-            self.assertEqual(module.Evaluator("A0", backend="symbolica").backend, "expression")
-            self.assertEqual(module.Evaluator("A0").backend, "auto")
+            self.assertEqual(module.Evaluator(family_selector(module, "A0"), backend="symbolica").backend, "expression")
+            self.assertEqual(module.Evaluator(family_selector(module, "A0")).backend, "auto")
             for value in (Decimal("2"), 2**53 + 1, module.DecimalComplex("2", "-1e-1000")):
                 with self.assertRaisesRegex(ValueError, "binary64"):
                     module.A0(value, backend="symjit")
@@ -108,7 +108,7 @@ class BackendSelection(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "binary64"):
                 module.A0(2, mu_squared=Decimal(1), backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
-                module.Evaluator("A0", prec=32, backend="symjit")
+                module.Evaluator(family_selector(module, "A0"), prec=32, backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
                 evaluator.evaluate_batch([], prec=1000, backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
@@ -118,7 +118,7 @@ class BackendSelection(unittest.TestCase):
                 self.assertTrue(all(isinstance(value, module.DecimalComplex) for value in values))
             for bad in ("", "cuda", "jit"):
                 with self.assertRaises(ValueError):
-                    module.Evaluator("A0", backend=bad)
+                    module.Evaluator(family_selector(module, "A0"), backend=bad)
                 with self.assertRaises(ValueError):
                     evaluator.evaluate_batch([], backend=bad)
             with self.assertRaises(TypeError):

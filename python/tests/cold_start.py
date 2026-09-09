@@ -7,6 +7,8 @@ still belongs on the adequately stacked calling thread described in the README.
 """
 
 import argparse
+
+from test_api import family_selector
 import importlib
 import json
 import math
@@ -102,9 +104,9 @@ def main():
             for case in cases:
                 inputs = case[1]
                 check_output(function(*inputs[:-1], mu_squared=inputs[-1], backend=args.backend), case)
-            evaluator = module.Evaluator(family, backend=args.backend)
+            evaluator = module.Evaluator(family_selector(module, family), backend=args.backend)
         else:
-            evaluator = module.Evaluator(family, backend=args.backend)
+            evaluator = module.Evaluator(family_selector(module, family), backend=args.backend)
             for case in cases:
                 check_output(evaluator.evaluate(case[1]), case)
         ordered = [cases[index % len(cases)] for index in range(9)]

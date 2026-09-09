@@ -117,12 +117,33 @@ pub(crate) fn needs_arbitrary(value: &Bound<'_, PyAny>) -> PyResult<bool> {
     if value.is_instance_of::<DecimalComplex>() || value.is_instance(&decimal_class(value.py())?)? {
         return Ok(true);
     }
+    #[cfg(feature = "community")]
+    if value
+        .extract::<symbolica::api::python::PythonExpression>()
+        .is_ok()
+    {
+        // Never lower exact rational or high-precision Symbolica coefficients
+        // through binary64 before the requested-precision evaluation.
+        return Ok(true);
+    }
     Err(PyTypeError::new_err(
         "numeric inputs must be real/complex numbers, Decimal or DecimalComplex",
     ))
 }
 
 pub(crate) fn arbitrary_number(value: &Bound<'_, PyAny>, bits: u32) -> PyResult<Complex<Float>> {
+    #[cfg(feature = "community")]
+    if let Ok(value) = value.extract::<symbolica::api::python::PythonExpression>() {
+        use symbolica::atom::{Atom, AtomCore};
+        return value
+            .expr
+            .evaluate_with_prec::<Atom, Complex<Float>>(&Default::default(), bits)
+            .map_err(|error| {
+                PyValueError::new_err(format!(
+                    "numeric Symbolica input must evaluate without free variables: {error}"
+                ))
+            });
+    }
     if let Ok(value) = value.cast::<PyComplex>() {
         return Ok(Complex::new(
             Float::with_val(bits, value.real()),

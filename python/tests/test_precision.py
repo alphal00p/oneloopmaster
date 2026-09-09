@@ -8,7 +8,7 @@ use Python's independent decimal transcendental implementation.
 from decimal import Decimal, getcontext, localcontext
 import unittest
 
-from test_api import on_symbolica_thread, tearDownModule
+from test_api import family_selector, on_symbolica_thread, tearDownModule
 
 
 def decimal_multiply(first, second):
@@ -153,7 +153,7 @@ class PrecisionTests(unittest.TestCase):
                 for family in ("A0", "B0", "dB0", "C0", "D0"):
                     momenta, masses = {"A0": (0, 1), "B0": (1, 2), "dB0": (1, 2),
                                        "C0": (3, 3), "D0": (6, 4)}[family]
-                    evaluator = module.Evaluator(family, prec=digits)
+                    evaluator = module.Evaluator(family_selector(module, family), prec=digits)
                     rows, expected = [], []
                     for index in range(5):
                         real = Decimal("2.125") + index
@@ -181,7 +181,7 @@ class PrecisionTests(unittest.TestCase):
 
     def test_reusable_precision_overrides_and_mixed_batch_tails(self):
         def check(module):
-            evaluator = module.Evaluator("A0", prec=32)
+            evaluator = module.Evaluator(family_selector(module, "A0"), prec=32)
             self.assertEqual(evaluator.prec, 32)
             rows = [[Decimal("1.25") + index, Decimal("2.75")] for index in range(5)]
             singles = [evaluator.evaluate(row) for row in rows]
@@ -202,7 +202,7 @@ class PrecisionTests(unittest.TestCase):
             self.assertTrue(all(isinstance(z, complex) for z in evaluator.evaluate([1, 1], prec=16)))
             # One Decimal anywhere promotes the complete mixed batch, not only
             # that row; all numerical work has one requested precision.
-            default = module.Evaluator("A0")
+            default = module.Evaluator(family_selector(module, "A0"))
             promoted = default.evaluate_batch([[2.0, 1.0], [Decimal("2.1"), 1.0], [3, 1]])
             self.assertTrue(all(isinstance(z, module.DecimalComplex) for row in promoted for z in row))
             evaluator.rebuild()
@@ -219,7 +219,7 @@ class PrecisionTests(unittest.TestCase):
                 with self.subTest(prec=digits), self.assertRaises(TypeError):
                     module.A0(1, prec=digits)
                 with self.assertRaises(TypeError):
-                    module.Evaluator("A0", prec=digits)
+                    module.Evaluator(family_selector(module, "A0"), prec=digits)
             for value in (Decimal("NaN"), Decimal("sNaN"), Decimal("Infinity"), Decimal("-Infinity")):
                 with self.subTest(value=str(value)), self.assertRaises(ValueError):
                     module.A0(value)
@@ -235,7 +235,7 @@ class PrecisionTests(unittest.TestCase):
             for value in (True, False):
                 with self.assertRaises(TypeError):
                     module.A0(value)
-            evaluator = module.Evaluator("A0")
+            evaluator = module.Evaluator(family_selector(module, "A0"))
             with self.assertRaises(TypeError):
                 evaluator.evaluate_batch([[Decimal(2), 1], [True, 1]])
             with self.assertRaises(ValueError):

@@ -134,8 +134,8 @@ Symbolica directly. Compact function calls alone are not self-contained formulas
 The context caches the native definitions once per process; cyclic mass sectors
 reuse canonical formulas instead of constructing copies.
 
-For a self-contained formula, `oneloop::get_expression(family, arguments)` (also
-`family.get_expression(arguments)`) returns the three exact Laurent coefficients
+For a self-contained formula, `oneloop::get_expression(master_call)` (also
+`family.get_expression(arguments)` for a Rust `ScalarIntegral`) returns the three exact Laurent coefficients
 with every OneLOop helper expanded into Symbolica primitives. It preserves the
 supplied symbols' assumptions. `get_expression_with_options` sets explicit node
 and depth limits; exceeding a limit returns an error, not a truncated formula.
@@ -144,6 +144,118 @@ function map for routine numerical compilation. See the
 [inspection implementation](src/inspection.rs),
 [native source generator](examples/generate_native.rs), and
 [generated Rust families](src/native/).
+
+### `get_expression` example: a parametric equal-mass B0
+
+For `B0(psq, m², m²; mu²=1)`, keep both the momentum and squared mass symbolic.
+The arguments are `[p_squared, mass_0_squared, mass_1_squared, mu_squared]`;
+the result is `(finite, simple_pole, double_pole)`, not a numerical evaluation:
+
+Use the [shared-kernel Python build](python/README.md):
+
+```python
+from symbolica import E, S, N, Replacement
+from symbolica.community import oneloop as olo
+
+psq = S("psq", is_real=True)
+m2 = S("mz_masses::m2", is_positive=True)  # m², not m
+B0 = S("oneloopmaster::B0")
+one_master = B0(psq, m2, m2, 1)  # mu²=1; no Laurent tag here
+finite, pole, double_pole = olo.get_expression(one_master)
+print(finite)       # Complete expression, including all analytic branches.
+print(pole)
+print(double_pole)  # 0
+finite_only = olo.get_expression(one_master, coefficient=0)
+assert finite_only == finite
+
+# Expressions, including composite masses, can also be constructed with E:
+other_master = E("oneloop::B0(psq,mz_masses::{real,positive}::m2+12/3,m3,mu_r)")
+other_coefficients = olo.get_expression(other_master)
+```
+
+`get_expression` accepts a master **Expression**, not a family string or a list
+of strings. It accepts composite kinematics and relies on Symbolica's own
+real/positive attributes and inference; there are no separate assumption lists.
+Inspection accepts `oneloop::` as shorthand for `oneloopmaster::`; the numerical
+coefficient hooks remain registered in `oneloopmaster::`.
+
+### Select an analytic branch without substituting the kinematics
+
+```python
+all_branches = (finite, pole, double_pole)
+selected = olo.select_branch(all_branches, [
+    Replacement(m2, N(1)),
+    Replacement(psq, N("3.23")),
+])
+print(selected[0])  # Parametric in psq and m2, with no if left for this point.
+assert selected[1:] == (N(1), N(0))
+
+# Exact integer and fractional probes are also supported.
+selected_integer = olo.select_branch(all_branches, [
+    Replacement(m2, N(1)), Replacement(psq, N(3)),
+])
+selected_fraction = olo.select_branch(finite, [
+    Replacement(m2, N(1)), Replacement(psq, E("1/2")),
+])
+```
+
+For the sample `psq=3.23, m2=1`, the actual selected finite expression has no
+`if`, `abs` or `conj`. Naming its repeated roots, abbreviating the variables,
+and collecting the two constant terms gives:
+
+```text
+r_plus  = (s + sqrt(s^2 - 4*s*M))/(2*s)
+r_minus = (s - sqrt(s^2 - 4*s*M))/(2*s)
+finite = 2 - log(M)
+         - (1-r_plus)*log(1-1/r_plus)
+         - (1-r_minus)*log(1-1/r_minus)
+simple_pole = 1
+double_pole = 0
+```
+
+This display applies to the selected below-threshold region `M>0, 0<s<4*M`.
+The [verbatim before/after output](examples/expressions/b0_equal_mass.txt) and
+[runnable Rust example](examples/select_branch.rs) preserve the actual expression
+without introducing root aliases; its selected finite string is 758 characters
+with the example's fully qualified symbol names.
+
+Rules are applied only to temporary copies of the first arguments of native
+`if(condition, yes, no)` expressions. Resolved conditions select a branch;
+its kinematics stay symbolic. Every nested conditional in a retained branch or
+condition is visited, without a helper-imposed depth cutoff. Undecidable
+conditions remain parametric. Use the same namespaced symbols in replacements:
+`S("m2")` does not match `S("mz_masses::m2")`.
+
+This selects a formula valid in the probe's analytic region, **not** a globally
+equivalent replacement of the original expression. Boundary probes select the
+boundary formula. Do not reuse it across a branch cut without selecting again.
+Native `if` tests zero/nonzero (including complex nonzero), not positivity.
+Probe points must respect the input symbols' assumptions and the integral's
+physical domain. Finite floating-point probes preserve their exact represented
+values during condition substitution; temporary native guards defer arithmetic
+to numerical evaluation and do not appear in the returned expression.
+
+For nonzero positive `M=m²`, a **compact mathematical equivalent**, not a promise
+of the current raw formatter's algebraic form, is:
+
+```text
+beta = sqrt(1 - 4*M/(s+i0))
+finite = 2 - log(M) - beta*log((beta+1)/(beta-1))
+simple_pole = 1
+double_pole = 0
+```
+
+Here `i0` denotes the analytic continuation, not a finite numerical regulator;
+principal roots/logs are understood with that prescription. At `s=0`, the finite
+limit is `-log(M)`; at `s=4*M`, it is `2-log(M)`. Above threshold it has imaginary
+part `+pi*sqrt(1-4*M/s)`. The emitted expression implements the continuation with
+native conditionals, not a symbolic `i0` variable or opaque OneLOop functions.
+Before branch selection it retains the massless/scaleless cases and redundant
+guards: positive attributes are not used as proof of nonzero values. Omitting
+the mass attribute allows a complex squared mass, subject to `Im(m²)<=0`.
+See the [inspection guide](EXPRESSION_INSPECTION.md) for Rust branch selection,
+assumptions, output examples and expansion limits. The standalone legacy numeric
+extension does not expose symbolic inspection: use one shared Symbolica kernel.
 
 ## Compact master Symbols
 
@@ -323,29 +435,35 @@ checkout for the confirmed direct-power, complex-IF and SIMD defects; see the de
 
 The separate [Python adapter](python/README.md) supplies scalar and batched
 complex-number evaluation through PyO3. It adds no Python/PyO3 dependency to the
-core Rust crate. It also has an opt-in shared-kernel Symbolica community mode;
-that is distinct from a standalone numeric extension and must be built into the
-same Symbolica host. See its README for build commands, argument ordering,
-rebuilding evaluators, and working examples. The standalone release extension
-passes all seven API tests on CPython 3.13.12, including the original sequential
-fresh-worker mode, cold eager import, mixed batches, and explicit rebuilding.
-The unchanged two-worker allocator regression also passes. These runtime
-results do not establish shared-host community integration. Python throughput is
-measured separately in the performance survey below.
+core Rust crate. The recommended [development host](python/host/) builds one
+`symbolica.core` containing both Symbolica and OneLOop, so all symbolic APIs use
+actual Expression and Replacement objects. It is a local host, not an upstream
+community-repository registration. Install it in an isolated environment without
+a competing Symbolica distribution:
 
-Build with `cd python && maturin develop --release`. For example, on an
-adequately stacked calling thread:
+```sh
+cd python/host
+maturin develop --release
+```
+
+For example, on an adequately stacked calling thread:
 
 ```python
-import oneloop_native as olo
+from symbolica import S
+from symbolica.community import oneloop as olo
 
-bubble = olo.Evaluator("B0")  # Reuses a direct Rust numeric workspace.
+bubble = olo.Evaluator(S("oneloopmaster::B0"))  # Reuses a direct Rust numeric workspace.
 values = bubble.evaluate_batch([
     [-1.0, 1.0, 1.0, 1.0],
     [3.0, 0.7 - 0.03j, 1.4 - 0.08j, 4.0],
 ])
 # Each row returns (finite, simple_pole, double_pole); final input is mu_squared.
 ```
+
+The optional legacy build, `cd python && maturin develop --release`, exposes
+numeric-only `oneloop_native`; its family-name selectors remain a compatibility
+interface, but it no longer accepts or returns symbolic strings. See the
+[API audit](API_BRANCH_AUDIT.md) for this change's checks and remaining limits.
 
 Convenience functions `olo.A0/B0/dB0/C0/D0(..., mu_squared=1, prec=16)` also
 accept `rebuild=True` and `backend="auto"`. Reusable evaluators and their methods

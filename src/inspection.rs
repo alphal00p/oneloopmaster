@@ -30,7 +30,12 @@ impl Default for ExpressionOptions {
 }
 
 /// Return all complete master coefficients in `[epsilon^0, epsilon^-1,
-/// epsilon^-2]` order, with `mu_squared` last in `arguments`.
+/// epsilon^-2]` order from a master call, with `mu_squared` last.
+///
+/// For example, `get_expression(crate::B0().call((s, m0, m1, mu_squared)))`.
+/// This inspection call omits the Laurent tag of a numerical coefficient call.
+/// Composite arguments are kept as expressions; no conversion to a variable or
+/// independent assumption declarations are required.
 ///
 /// Every registered OneLOop helper is substituted by its exact native Symbolica
 /// body. Input symbols retain their existing attributes: `Real` and `Positive`
@@ -41,12 +46,66 @@ impl Default for ExpressionOptions {
 /// This is an inspection/explicit-compilation API, not the compact numerical
 /// evaluation path. Inlining can duplicate arithmetic that the mapped evaluator
 /// evaluates once; it does not inherit that evaluator's numerical conditioning.
-pub fn get_expression(family: ScalarIntegral, arguments: &[Atom]) -> Result<LaurentSeries, String> {
-    get_expression_with_options(family, arguments, ExpressionOptions::default())
+pub fn get_expression(master: impl AtomCore) -> Result<LaurentSeries, String> {
+    get_expression_with_options(master, ExpressionOptions::default())
 }
 
 /// Version of [`get_expression`] with explicit expansion resource limits.
 pub fn get_expression_with_options(
+    master: impl AtomCore,
+    options: ExpressionOptions,
+) -> Result<LaurentSeries, String> {
+    let (family, arguments) = master_arguments(master)?;
+    get_expression_for_family_with_options(family, &arguments, options)
+}
+
+/// Decode an inspection call such as `oneloopmaster::B0(s, m0, m1, mu_squared)`.
+///
+/// Arguments may be arbitrary Symbolica expressions. Inspection calls omit the
+/// leading Laurent tag used by the numerical coefficient symbols: the result
+/// contains all three coefficients. The `oneloop::` namespace is accepted as an
+/// inspection shorthand; it is not a second set of numerical evaluation hooks.
+pub fn master_arguments(master: impl AtomCore) -> Result<(ScalarIntegral, Vec<Atom>), String> {
+    let AtomView::Fun(call) = master.as_atom_view() else {
+        return Err("expected a scalar master call with its arguments, for example oneloopmaster::B0(psq,m0_squared,m1_squared,mu_squared)".into());
+    };
+    let family = match call.get_symbol().get_name() {
+        "oneloopmaster::A0" | "oneloop::A0" => ScalarIntegral::A0,
+        "oneloopmaster::B0" | "oneloop::B0" => ScalarIntegral::B0,
+        "oneloopmaster::dB0" | "oneloop::dB0" => ScalarIntegral::DB0,
+        "oneloopmaster::C0" | "oneloop::C0" => ScalarIntegral::C0,
+        "oneloopmaster::D0" | "oneloop::D0" => ScalarIntegral::D0,
+        _ => {
+            return Err(format!(
+                "{} is not a supported scalar master symbol",
+                call.get_symbol()
+            ));
+        }
+    };
+    if call.get_nargs() != family.arity() {
+        return Err(format!(
+            "{} inspection expects {} arguments including mu_squared last and no Laurent tag; received {}",
+            family.name(),
+            family.arity(),
+            call.get_nargs()
+        ));
+    }
+    Ok((
+        family,
+        call.iter().map(|argument| argument.to_owned()).collect(),
+    ))
+}
+
+/// Enum-based alternative to [`get_expression`]; all arguments are expressions.
+pub fn get_expression_for_family(
+    family: ScalarIntegral,
+    arguments: &[Atom],
+) -> Result<LaurentSeries, String> {
+    get_expression_for_family_with_options(family, arguments, ExpressionOptions::default())
+}
+
+/// Enum-based alternative with explicit expansion resource limits.
+pub fn get_expression_for_family_with_options(
     family: ScalarIntegral,
     arguments: &[Atom],
     options: ExpressionOptions,
@@ -179,7 +238,7 @@ fn one_mass_one_scale_triangle(arguments: &[Atom]) -> Option<LaurentSeries> {
 impl ScalarIntegral {
     /// See [`get_expression`].
     pub fn get_expression(self, arguments: &[Atom]) -> Result<LaurentSeries, String> {
-        get_expression(self, arguments)
+        get_expression_for_family(self, arguments)
     }
 }
 
@@ -201,38 +260,7 @@ fn helper_name(symbol: Symbol) -> Option<&'static str> {
 }
 
 fn known_real(value: AtomView<'_>) -> bool {
-    if value.is_real() {
-        return true;
-    }
-    match value {
-        AtomView::Fun(f) => {
-            let symbol = f.get_symbol();
-            if f.get_nargs() == 1 {
-                if matches!(
-                    helper_name(symbol),
-                    Some("__olo_real_part" | "__olo_imaginary_part" | "__olo_sign_nonnegative")
-                ) {
-                    return true;
-                }
-                if symbol == Symbol::CONJ
-                    || symbol == Symbol::EXP
-                    || symbol == Symbol::SIN
-                    || symbol == Symbol::COS
-                {
-                    return known_real(f.iter().next().unwrap());
-                }
-            }
-            symbol == Symbol::IF && f.get_nargs() == 3 && f.iter().skip(1).all(known_real)
-        }
-        AtomView::Mul(m) => m.iter().all(known_real),
-        AtomView::Add(a) => a.iter().all(known_real),
-        AtomView::Pow(p) => {
-            let (base, exponent) = p.get_base_exp();
-            known_real(base)
-                && (exponent.is_integer() || base.is_positive() && known_real(exponent))
-        }
-        _ => false,
-    }
+    value.is_real()
 }
 
 fn normalized_call(symbol: Symbol, mut arguments: Vec<Atom>) -> Atom {

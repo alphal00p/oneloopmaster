@@ -1,16 +1,61 @@
 # Python adapter
 
 This development adapter keeps Python dependencies outside the Rust `oneloop`
-core. It offers two distinct build modes:
+core. The recommended expression-native installation is the small shared-kernel
+host in [`host/`](host/). It offers two distinct build modes:
 
 - A standalone `oneloop_native` extension accepting Python numbers.
-- An opt-in community binding linked into the host's single `symbolica.core`
+- A community binding linked into the host's single `symbolica.core`
   extension, also accepting and returning that host's Symbolica expressions.
 
 Matching Symbolica revisions in two independently loaded extension binaries does
 **not** establish shared expression state. The standalone extension deliberately
 does not exchange Symbolica `Expression` objects. This is not a published package
 or a completed integration into the community repository.
+
+
+## Build the expression-native host (recommended)
+
+Use an isolated Python virtual environment with Maturin installed, without a
+separate `symbolica`/`symbolica-community` distribution:
+
+```sh
+cd python/host
+maturin develop --release
+```
+
+This development distribution provides `symbolica.core` itself and links the
+OneLOop adapter into that same extension. It must not be installed over another
+distribution providing `symbolica.core`. It does not clone or modify the full
+Symbolica community repository. The local dependency patches and Rust/Python
+requirements described below apply to this host as well; its own lockfile and
+Cargo manifest form the build root. NumPy is installed for Symbolica's evaluator
+API, even though OneLOop's manual batched evaluations accept ordinary lists.
+
+```python
+from symbolica import E, N, Replacement, S
+from symbolica.community import oneloop as olo
+
+psq = S("psq", is_real=True)
+m2 = S("m2", is_positive=True)
+master = S("oneloopmaster::B0")(psq, m2, m2, 1)
+all_branches = olo.get_expression(master)
+selected = olo.select_branch(all_branches, [
+    Replacement(m2, N(1)), Replacement(psq, N("3.23")),
+])
+print(selected[0])  # No ifs; still a parametric function of psq and m2.
+assert all("if(" not in str(c) for c in selected)
+
+# The manual evaluator also takes a native Symbol or variable Expression.
+evaluator = olo.Evaluator(E("oneloopmaster::B0"))
+values = evaluator.evaluate_batch([[3.23, 1, 1, 1]] * 1024)
+```
+
+The `E`, `S`, and `N` constructors belong to Symbolica; OneLOop never parses
+symbolic strings. Attributes and facts about composite expressions are managed
+by Symbolica. For example, an argument `m2 + E("12/3")` is accepted directly.
+The literal `oneloop::B0(...)` spelling is also accepted by inspection; use the
+canonical `oneloopmaster::B0` for evaluatable master symbols.
 
 ## Build the standalone extension
 
@@ -55,8 +100,8 @@ extension with the system allocator and native binary64 Li2 passes all eleven
 standalone tests on CPython 3.13.12: seven API tests and four pure performance-
 harness tests. These include cold import, mixed batches, rebuilding, and
 sequential fresh test threads. Batch performance has also been measured below;
-the overall 1.5× Fortran target is not met. Community mode is compile-checked
-only; runtime validation inside an integrated host remains pending.
+the overall 1.5× Fortran target is not met. The in-repository host makes shared-kernel expression tests directly runnable;
+the older standalone results below are not host validation results.
 For these portable scalar APIs, unset `SYMJIT_TOML` and use a working directory
 without a `symjit.toml` override. The wrapper rejects either override rather than
 silently changing the cached compiler configuration.
@@ -105,6 +150,13 @@ that every analytic region has been validated.
 The reusable `Evaluator` accepts the same ordered arguments **with
 `mu_squared` always supplied last**, giving arities 2, 4, 4, 7, and 11. An empty
 batch returns `[]`; ragged rows or incorrect argument counts raise `ValueError`.
+In the shared-kernel host, construct this object with
+`Evaluator(S("oneloopmaster::B0"))` (or the equivalent variable Expression), not a
+family-name string. Only the numeric-only standalone compatibility API retains
+its historical `Evaluator("B0")` selector. Numeric Symbolica Expressions, including
+rational constants and composite constant expressions, are also accepted in host
+numeric argument rows; they use requested-precision evaluation and return
+`DecimalComplex`, avoiding a lossy intermediate binary64 conversion.
 Rows are passed together to the core's batched evaluator. List conversion and
 Python result allocation remain part of Python call overhead and are included
 in the measured Python/Fortran ratios below. NumPy is not needed in standalone mode.
@@ -234,6 +286,53 @@ permits only one active Symbolica
 thread per user; do not run this concurrently with other Symbolica tests or
 applications under that license. A valid Symbolica setup is still required.
 
+## Inspecting expressions with `get_expression`
+
+This API is available in the shared-kernel host only. It accepts a complete
+Symbolica master call with physical arguments, including `mu_squared` last,
+and returns three native Symbolica `Expression` objects:
+
+```python
+from symbolica import E, N, Replacement, S
+from symbolica.community import oneloop as olo
+
+psq = S("inspection_psq", is_real=True)
+m2 = S("inspection_m2", is_positive=True)
+master = S("oneloopmaster::B0")(psq, m2, m2, 1)
+finite, pole, double_pole = olo.get_expression(master)
+assert olo.get_expression(master, coefficient=0) == finite
+
+selected = olo.select_branch((finite, pole, double_pole), [
+    Replacement(m2, N(1)), Replacement(psq, N("3.23")),
+])
+assert all("if(" not in str(c) for c in selected)
+assert selected[1:] == (N(1), N(0))
+
+# Integer and exact-fraction sample points are supported as well.
+integer_region = olo.select_branch(finite, [Replacement(m2, N(1)), Replacement(psq, N(3))])
+fraction_region = olo.select_branch(finite, [Replacement(m2, N(1)), Replacement(psq, E("1/2"))])
+```
+
+The unselected finite body still repeats roots and continuation guards; it is
+exact but not yet compact. Selection removes guards decidable at the supplied
+sample, not the variables inside the retained values. Thus its output is a
+parametric expression valid in the selected analytic region, not a global
+replacement for the original expression across branch boundaries.
+See the [inspection guide](../EXPRESSION_INSPECTION.md) for expansion budgets.
+
+Return order is `(finite, simple_pole, double_pole)`; `coefficient=0`, `-1`, or
+`-2` selects one Expression. `select_branch` preserves a single Expression,
+tuple, or list as the same kind of result. It visits nested native `if`s at any
+depth, including those inside conditions, functions and powers. Rules are native
+Symbolica `Replacement` objects, applied in one simultaneous replacement pass
+per tested condition. Duplicate matching rules obey Symbolica's first-match
+priority. Unresolved predicates remain symbolic and retain their original
+variables; condition samples never leak into the kept branch's arithmetic.
+Reuse the original variable objects in rules, or their fully qualified Symbolica
+names, such as `S("mz_masses::m2")`; an unqualified name uses the default namespace.
+Strings, name-based assumption lists, and `(name, value)` replacement tuples are
+not accepted. The standalone numeric extension no longer exposes inspection.
+
 ## Shared-kernel community integration
 
 This mode implements `SymbolicaCommunityModule`; it does not edit or register
@@ -280,12 +379,12 @@ from symbolica import S
 from symbolica.community import oneloop as olo
 
 x = S("x")
-finite, pole, double_pole = olo.master_coefficients("A0", [x, 1])
+finite, pole, double_pole = olo.master_coefficients(S("oneloopmaster::A0")(x, 1))
 evaluator = olo.compile_native([finite + pole], [x])
 result = evaluator.evaluate_complex([2 + 0j])
 ```
 
-`master_coefficients(family, arguments)` includes the explicit squared scale last
+`master_coefficients(master)` includes the explicit squared scale last in the call
 and returns three genuine host `Expression` objects. Use `compile_native` for
 combined expressions so OneLOop's native function definitions remain visible to
 the evaluator compiler; simply returning a compact master call is not a substitute
@@ -297,11 +396,29 @@ and numerical precision interfaces are separate from the standalone list API.
 
 ## Validation status and tests
 
+On 2026-09-09, the release-built shared-kernel host completed the full Python
+suite in **56.759 seconds: 27 passed and two standalone-only checks skipped**.
+Five passing tests exercise expression inspection and branch selection, including
+the equal-mass B0 with floating, integer and rational samples across its real
+regions, namespaced attributes and composite masses, 1,200 nested conditionals,
+native conditional/wildcard replacement rules, and a `1e-1000` floating sample
+in a cancellation-sensitive condition. Selected B0 coefficients have no `if`s,
+retain their parameters and match the native numerical backend at the samples.
+The suite also covers the shared Symbolica expression compiler, manual batch
+evaluation, exact rational Expression inputs and all-five-family 1,000-digit
+checks. Five tests are pure performance-harness checks, not integral evaluations.
+
+The freshly rebuilt standalone numeric extension passed the same suite in
+**66.447 seconds: 24 passed and five shared-kernel inspection checks skipped**.
+Its cold-start and portable-environment guard subprocess checks passed, and it
+confirms that symbolic inspection entry points are absent in standalone mode.
+Release Clippy with `-D warnings` also passed for both Python build roots.
+
 The adapter tests cover elementary values, all 31 shared benchmark fixtures,
 single/batch agreement for 3/4/5/8-row B0 layouts, heterogeneous family batches
 of size 4/5/8 including partial tails, explicit rebuilding, and argument errors.
-The shared-kernel expression test is available for an integrated host, but the
-standalone run checks rejection of foreign expression interoperation instead.
+The shared-kernel expression tests run with the host in this repository. The
+standalone run checks that symbolic entry points are absent instead.
 These tests are not evidence of exhaustive analytic-region coverage or of a
 Python performance target.
 
@@ -337,6 +454,10 @@ To force explicit rebuilding in the numerical checks, use:
 ONELOOP_PYTHON_REBUILD=1 python -m unittest discover -s python/tests -v
 ```
 
+For a fresh shared-kernel host build and full suite in an isolated virtual
+environment, run `bash python/host/test.sh` from the repository root. It builds
+the host with Maturin and sets the shared-kernel module selection automatically.
+
 This test mode passes explicit `rebuild=True` to numerical constructors and
 direct calls. It does not disable eager startup or change the core's enabled
 features: import still loads embedded caches in the default build. Batch sizes
@@ -356,7 +477,7 @@ API suite also passes with a fresh worker per test. The native allocator trace
 and configuration repair are retained in `tests/thread_handoff_backtrace.txt`.
 These results do not impose a lifetime restriction on the initializing thread;
 individual Python `Evaluator` objects still use their documented creating-thread
-policy. Validation inside an actual community host remains pending.
+policy. Test the new shared-kernel host using the module selection above.
 
 To rerun the confirmed sequential-thread checks separately:
 

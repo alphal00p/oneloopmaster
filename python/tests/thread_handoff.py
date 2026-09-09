@@ -4,6 +4,8 @@ Run separately from the test suite, with the native extension on PYTHONPATH.
 Both workers have explicit 128 MiB stacks and never overlap.
 """
 import importlib
+
+from test_api import family_selector
 import threading
 
 
@@ -31,7 +33,7 @@ def run(stage, action):
 def clone_all(module):
     for family in ("A0", "B0", "dB0", "C0", "D0"):
         print(f"constructing {family}", flush=True)
-        evaluator = module.Evaluator(family)
+        evaluator = module.Evaluator(family_selector(module, family))
         print(repr(evaluator), flush=True)
         del evaluator
 

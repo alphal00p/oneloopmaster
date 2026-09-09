@@ -1,14 +1,20 @@
-//! Expression inspection. Standalone text never crosses Symbolica kernel state.
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyTuple};
-use symbolica::atom::Atom;
+//! Expression inspection in the host's single Symbolica kernel.
+//!
+//! A separate numeric-only extension must never borrow foreign Expression
+//! objects. These functions are therefore exposed only by the community host.
+#[cfg(feature = "community")]
+use pyo3::{
+    exceptions::PyValueError,
+    prelude::*,
+    types::{PyList, PyTuple},
+};
+#[cfg(feature = "community")]
+use symbolica::{
+    api::python::{PythonExpression, PythonReplacement, PythonTransformer},
+    transformer::Transformer,
+};
 
-fn options(max_nodes: usize, max_depth: usize) -> oneloop::ExpressionOptions {
-    oneloop::ExpressionOptions {
-        max_nodes,
-        max_depth,
-    }
-}
-
+#[cfg(feature = "community")]
 fn selected(coefficient: Option<i32>) -> PyResult<Option<usize>> {
     match coefficient {
         None => Ok(None),
@@ -19,136 +25,29 @@ fn selected(coefficient: Option<i32>) -> PyResult<Option<usize>> {
     }
 }
 
-#[cfg(not(feature = "community"))]
-fn declare(names: &[String], positive: bool) -> PyResult<()> {
-    use symbolica::atom::{NamespacedSymbol, Symbol, SymbolAttribute, SymbolBuilder};
-    for name in names {
-        if !name.split("::").all(|part| {
-            let mut chars = part.chars();
-            chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
-                && chars.all(|c| c.is_alphanumeric() || c == '_')
-        }) {
-            return Err(PyValueError::new_err(
-                "assumption declarations must be variable names, optionally namespaced",
-            ));
-        }
-        let name = if name.contains("::") {
-            name.clone()
-        } else {
-            format!("oneloop_input::{name}")
-        };
-        let namespaced = NamespacedSymbol::try_parse(name).expect("namespace was provided");
-        if let Some(existing) = Symbol::get_symbol(namespaced.clone()) {
-            if if positive {
-                existing.is_positive()
-            } else {
-                existing.is_real()
-            } {
-                continue;
-            }
-            return Err(PyValueError::new_err(format!(
-                "{} already exists without the requested {} attribute; use a new name instead of retagging it",
-                existing.get_name(),
-                if positive { "Positive" } else { "Real" }
-            )));
-        }
-        let attributes = if positive {
-            vec![SymbolAttribute::Positive]
-        } else {
-            vec![SymbolAttribute::Real]
-        };
-        SymbolBuilder::new(namespaced)
-            .with_attributes(attributes)
-            .build()
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    }
-    Ok(())
-}
-
-/// Return the complete native coefficients as parseable Symbolica strings.
+/// Expand a complete master call to its three Laurent coefficients.
 ///
-/// Arguments are expression strings; mu_squared is the last argument. Symbols
-/// without explicit namespaces belong to oneloop_input. `real` and `positive`
-/// declare new variables before parsing; existing symbols cannot be retagged.
-/// Native attribute syntax such as `oneloop_input::{real}::p` is also accepted.
-/// The returned text includes namespaces and attributes. It is not an Expression
-/// object from a separately imported Symbolica extension.
-#[cfg(not(feature = "community"))]
-#[pyfunction(signature = (family, arguments, *, coefficient=None, max_nodes=1_000_000, max_depth=512, real=None, positive=None))]
-// Keep the public Python keyword controls explicit in its generated signature.
-#[allow(clippy::too_many_arguments)]
-fn get_expression(
-    py: Python<'_>,
-    family: &str,
-    arguments: Vec<String>,
-    coefficient: Option<i32>,
-    max_nodes: usize,
-    max_depth: usize,
-    real: Option<Vec<String>>,
-    positive: Option<Vec<String>>,
-) -> PyResult<Py<PyAny>> {
-    use symbolica::{atom::AtomCore, parser::ParseSettings, printer::PrintOptions};
-    let family = super::family(family)?;
-    let coefficient = selected(coefficient)?;
-    if arguments.len() != family.arity() {
-        return Err(PyValueError::new_err(format!(
-            "{} expects {} arguments including mu_squared",
-            family.name(),
-            family.arity()
-        )));
-    }
-    // Positive implies Real: declare it first if a name appears in both lists.
-    declare(positive.as_deref().unwrap_or_default(), true)?;
-    declare(real.as_deref().unwrap_or_default(), false)?;
-    let input = arguments
-        .into_iter()
-        .map(|a| {
-            Atom::parse(a, "oneloop_input", ParseSettings::default()).map_err(PyValueError::new_err)
-        })
-        .collect::<PyResult<Vec<_>>>()?;
-    let series =
-        oneloop::get_expression_with_options(family, &input, options(max_nodes, max_depth))
-            .map_err(PyValueError::new_err)?;
-    let strings = series
-        .coefficients()
-        .iter()
-        .map(|a| a.printer(PrintOptions::full()).to_string())
-        .collect::<Vec<_>>();
-    if let Some(index) = coefficient {
-        Ok(strings[index]
-            .clone()
-            .into_pyobject(py)?
-            .unbind()
-            .into_any())
-    } else {
-        Ok(PyTuple::new(py, strings)?.unbind().into_any())
-    }
-}
-
-/// Return complete native Expression objects in the shared community kernel.
-///
-/// Use host S(..., is_real=True/is_positive=True) to declare assumptions before
-/// constructing arguments. No external/standalone Expression objects are used.
+/// The input is a Symbolica Expression such as B0(psq,m2,m2,mu_squared),
+/// with physical arguments only. Attributes belong to the input's Symbolica
+/// symbols; this function never parses strings or declares assumptions.
 #[cfg(feature = "community")]
-#[pyfunction(signature = (family, arguments, *, coefficient=None, max_nodes=1_000_000, max_depth=512))]
+#[pyfunction(signature = (master, *, coefficient=None, max_nodes=1_000_000, max_depth=512))]
 fn get_expression(
     py: Python<'_>,
-    family: &str,
-    arguments: Vec<symbolica::api::python::ConvertibleToExpression>,
+    master: PythonExpression,
     coefficient: Option<i32>,
     max_nodes: usize,
     max_depth: usize,
 ) -> PyResult<Py<PyAny>> {
-    use symbolica::api::python::PythonExpression;
-    let family = super::family(family)?;
     let coefficient = selected(coefficient)?;
-    let input = arguments
-        .into_iter()
-        .map(|a| a.to_expression().expr)
-        .collect::<Vec<Atom>>();
-    let series =
-        oneloop::get_expression_with_options(family, &input, options(max_nodes, max_depth))
-            .map_err(PyValueError::new_err)?;
+    let series = oneloop::get_expression_with_options(
+        master.expr.as_view(),
+        oneloop::ExpressionOptions {
+            max_nodes,
+            max_depth,
+        },
+    )
+    .map_err(PyValueError::new_err)?;
     let expressions = series
         .into_coefficients()
         .into_iter()
@@ -161,7 +60,58 @@ fn get_expression(
     }
 }
 
-pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_function(wrap_pyfunction!(get_expression, module)?)?;
+/// Select native if branches using replacements exclusively in conditions.
+///
+/// Accept one Expression or a tuple/list of Expressions. Return the same
+/// container shape. Kept branches remain parametric; unresolved predicates
+/// retain their original symbolic form. Every nested if is visited.
+#[cfg(feature = "community")]
+#[pyfunction]
+fn select_branch(
+    expression: &Bound<'_, PyAny>,
+    replacement_rules: Vec<PythonReplacement>,
+) -> PyResult<Py<PyAny>> {
+    let py = expression.py();
+    // PythonReplacement's field is private. Symbolica's public Transformer
+    // bridge exposes the native rules without reimplementing matching or
+    // discarding rule conditions, callbacks, or settings.
+    let mut transformer =
+        PythonTransformer::new().replace_multiple(replacement_rules, false, false, false)?;
+    let Some(Transformer::ReplaceAllMultiple(replacement_rules, _)) = transformer.chain.pop()
+    else {
+        return Err(PyValueError::new_err(
+            "Symbolica did not construct a replacement transformer",
+        ));
+    };
+    let select_one = |value: &Bound<'_, PyAny>| -> PyResult<Py<PythonExpression>> {
+        let value = value.extract::<PythonExpression>()?;
+        let selected = oneloop::select_branch(value.expr.as_view(), &replacement_rules);
+        Py::new(py, PythonExpression::from(selected))
+    };
+    if let Ok(values) = expression.cast::<PyTuple>() {
+        let selected = values
+            .iter()
+            .map(|v| select_one(&v))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(PyTuple::new(py, selected)?.unbind().into_any())
+    } else if let Ok(values) = expression.cast::<PyList>() {
+        let selected = values
+            .iter()
+            .map(|v| select_one(&v))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(PyList::new(py, selected)?.unbind().into_any())
+    } else {
+        Ok(select_one(expression)?.into_any())
+    }
+}
+
+pub(super) fn register(module: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> {
+    #[cfg(feature = "community")]
+    {
+        module.add_function(wrap_pyfunction!(get_expression, module)?)?;
+        module.add_function(wrap_pyfunction!(select_branch, module)?)?;
+    }
+    #[cfg(not(feature = "community"))]
+    let _ = module;
     Ok(())
 }

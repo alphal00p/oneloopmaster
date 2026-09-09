@@ -1,66 +1,116 @@
 # Inspecting the complete expressions
 
-`get_expression` returns the actual three Laurent coefficient bodies, in
-`[epsilon^0, epsilon^-1, epsilon^-2]` order. It recursively substitutes the
+`get_expression(master)` returns the actual three Laurent coefficient bodies,
+in `[epsilon^0, epsilon^-1, epsilon^-2]` order. It recursively substitutes the
 transparent FunctionMap definitions, including every sheet, triangle and box
-helper. A bounded one-mass triangle sector also uses its analytically
-integrated compact identity, described below. It does not return compact
-evaluatable master calls or evaluator IR.
-The last argument is always the squared renormalization scale `mu_squared`.
+helper. A bounded one-mass triangle sector also uses its analytically integrated
+compact identity, described below. The input is a Symbolica master call with the
+squared scale last and **no leading Laurent tag**; the result contains all three
+coefficients, not compact evaluatable master calls or evaluator IR.
 
 In Rust:
 
 ```rust
-use oneloop::{get_expression, ScalarIntegral};
+use oneloop::{get_expression, A0};
 use symbolica::{atom::AtomCore, printer::PrintOptions};
 
 let m = symbolica::symbol!("m_squared"; Positive).to_atom();
 let mu = symbolica::symbol!("mu_squared"; Positive).to_atom();
-let coefficients = get_expression(ScalarIntegral::A0, &[m, mu])?;
+let coefficients = get_expression(A0().call((&m, &mu)))?;
 println!("{}", coefficients.coefficients()[0].printer(PrintOptions::full()));
 ```
 
-`ScalarIntegral::get_expression` is an equivalent convenience method. Run
-`cargo run --example get_expression` to print A0 and massless C0 bodies. As with
-the other examples, Symbolica work stays on one explicitly enlarged-stack thread;
-normal startup still prepares the eager numerical backends.
+`ScalarIntegral::get_expression` and `get_expression_for_family` are equivalent
+enum-based conveniences. Run `cargo run --example get_expression` for A0 and
+massless C0. Examples use an explicitly enlarged-stack thread; normal startup
+still prepares the eager numerical backends.
 
-For the standalone Python extension:
-
-```python
-import oneloop_native as olo
-
-finite, pole, double_pole = olo.get_expression(
-    "A0", ["m_squared", "mu_squared"],
-    positive=["m_squared", "mu_squared"],
-)
-print(finite)  # complete, parseable Symbolica text
-pole_only = olo.get_expression("A0", ["m_squared", "mu_squared"], coefficient=-1)
-```
-
-Standalone arguments and returned coefficients are **strings**, not Expression
-objects from a separately loaded Symbolica extension. Unqualified input names
-belong to `oneloop_input`. Output includes namespaces and native attributes for
-faithful parsing. Alternatively, input strings can carry native attribute syntax,
-for example `"kinematics::{real}::s"` or `"kinematics::{positive}::mu_squared"`.
-`real=[...]` and `positive=[...]` create attributed variables before parsing;
-existing variables must already satisfy the requested attribute. The API never
-retags an existing symbol. A successful declaration persists in this kernel.
-
-In a shared-kernel community build, the same function instead accepts and returns
-actual Symbolica Expressions:
+For Python, build the [single-kernel host](python/README.md) or register the
+adapter in a compatible Symbolica community host:
 
 ```python
-from symbolica import S
-from symbolica.community import oneloop
+from symbolica import S, E, N, Replacement
+from symbolica.community import oneloop as olo
 
 m, mu = S("m_squared", "mu_squared", is_positive=True)
-finite, pole, double_pole = oneloop.get_expression("A0", [m, mu])
+master = S("oneloopmaster::A0")(m, mu)
+finite, pole, double_pole = olo.get_expression(master)
+print(finite)  # A genuine Symbolica Expression.
+pole_only = olo.get_expression(master, coefficient=-1)
 ```
 
-Use the host's `S(..., is_real=True)` / `S(..., is_positive=True)` when creating
-community variables; there are no separate `real` / `positive` keyword lists in
-that build. The existing `master_coefficients` remains the compact Symbol API.
+All symbolic arguments and results are actual Symbolica expressions. Arbitrary
+composite arguments are supported, not just variables. Use Symbolica's `S` or
+`E` to construct them; OneLOop never parses string arguments, retags variables,
+or maintains a separate assumption system. For example:
+
+```python
+other_master = E("oneloop::B0(psq,mz_masses::{real,positive}::m2+12/3,m3,mu_r)")
+other_coefficients = olo.get_expression(other_master)
+```
+
+The `oneloop::` namespace is an inspection shorthand for `oneloopmaster::`.
+`master_coefficients(master)` returns the canonical compact coefficient calls
+with native evaluation hooks. Only a context that requires exactly a Symbol,
+such as the evaluator family selector, converts a variable Expression to Symbol;
+integral arguments are never restricted to symbols.
+
+The legacy standalone numeric extension has no symbolic API. A separately
+loaded Symbolica extension has separate internal state even at the same revision;
+its expressions must not be passed across that boundary.
+
+## Selecting branches while retaining parameters
+
+```python
+psq = S("branch_psq", is_real=True)
+m2 = S("branch_m2", is_positive=True)
+master = S("oneloopmaster::B0")(psq, m2, m2, 1)
+all_branches = olo.get_expression(master)
+rules = [Replacement(psq, N("3.23")), Replacement(m2, N(1))]
+selected = olo.select_branch(all_branches, rules)
+finite_only = olo.select_branch(all_branches[0], rules)
+assert selected[0] == finite_only
+# selected has no ifs in this example; its finite part still contains psq/m2.
+```
+
+Rust uses Symbolica's native `Replacement` objects too:
+
+```rust
+use oneloop::{B0, get_expression, select_branch};
+use symbolica::prelude::*;
+
+let s = symbol!("branch_psq"; Real).to_atom();
+let m = symbol!("branch_m2"; Positive).to_atom();
+let all = get_expression(B0().call((&s, &m, &m, 1)))?;
+let rules = [Replacement::new(s.clone(), Atom::num((323, 100))),
+             Replacement::new(m.clone(), 1)];
+let selected = all.coefficients().each_ref().map(|c| select_branch(c, &rules));
+```
+
+The helper applies native replacement rules only to a temporary copy of each
+`if` condition, and uses Symbolica numerical evaluation to resolve zero/nonzero.
+It never applies probe values to the returned branches. Every nested `if`,
+including those inside conditions and arbitrary surrounding expressions, is
+processed using an explicit work stack, without a helper-imposed depth cap.
+Inactive branches are skipped. Unknown or undefined predicates remain `if`s;
+their original parametric conditions are retained, with nested selections only.
+Rules use native matching, namespaces, ordering and restrictions. Misspelled or
+wrongly namespaced variables do not match; partial rules may leave conditions.
+Nested conditions are selected first; each resulting condition is then sampled
+with one simultaneous native replacement pass.
+
+Integer, fraction, floating-point and complex numeric atoms are supported, with
+no conversion to binary64 or zero tolerance for decisions. Finite floats are
+represented by their exact binary rational value during substitution; temporary
+native guards defer arithmetic until numerical evaluation, avoiding premature
+rounding and expensive symbolic integer factorization. These guards never enter
+the returned expression. See the [actual B0 before/after output](examples/expressions/b0_equal_mass.txt)
+and run `cargo run --release --example select_branch` to reproduce it.
+Probe points must respect the existing assumptions and physical domain. Numerical branch
+selection is not a formal proof of transcendental equalities or a guarantee at
+ill-conditioned boundaries. The selected formula is valid only in the selected
+analytic region (or on a boundary if the probe lies there), not globally. There
+is no implicit algebraic rewrite to a particular textbook form.
 
 ## Assumptions, limits and numerical use
 
@@ -111,12 +161,14 @@ original expression at 3,840 bits using a `1e-1000` target, for all three
 coefficients. These finite test sets are not proofs of global analytic or
 numerical parity.
 
-For example, the standalone interface can construct that full sector directly:
+For example, construct that full sector directly from a master Expression:
 
 ```python
+s = S("triangle_s", is_real=True)
+m = S("triangle_m")  # May be complex.
+mu = S("triangle_mu", is_positive=True)
 finite, pole, double_pole = olo.get_expression(
-    "C0", ["0", "0", "s", "0", "m", "0", "mu"],
-    real=["s"], positive=["mu"],
+    S("oneloopmaster::C0")(0, 0, s, 0, m, 0, mu)
 )
 ```
 

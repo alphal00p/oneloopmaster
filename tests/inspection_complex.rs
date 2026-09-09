@@ -1,5 +1,8 @@
 //! Continuation checks for the inspection-only one-mass triangle identity.
-use oneloop::{EvaluationBackend, PrecisionEvaluator, ScalarIntegral, get_expression};
+use oneloop::{
+    EvaluationBackend, PrecisionEvaluator, ScalarIntegral,
+    get_expression_for_family as get_expression,
+};
 use symbolica::{
     atom::{Atom, AtomCore},
     domains::float::{Complex, Float, SingleFloat},

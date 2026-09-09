@@ -49,11 +49,19 @@ def read_fixture_groups():
     return groups
 
 
+def family_selector(module, family):
+    """The shared-kernel API accepts a master Symbol, never its name string."""
+    if module.EXPRESSION_INTEROP:
+        from symbolica import S
+        return S("oneloopmaster::" + family)
+    return family
+
+
 def new_evaluator(module, family, **options):
     options.setdefault("rebuild", REBUILD)
     if REBUILD:
         options.setdefault("backend", "symjit")
-    return module.Evaluator(family, **options)
+    return module.Evaluator(family_selector(module, family), **options)
 
 
 def scalar(module, name, *arguments, **options):
@@ -325,7 +333,7 @@ class AdapterTests(unittest.TestCase):
     def test_invalid_inputs(self):
         def check(module):
             with self.assertRaises(ValueError):
-                module.Evaluator("not_an_integral")
+                module.Evaluator(family_selector(module, "not_an_integral"))
             with self.assertRaises(ValueError):
                 module.A0(1, mu_squared=0)
             with self.assertRaises(ValueError):
@@ -351,10 +359,12 @@ class AdapterTests(unittest.TestCase):
             if not module.EXPRESSION_INTEROP:
                 self.assertFalse(hasattr(module, "master_coefficients"))
                 self.assertFalse(hasattr(module, "compile_native"))
+                self.assertFalse(hasattr(module, "get_expression"))
+                self.assertFalse(hasattr(module, "select_branch"))
                 return
             symbolica = importlib.import_module("symbolica")
             x = symbolica.S("oneloop_python_test_x")
-            coefficients = module.master_coefficients("A0", [x, 1])
+            coefficients = module.master_coefficients(symbolica.S("oneloopmaster::A0")(x, 1))
             self.assertEqual(len(coefficients), 3)
             evaluator = module.compile_native([coefficients[0] + coefficients[1]], [x])
             result = evaluator.evaluate_complex([2 + 0j])

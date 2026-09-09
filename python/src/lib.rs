@@ -1,6 +1,6 @@
 //! Thin Python adapters for the core native scalar evaluator.
 //!
-//! Standalone wheels expose numbers and parseable inspection text. Expression interop is enabled only
+//! Standalone wheels expose numbers only. Expression interop is enabled only
 //! through the `community` feature, linked into one Symbolica community kernel.
 //! Identical revisions in separate extension binaries do not imply shared state.
 //! Import initializes the core symbols and scalar caches eagerly on the calling
@@ -179,6 +179,25 @@ fn family(name: &str) -> PyResult<ScalarIntegral> {
         _ => Err(PyValueError::new_err(
             "family must be A0, B0, dB0, C0 or D0",
         )),
+    }
+}
+
+/// A symbolic family selector belongs to the same kernel as this module.
+#[cfg(feature = "community")]
+fn symbolic_family(value: &Bound<'_, PyAny>) -> PyResult<ScalarIntegral> {
+    // Symbolica's extractor accepts both Symbol and a variable Expression,
+    // without accepting strings or casting a composite into a made-up name.
+    let symbol = value.extract::<symbolica::atom::Symbol>()?;
+    let name = symbol.get_name();
+    let short = name
+        .strip_prefix("oneloopmaster::")
+        .or_else(|| name.strip_prefix("oneloop::"))
+        .ok_or_else(|| {
+            PyValueError::new_err("expected an oneloopmaster/oneloop scalar master symbol")
+        })?;
+    match short {
+        "A0" | "B0" | "dB0" | "C0" | "D0" => family(short),
+        _ => Err(PyValueError::new_err("expected A0, B0, dB0, C0 or D0")),
     }
 }
 
@@ -429,12 +448,15 @@ impl Evaluator {
     #[new]
     #[pyo3(signature = (family, rebuild=false, *, prec=16, backend="auto"))]
     fn new(
-        family: &str,
+        family: &Bound<'_, PyAny>,
         rebuild: bool,
         #[pyo3(from_py_with = precision::parse_precision)] prec: u32,
         backend: &str,
     ) -> PyResult<Self> {
-        let family = self::family(family)?;
+        #[cfg(feature = "community")]
+        let family = symbolic_family(family)?;
+        #[cfg(not(feature = "community"))]
+        let family = self::family(&family.extract::<String>()?)?;
         let backend = BackendChoice::parse(backend)?;
         let resolved = backend.resolve(prec != 16)?;
         Ok(Self {
@@ -742,18 +764,9 @@ mod community {
     /// Return compact master expressions sharing this community kernel's state.
     /// Keep native definitions by compiling combinations with compile_native.
     #[pyfunction]
-    fn master_coefficients(
-        family: &str,
-        arguments: Vec<ConvertibleToExpression>,
-    ) -> PyResult<Vec<PythonExpression>> {
-        let family = super::family(family)?;
-        if arguments.len() != family.arity() {
-            return Err(PyValueError::new_err(format!(
-                "{} expects {} arguments including mu_squared",
-                family.name(),
-                family.arity()
-            )));
-        }
+    fn master_coefficients(master: PythonExpression) -> PyResult<Vec<PythonExpression>> {
+        let (family, input) =
+            oneloop::master_arguments(master.expr.as_view()).map_err(PyValueError::new_err)?;
         let master = match family {
             ScalarIntegral::A0 => oneloop::A0(),
             ScalarIntegral::B0 => oneloop::B0(),
@@ -761,10 +774,6 @@ mod community {
             ScalarIntegral::C0 => oneloop::C0(),
             ScalarIntegral::D0 => oneloop::D0(),
         };
-        let input = arguments
-            .into_iter()
-            .map(|a| a.to_expression().expr)
-            .collect::<Vec<_>>();
         Ok([0, -1, -2]
             .into_iter()
             .map(|tag| {

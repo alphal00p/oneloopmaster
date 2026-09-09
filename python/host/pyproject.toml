@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "oneloop-symbolica-host"
+version = "0.1.0"
+description = "Development Symbolica host with the OneLOop community extension"
+requires-python = ">=3.9"
+dependencies = ["numpy"]
+
+[tool.maturin]
+module-name = "symbolica.core"
+python-source = "python"

@@ -3,6 +3,21 @@
 This is a plan, not an integration or publishing change. The original Fortran
 wrapper and the standalone numerical crate remain separate and unchanged.
 
+## Expression-native API update (2026-09-09)
+
+The repository now supplies a minimal [single-kernel development host](python/host/)
+and [build instructions](python/README.md), without modifying the external
+symbolica-community checkout. The host links the adapter and Symbolica into one
+`symbolica.core`, exposing `get_expression(master)`,
+`master_coefficients(master)` and `select_branch(expression, replacements)` with
+actual Symbolica objects. The shared-host manual evaluator selects its family
+with a master Symbol/variable Expression. Separate string parsing and assumption
+lists have been removed; input attributes and replacement semantics belong to
+Symbolica. The standalone numeric extension remains available without a symbolic
+interface. See the [API and branch-selection audit](API_BRANCH_AUDIT.md) for the
+new verification record. The next section is the earlier, dated baseline; full
+upstream community registration and publication are still future work.
+
 ## Current adapter progress (2026-09-08)
 
 The thin binding crate now exists under [python/](python/README.md), with an

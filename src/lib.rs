@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod backend;
+mod branch_selection;
 mod evaluators;
 mod expressions;
 mod initialization;
@@ -18,10 +19,14 @@ pub use backend::{
     DEFAULT_BACKEND, EvaluationBackend, evaluate, evaluate_batch, evaluate_batch_with_backend,
     evaluate_with_backend,
 };
+pub use branch_selection::{select_branch, select_branch_with};
 pub use evaluators::{JitEvaluator, ScalarEvaluator, jit_settings, rebuild_cached_evaluator};
 pub use expressions::OneLoopExpressions;
 pub use initialization::{initialize, is_initialized};
-pub use inspection::{ExpressionOptions, get_expression, get_expression_with_options};
+pub use inspection::{
+    ExpressionOptions, get_expression, get_expression_for_family,
+    get_expression_for_family_with_options, get_expression_with_options, master_arguments,
+};
 pub use native::{NativeEvaluator, NativeFloat};
 pub use precision::PrecisionEvaluator;
 

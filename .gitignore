@@ -1,4 +1,9 @@
 /target/
 /Cargo.lock
+/python/target/
+/python/host/target/
+/python/host/.venv/
+/python/host/python/symbolica/core*.so
+/python/host/python/symbolica/core*.pyd
 __pycache__/
 *.pyc

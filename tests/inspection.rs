@@ -1,7 +1,8 @@
 //! Exact-expression inspection; these are construction tests, not parity claims.
 use oneloop::{
-    EvaluationBackend, ExpressionOptions, PrecisionEvaluator, ScalarIntegral, get_expression,
-    get_expression_with_options,
+    EvaluationBackend, ExpressionOptions, PrecisionEvaluator, ScalarIntegral,
+    get_expression_for_family as get_expression,
+    get_expression_for_family_with_options as get_expression_with_options,
 };
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol},

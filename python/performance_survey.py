@@ -215,8 +215,12 @@ def main():
             continue
         # Preserve compatibility with older adapters for auto, while explicit
         # requests must be honored (never silently substituted on TypeError).
-        evaluator = (module.Evaluator(family) if args.backend == "auto"
-                     else module.Evaluator(family, backend=args.backend))
+        selector = family
+        if getattr(module, "EXPRESSION_INTEROP", False):
+            from symbolica import S
+            selector = S("oneloopmaster::" + family)
+        evaluator = (module.Evaluator(selector) if args.backend == "auto"
+                     else module.Evaluator(selector, backend=args.backend))
         for case in cases:
             actual[case["id"]] = checked_output(case, evaluator.evaluate(arguments(case)))
         for mode, name, rows in [*(('SAME', case["name"], [case]) for case in cases), ('HETERO', 'all', cases)]:

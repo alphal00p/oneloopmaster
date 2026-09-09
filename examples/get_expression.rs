@@ -12,10 +12,11 @@ fn main() {
             let mass = symbolica::symbol!("example_mass_squared"; Positive).to_atom();
             let scale = symbolica::symbol!("example_mu_squared"; Positive).to_atom();
             let invariant = symbolica::symbol!("example_s_squared"; Real).to_atom();
-            for (family, arguments) in [
-                (ScalarIntegral::A0, vec![mass, scale.clone()]),
+            for (family, master, arguments) in [
+                (ScalarIntegral::A0, oneloop::A0(), vec![mass, scale.clone()]),
                 (
                     ScalarIntegral::C0,
+                    oneloop::C0(),
                     vec![
                         Atom::num(0),
                         Atom::num(0),
@@ -27,8 +28,8 @@ fn main() {
                     ],
                 ),
             ] {
-                let series =
-                    get_expression(family, &arguments).expect("complete expression within budget");
+                let series = get_expression(master.call(&arguments))
+                    .expect("complete expression within budget");
                 for (tag, body) in [0, -1, -2].into_iter().zip(series.coefficients()) {
                     println!(
                         "{}[{tag}] = {}",
