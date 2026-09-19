@@ -1,8 +1,43 @@
-//! State-free scalar primitives used by the generated native expression DAG.
+//! Scalar primitives used by the generated native expression DAG.
 
 use symbolica::domains::float::{Complex, DoubleFloat, Float, FloatLike, Real, SingleFloat};
 
 pub type C<T> = Complex<T>;
+
+// Resolve Symbolica's public polylog(2, z) implementation once per domain.
+// Enter state before acquiring our cache: initialization can reenter OneLOop.
+fn resolve_dilog<T: symbolica::evaluate::EvaluationDomain>()
+-> Box<dyn symbolica::evaluate::ExternalFunction<T>> {
+    let tag = symbolica::atom::Atom::num(2);
+    T::resolve_function(
+        &[tag.as_view()],
+        symbolica::get_symbol!("symbolica::polylog")
+            .unwrap()
+            .get_evaluation_info()
+            .unwrap(),
+    )
+    .expect("Symbolica provides complex polylog evaluation")
+}
+
+fn dilog_f64_callback() -> &'static dyn symbolica::evaluate::ExternalFunction<C<f64>> {
+    static CALLBACK: std::sync::OnceLock<Box<dyn symbolica::evaluate::ExternalFunction<C<f64>>>> =
+        std::sync::OnceLock::new();
+    if let Some(callback) = CALLBACK.get() {
+        return callback.as_ref();
+    }
+    let _ = symbolica::get_symbol!("symbolica::polylog");
+    CALLBACK.get_or_init(resolve_dilog).as_ref()
+}
+
+fn dilog_float_callback() -> &'static dyn symbolica::evaluate::ExternalFunction<C<Float>> {
+    static CALLBACK: std::sync::OnceLock<Box<dyn symbolica::evaluate::ExternalFunction<C<Float>>>> =
+        std::sync::OnceLock::new();
+    if let Some(callback) = CALLBACK.get() {
+        return callback.as_ref();
+    }
+    let _ = symbolica::get_symbol!("symbolica::polylog");
+    CALLBACK.get_or_init(resolve_dilog).as_ref()
+}
 
 /// A real scalar supported by the native integral evaluator.
 pub trait NativeFloat: Real + SingleFloat + PartialOrd + Send + Sync + 'static {
@@ -49,7 +84,7 @@ impl NativeFloat for f64 {
         }
     }
     fn dilog(z: &C<Self>) -> C<Self> {
-        symbolica::transcendental::dilog_complex_f64(*z)
+        dilog_f64_callback()(std::slice::from_ref(z))
     }
     #[inline]
     fn exact_i64(&self) -> Option<i64> {
@@ -110,13 +145,7 @@ impl NativeFloat for DoubleFloat {
         // Conversion retains BOTH compensated components; no binary64
         // intermediate is used for the value passed to the dilogarithm.
         let value = C::new(double_to_float(z.re, 160), double_to_float(z.im, 160));
-        let value =
-            symbolica::transcendental::dilog_complex_float(&value, 160).unwrap_or_else(|| {
-                C::new(
-                    Float::with_val(160, f64::NAN),
-                    Float::with_val(160, f64::NAN),
-                )
-            });
+        let value = dilog_float_callback()(std::slice::from_ref(&value));
         C::new(value.re.to_double_float(), value.im.to_double_float())
     }
     fn exact_i64(&self) -> Option<i64> {
@@ -137,7 +166,7 @@ impl NativeFloat for Float {
         value
     }
     fn negative_sign(&self) -> bool {
-        self.is_negative()
+        self.is_sign_negative()
     }
     fn hypot(&self, other: &Self) -> Self {
         use symbolica::domains::backend::float::MultiPrecisionFloat;
@@ -169,13 +198,7 @@ impl NativeFloat for Float {
         .into()
     }
     fn dilog(z: &C<Self>) -> C<Self> {
-        let bits = z.re.prec().max(z.im.prec());
-        symbolica::transcendental::dilog_complex_float(z, bits).unwrap_or_else(|| {
-            C::new(
-                Float::with_val(bits, f64::NAN),
-                Float::with_val(bits, f64::NAN),
-            )
-        })
+        dilog_float_callback()(std::slice::from_ref(z))
     }
     fn exact_i64(&self) -> Option<i64> {
         let rational = self.try_to_rational()?;
@@ -294,12 +317,12 @@ pub(crate) fn powf<T: NativeFloat>(a: &C<T>, b: &C<T>, is_real: bool) -> C<T> {
 
 #[inline]
 pub(crate) fn log<T: NativeFloat>(a: &C<T>) -> C<T> {
-    let radius = a.re.hypot(&a.im);
+    let radius = NativeFloat::hypot(&a.re, &a.im);
     let magnitude = if !radius.is_finite() && a.re.is_finite() && a.im.is_finite() {
         let x = a.re.norm();
         let y = a.im.norm();
         let scale = if x >= y { x } else { y };
-        scale.log() + (a.re.clone() / &scale).hypot(&(a.im.clone() / scale)).log()
+        scale.log() + NativeFloat::hypot(&(a.re.clone() / &scale), &(a.im.clone() / scale)).log()
     } else {
         radius.log()
     };
@@ -339,7 +362,7 @@ pub(crate) fn sqrt<T: NativeFloat>(a: &C<T>) -> C<T> {
     let scale = if x >= y { x } else { y };
     let x = a.re.clone() / &scale;
     let y = a.im.clone() / &scale;
-    let radius = x.hypot(&y);
+    let radius = NativeFloat::hypot(&x, &y);
     let two = constant_prototype(a).from_i64(2);
     // Scaled rectangular formula: no overflowing |z| intermediate and no
     // halving of a subnormal input before its square root is taken.
@@ -355,7 +378,7 @@ pub(crate) fn sqrt<T: NativeFloat>(a: &C<T>) -> C<T> {
 
 #[inline]
 pub(crate) fn abs<T: NativeFloat>(a: &C<T>) -> C<T> {
-    C::new(a.re.hypot(&a.im), a.im.zero())
+    C::new(NativeFloat::hypot(&a.re, &a.im), a.im.zero())
 }
 #[inline]
 pub(crate) fn conj<T: NativeFloat>(a: &C<T>) -> C<T> {

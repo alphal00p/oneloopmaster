@@ -8,11 +8,151 @@ use std::{
 };
 use symbolica::{
     atom::{Atom, Symbol},
-    domains::{float::Complex, rational::Rational},
+    domains::{
+        float::{Complex, Float},
+        rational::Rational,
+    },
     evaluate::{ExportedInstructions, Instruction, Slot},
 };
 
-type Graph = ExportedInstructions<Complex<Rational>>;
+// Lift symbolic constants as explicit parameters before exporting. Symbolica's
+// public instruction API then never has to reveal its constant placeholders.
+#[derive(Clone)]
+struct Graph {
+    input_count: usize,
+    output_count: usize,
+    instructions: Vec<Instruction>,
+    constants: Vec<Complex<Rational>>,
+    constant_functions: Vec<ConstantFunction>,
+    sub_evaluators: Vec<SubEvaluator>,
+}
+#[derive(Clone)]
+struct ConstantFunction {
+    index: usize,
+    symbol: Symbol,
+    tags: Vec<String>,
+    fixed_args: Vec<Complex<Rational>>,
+}
+#[derive(Clone)]
+struct SubEvaluator {
+    symbol: Symbol,
+    tags: Vec<String>,
+    instructions: Graph,
+}
+
+impl From<ExportedInstructions<Complex<Rational>>> for Graph {
+    fn from(graph: ExportedInstructions<Complex<Rational>>) -> Self {
+        Self {
+            input_count: graph.input_count,
+            output_count: graph.output_count,
+            instructions: graph.instructions,
+            constants: graph.constants,
+            constant_functions: Vec::new(),
+            sub_evaluators: graph
+                .sub_evaluators
+                .into_iter()
+                .map(|child| SubEvaluator {
+                    symbol: child.symbol,
+                    tags: child.tags,
+                    instructions: child.instructions.into(),
+                })
+                .collect(),
+        }
+    }
+}
+
+fn export_checked(
+    evaluator: symbolica::evaluate::ExpressionEvaluator<Complex<Rational>>,
+) -> Result<Graph, String> {
+    let exact = evaluator.export_instructions();
+    let numeric = evaluator
+        .map_coeff_with_prec(
+            &|c| Complex::new(c.re.to_multi_prec_float(128), c.im.to_multi_prec_float(128)),
+            128,
+        )
+        .export_instructions();
+    fn check(
+        exact: &ExportedInstructions<Complex<Rational>>,
+        numeric: &ExportedInstructions<Complex<Float>>,
+    ) -> Result<(), String> {
+        if exact.constants.len() != numeric.constants.len()
+            || exact.sub_evaluators.len() != numeric.sub_evaluators.len()
+        {
+            return Err("coefficient mapping changed exported graph shape".into());
+        }
+        for (exact, numeric) in exact.constants.iter().zip(&numeric.constants) {
+            if exact.re.to_multi_prec_float(128) != numeric.re
+                || exact.im.to_multi_prec_float(128) != numeric.im
+            {
+                return Err("unresolved symbolic constant: lift it as an explicit parameter before exporting".into());
+            }
+        }
+        for (exact, numeric) in exact.sub_evaluators.iter().zip(&numeric.sub_evaluators) {
+            check(&exact.instructions, &numeric.instructions)?;
+        }
+        Ok(())
+    }
+    check(&exact, &numeric)?;
+    Ok(exact.into())
+}
+
+fn lift_constants(mut graph: Graph, constants: Vec<ConstantFunction>) -> Graph {
+    graph.input_count -= constants.len();
+    let start = graph.constants.len();
+    let remap = |slot: &mut Slot| {
+        if let Slot::Param(index) = slot
+            && *index >= graph.input_count
+        {
+            *slot = Slot::Const(start + *index - graph.input_count);
+        }
+    };
+    for instruction in &mut graph.instructions {
+        match instruction {
+            Instruction::Add(out, args, _) | Instruction::Mul(out, args, _) => {
+                remap(out);
+                args.iter_mut().for_each(remap);
+            }
+            Instruction::Pow(out, base, _, _) | Instruction::Assign(out, base) => {
+                remap(out);
+                remap(base);
+            }
+            Instruction::Powf(out, base, exponent, _) => {
+                remap(out);
+                remap(base);
+                remap(exponent);
+            }
+            Instruction::Fun(out, function, _) => {
+                remap(out);
+                function.2.iter_mut().for_each(remap);
+            }
+            Instruction::IfElse(condition, _) => remap(condition),
+            Instruction::Join(out, condition, yes, no) => {
+                remap(out);
+                remap(condition);
+                remap(yes);
+                remap(no);
+            }
+            Instruction::Goto(_) | Instruction::Label(_) => {}
+        }
+    }
+    for (offset, mut constant) in constants.into_iter().enumerate() {
+        constant.index = start + offset;
+        graph
+            .constants
+            .push(Complex::new(Rational::from(0), Rational::from(0)));
+        graph.constant_functions.push(constant);
+    }
+    graph
+}
+
+fn pi_constant() -> ConstantFunction {
+    ConstantFunction {
+        index: 0,
+        symbol: Symbol::PI,
+        tags: Vec::new(),
+        fixed_args: Vec::new(),
+    }
+}
 type Environment = BTreeMap<Slot, String>;
 type Signature = (Symbol, Vec<String>);
 
@@ -812,10 +952,14 @@ fn generate(directory: PathBuf) -> Result<(), String> {
             arguments.extend(parameters.iter().cloned());
             symbol.call(&arguments)
         });
-        let graph = context
-            .evaluator(&calls, &parameters)
-            .map_err(|error| error.to_string())?
-            .export_instructions();
+        let mut parameters = parameters;
+        parameters.push(Symbol::PI.to_atom());
+        let graph = export_checked(
+            context
+                .evaluator(&calls, &parameters)
+                .map_err(|error| error.to_string())?,
+        )?;
+        let graph = lift_constants(graph, vec![pi_constant()]);
         let mut generator = Generator {
             constants: &mut constants,
             helpers: Vec::new(),
@@ -893,11 +1037,26 @@ fn powi<T: NativeFloat>(a: &T, exponent: i64, _: bool) -> T {
             .spawn(|| {
                 oneloop::initialize().unwrap();
                 let expressions = [Symbol::PI.to_atom(), Atom::num((1, 2)).polylog(2)];
-                let evaluator = Atom::evaluator_multiple(&expressions, &[] as &[Atom])
+                let evaluator = Atom::evaluator_multiple(&expressions, &expressions)
                     .direct_translation(true)
                     .build()
                     .unwrap();
-                let graph = evaluator.export_instructions();
+                let graph = lift_constants(
+                    export_checked(evaluator).unwrap(),
+                    vec![
+                        pi_constant(),
+                        ConstantFunction {
+                            index: 0,
+                            symbol: symbolica::transcendental::polylog(),
+                            tags: vec!["2".into()],
+                            fixed_args: vec![Complex::new(
+                                Rational::from((1, 2)),
+                                Rational::from(0),
+                            )],
+                        },
+                    ],
+                );
+                assert_eq!(graph.input_count, 0);
                 assert_eq!(graph.constant_functions.len(), 2);
                 let mut constants = Constants::default();
                 constants.graph_constants(&graph).unwrap();
@@ -1163,7 +1322,6 @@ fn powi<T: NativeFloat>(a: &T, exponent: i64, _: bool) -> T {
                 input_count: 4,
                 output_count: outputs,
                 instructions,
-                temporary_count: 100,
                 constants: Vec::new(),
                 constant_functions: Vec::new(),
                 sub_evaluators: Vec::new(),
@@ -1284,7 +1442,6 @@ fn main() {
             input_count: 7,
             output_count: 2,
             instructions,
-            temporary_count: 100,
             constants: Vec::new(),
             constant_functions: Vec::new(),
             sub_evaluators: Vec::new(),

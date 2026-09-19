@@ -144,7 +144,7 @@ mod tests {
             register(&mut map);
             let compile = |parts: &[Atom]| {
                 Atom::evaluator_multiple(&parts.iter().map(Atom::as_view).collect::<Vec<_>>(), &x)
-                    .function_map(map.clone())
+                    .function_map(map.clone().into())
                     .direct_translation(true)
                     .build()
                     .unwrap()

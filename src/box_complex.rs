@@ -1229,7 +1229,7 @@ mod tests {
         });
         let values = roots(&x[0], &x[1], &x[2]);
         let mut evaluator = Atom::evaluator_multiple(&values.each_ref().map(Atom::as_view), &x)
-            .function_map(map)
+            .function_map(map.into())
             .direct_translation(true)
             .build()
             .unwrap()
@@ -1266,7 +1266,7 @@ mod tests {
             sheet_exact::register(&mut map);
             register(&mut map);
             let exact = Atom::evaluator_multiple(&[integral.as_view()], &x)
-                .function_map(map)
+                .function_map(map.into())
                 .direct_translation(true)
                 .build()
                 .unwrap();

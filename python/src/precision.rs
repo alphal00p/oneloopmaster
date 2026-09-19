@@ -137,7 +137,7 @@ pub(crate) fn arbitrary_number(value: &Bound<'_, PyAny>, bits: u32) -> PyResult<
         use symbolica::atom::{Atom, AtomCore};
         return value
             .expr
-            .evaluate_with_prec::<Atom, Complex<Float>>(&Default::default(), bits)
+            .evaluate_with_prec::<Atom, Complex<Float>>(&std::collections::HashMap::new(), bits)
             .map_err(|error| {
                 PyValueError::new_err(format!(
                     "numeric Symbolica input must evaluate without free variables: {error}"

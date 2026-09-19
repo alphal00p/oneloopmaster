@@ -159,8 +159,8 @@ impl HookJitEvaluator {
         let inner = exact
             .jit_compile::<Complex<f64>>(oneloop::jit_settings())
             .expect("JIT-compile bare public master callbacks");
-        assert_eq!(inner.input_count(), family.arity());
-        assert_eq!(inner.output_count(), 3);
+        assert_eq!(exact.get_input_len(), family.arity());
+        assert_eq!(exact.get_output_len(), 3);
         Self { family, inner }
     }
 }

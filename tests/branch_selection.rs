@@ -320,7 +320,7 @@ fn equal_mass_b0_becomes_if_free_and_remains_parametric_for_float_integer_and_fr
                 ];
                 let actual: Complex<f64> = selected[0]
                     .replace_multiple(&check_rules)
-                    .evaluate::<Atom, _>(&Default::default())
+                    .evaluate::<Atom, _>(&std::collections::HashMap::new())
                     .unwrap();
                 assert!(
                     (actual.re - reference[0].re).abs() < 1e-12,

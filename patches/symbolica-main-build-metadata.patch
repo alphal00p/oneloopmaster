@@ -1,0 +1,147 @@
+diff --git a/build.rs b/build.rs
+index e344f00..76504b9 100644
+--- a/build.rs
++++ b/build.rs
+@@ -1,4 +1,29 @@
+-use std::process::Command;
++use std::{
++    path::{Path, PathBuf},
++    process::Command,
++};
++
++pub(crate) fn git_metadata_paths(directory: &Path) -> Vec<PathBuf> {
++    // A linked worktree has a .git file, not a .git directory. Resolve its
++    // private HEAD and the shared refs instead of watching nonexistent paths.
++    // Watching refs also refreshes the version when committing on a branch
++    // without changing the symbolic HEAD file.
++    ["HEAD", "refs", "packed-refs"]
++        .into_iter()
++        .filter_map(|entry| {
++            let output = Command::new("git")
++                .current_dir(directory)
++                .args(["rev-parse", "--path-format=absolute", "--git-path", entry])
++                .output()
++                .ok()?;
++            if !output.status.success() {
++                return None;
++            }
++            let path = PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
++            path.exists().then_some(path)
++        })
++        .collect()
++}
+ 
+ fn get_git_version() -> Option<String> {
+     let output = Command::new("git")
+@@ -23,6 +48,8 @@ fn main() {
+     };
+ 
+     println!("cargo:rustc-env=SYMBOLICA_VERSION=symbolica-{}", version);
+-    println!("cargo:rerun-if-changed=.git/HEAD");
++    for path in git_metadata_paths(Path::new(".")) {
++        println!("cargo:rerun-if-changed={}", path.display());
++    }
+     println!("cargo:rerun-if-changed=build.rs");
+ }
+diff --git a/tests/build_metadata.rs b/tests/build_metadata.rs
+new file mode 100644
+index 0000000..7ff72c2
+--- /dev/null
++++ b/tests/build_metadata.rs
+@@ -0,0 +1,96 @@
++#[allow(dead_code)]
++#[path = "../build.rs"]
++mod build_script;
++
++use std::{
++    path::{Path, PathBuf},
++    process::Command,
++};
++
++struct Fixture(PathBuf);
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        let _ = std::fs::remove_dir_all(&self.0);
++    }
++}
++
++fn git(directory: &Path, args: &[&str]) -> String {
++    let output = Command::new("git")
++        .current_dir(directory)
++        .args(args)
++        .output()
++        .unwrap();
++    assert!(
++        output.status.success(),
++        "{}",
++        String::from_utf8_lossy(&output.stderr)
++    );
++    String::from_utf8(output.stdout).unwrap().trim().to_owned()
++}
++
++#[test]
++fn watches_existing_head_and_refs_in_clones_and_linked_worktrees() {
++    let unique = std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .unwrap()
++        .as_nanos();
++    let fixture = Fixture(
++        std::env::temp_dir().join(format!("symbolica-build-{}-{unique}", std::process::id())),
++    );
++    let repository = fixture.0.join("repository");
++    let worktree = fixture.0.join("worktree");
++    let archive = fixture.0.join("archive");
++    std::fs::create_dir_all(&repository).unwrap();
++    std::fs::create_dir_all(&archive).unwrap();
++    assert!(build_script::git_metadata_paths(&archive).is_empty());
++    git(&repository, &["init", "--initial-branch=main"]);
++    git(
++        &repository,
++        &[
++            "-c",
++            "user.name=Test",
++            "-c",
++            "user.email=test@example.invalid",
++            "commit",
++            "--allow-empty",
++            "-m",
++            "initial",
++        ],
++    );
++    git(
++        &repository,
++        &["worktree", "add", "--detach", worktree.to_str().unwrap()],
++    );
++    assert!(worktree.join(".git").is_file());
++    assert!(!worktree.join(".git/HEAD").exists());
++    for directory in [&repository, &worktree] {
++        let paths = build_script::git_metadata_paths(directory);
++        assert!(paths.iter().all(|p| p.is_absolute() && p.exists()));
++        let head = PathBuf::from(git(
++            directory,
++            &["rev-parse", "--path-format=absolute", "--git-path", "HEAD"],
++        ));
++        let reference = PathBuf::from(git(
++            directory,
++            &[
++                "rev-parse",
++                "--path-format=absolute",
++                "--git-path",
++                "refs/heads/main",
++            ],
++        ));
++        assert!(paths.contains(&head));
++        assert!(paths.iter().any(|p| reference.starts_with(p)));
++    }
++    git(&repository, &["pack-refs", "--all"]);
++    let packed = PathBuf::from(git(
++        &repository,
++        &[
++            "rev-parse",
++            "--path-format=absolute",
++            "--git-path",
++            "packed-refs",
++        ],
++    ));
++    assert!(build_script::git_metadata_paths(&worktree).contains(&packed));
++}

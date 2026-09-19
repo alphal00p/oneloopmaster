@@ -7,6 +7,7 @@
 
 mod backend;
 mod branch_selection;
+mod definitions;
 mod evaluators;
 mod expressions;
 mod initialization;
@@ -49,9 +50,9 @@ pub use two_point::*;
 use symbolica::{
     atom::{Atom, AtomCore, Symbol},
     coefficient::Coefficient,
-    evaluate::FunctionMap,
-    transcendental::TranscendentalFunctions,
 };
+
+use definitions::FunctionMap;
 
 use sheet_exact::{SheetAtom, divided_difference as sheet_dilog_divided_difference};
 use sheet_exact::{SheetAtom as ExactSheetAtom, divided_difference as exact_sheet_difference};
@@ -71,7 +72,7 @@ pub struct LaurentSeries {
 #[derive(Clone, Debug)]
 pub struct MappedLaurentSeries {
     series: LaurentSeries,
-    function_map: FunctionMap,
+    function_map: &'static FunctionMap,
 }
 
 impl MappedLaurentSeries {
@@ -81,13 +82,13 @@ impl MappedLaurentSeries {
     }
 
     /// Returns the Symbolica function definitions referenced by the coefficients.
-    pub fn function_map(&self) -> &FunctionMap {
-        &self.function_map
+    pub fn function_map(&self) -> &symbolica::evaluate::FunctionMap {
+        self.function_map.as_symbolica()
     }
 
     /// Consumes the result into its compact series and transparent function map.
-    pub fn into_parts(self) -> (LaurentSeries, FunctionMap) {
-        (self.series, self.function_map)
+    pub fn into_parts(self) -> (LaurentSeries, symbolica::evaluate::FunctionMap) {
+        (self.series, self.function_map.as_symbolica().clone())
     }
 }
 
@@ -175,8 +176,19 @@ fn upper_log(value: &Atom) -> Atom {
     if_nonzero_else(&off_axis, value.log(), upper_lip)
 }
 
+fn polylog_symbol() -> Symbol {
+    // Symbolica has registered this before running our initialization callback.
+    // Looking it up directly also works when its public special-symbol cache is
+    // what originally triggered global initialization.
+    symbolica::get_symbol!("symbolica::polylog").expect("polylog is registered")
+}
+
+fn dilog_atom(value: impl AtomCore) -> Atom {
+    polylog_symbol().call((2, value.as_atom_view()))
+}
+
 fn physical_dilog(value: &Atom) -> Atom {
-    value.conj().polylog(2).conj()
+    dilog_atom(value.conj()).conj()
 }
 
 fn physical_sqrt(value: &Atom) -> Atom {

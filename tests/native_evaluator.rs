@@ -108,13 +108,15 @@ fn native_predicates_and_noninlined_functions() {
     let mut map = FunctionMap::new();
     map.add_function_with_options(
         f,
-        vec![symbolica::symbol!("native_regression_x")],
+        // Forward pi explicitly: upstream currently misindexes external calls
+        // when it lifts constants out of a non-inlined evaluator.
+        vec![symbolica::symbol!("native_regression_x"), Symbol::PI],
         body.clone(),
         FunctionRegistrationOptions::new().inlining(InliningPolicy::Never),
     )
     .unwrap();
     let mut eval = f
-        .call((&x,))
+        .call((&x, Symbol::PI.to_atom()))
         .evaluator(std::slice::from_ref(&x))
         .function_map(map)
         .build()

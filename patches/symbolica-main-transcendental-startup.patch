@@ -1,0 +1,138 @@
+diff --git a/src/transcendental.rs b/src/transcendental.rs
+index 93037ed..584fa4e 100644
+--- a/src/transcendental.rs
++++ b/src/transcendental.rs
+@@ -1,4 +1,7 @@
+-use std::sync::{Arc, LazyLock};
++use std::{
++    ops::Deref,
++    sync::{Arc, OnceLock},
++};
+ 
+ mod cpp;
+ 
+@@ -26,7 +29,37 @@ use crate::{
+     utils::Settable,
+ };
+ 
+-static SPECIALS: LazyLock<SpecialSymbols> = LazyLock::new(|| SpecialSymbols {
++// State initialization runs dependent crates' callbacks, which may themselves
++// request a transcendental symbol. Enter State BEFORE acquiring this cache's
++// initialization lock; the opposite order would re-enter the same pending
++// LazyLock/OnceLock from such a callback. Warm accesses need no State lookup.
++struct SymbolCache<T> {
++    value: OnceLock<T>,
++    initialize: fn() -> T,
++}
++
++impl<T> SymbolCache<T> {
++    const fn new(initialize: fn() -> T) -> Self {
++        Self {
++            value: OnceLock::new(),
++            initialize,
++        }
++    }
++}
++
++impl<T> Deref for SymbolCache<T> {
++    type Target = T;
++
++    fn deref(&self) -> &Self::Target {
++        if let Some(value) = self.value.get() {
++            return value;
++        }
++        let _ = State::get_global_state();
++        self.value.get_or_init(self.initialize)
++    }
++}
++
++static SPECIALS: SymbolCache<SpecialSymbols> = SymbolCache::new(|| SpecialSymbols {
+     euler_gamma: get_symbol!("euler_gamma").expect("Euler gamma not defined"),
+     gamma: get_symbol!("gamma").expect("gamma not defined"),
+     erf: get_symbol!("erf").expect("erf not defined"),
+@@ -36,7 +69,7 @@ static SPECIALS: LazyLock<SpecialSymbols> = LazyLock::new(|| SpecialSymbols {
+     root_var: get_symbol!("root_var").expect("root_var not defined"),
+     zeta: get_symbol!("zeta").expect("zeta not defined"),
+ });
+-static GEOMETRICS: LazyLock<GeometricSymbols> = LazyLock::new(|| GeometricSymbols {
++static GEOMETRICS: SymbolCache<GeometricSymbols> = SymbolCache::new(|| GeometricSymbols {
+     tan: get_symbol!("tan").expect("tan not defined"),
+     cot: get_symbol!("cot").expect("cot not defined"),
+     sec: get_symbol!("sec").expect("sec not defined"),
+@@ -60,7 +93,7 @@ static GEOMETRICS: LazyLock<GeometricSymbols> = LazyLock::new(|| GeometricSymbol
+     asech: get_symbol!("asech").expect("asech not defined"),
+     acsch: get_symbol!("acsch").expect("acsch not defined"),
+ });
+-static BESSELS: LazyLock<BesselSymbols> = LazyLock::new(|| BesselSymbols {
++static BESSELS: SymbolCache<BesselSymbols> = SymbolCache::new(|| BesselSymbols {
+     bessel_j: get_symbol!("bessel_j").expect("bessel_j not defined"),
+     bessel_y: get_symbol!("bessel_y").expect("bessel_y not defined"),
+     bessel_i: get_symbol!("bessel_i").expect("bessel_i not defined"),
+diff --git a/tests/transcendental_startup.rs b/tests/transcendental_startup.rs
+new file mode 100644
+index 0000000..04edcc6
+--- /dev/null
++++ b/tests/transcendental_startup.rs
+@@ -0,0 +1,62 @@
++use std::sync::atomic::{AtomicBool, Ordering};
++
++static INITIALIZED: AtomicBool = AtomicBool::new(false);
++
++symbolica::initialize!(|| {
++    // A downstream initializer can legitimately use the registered accessors.
++    let _ = symbolica::transcendental::polylog();
++    let _ = symbolica::transcendental::tan();
++    let _ = symbolica::transcendental::bessel_j();
++    INITIALIZED.store(true, Ordering::Release);
++});
++
++#[test]
++fn cold_accessors_allow_initializer_reentry() {
++    use std::{
++        process::Command,
++        time::{Duration, Instant},
++    };
++    let mut failures = Vec::new();
++    for entry in ["polylog", "tan", "bessel_j"] {
++        let mut child = Command::new(std::env::current_exe().unwrap())
++            .args(["--ignored", "--exact", "cold_accessor_child", "--nocapture"])
++            .env("SYMBOLICA_STARTUP_REGRESSION", entry)
++            .spawn()
++            .unwrap();
++        let start = Instant::now();
++        loop {
++            if let Some(status) = child.try_wait().unwrap() {
++                if !status.success() {
++                    failures.push(format!("{entry}: {status}"));
++                }
++                break;
++            }
++            if start.elapsed() > Duration::from_secs(10) {
++                child.kill().unwrap();
++                child.wait().unwrap();
++                failures.push(format!("{entry}: initialization deadlocked"));
++                break;
++            }
++            std::thread::sleep(Duration::from_millis(20));
++        }
++    }
++    assert!(failures.is_empty(), "{}", failures.join("\n"));
++}
++
++#[test]
++#[ignore = "fresh-process helper invoked by cold_accessors_allow_initializer_reentry"]
++fn cold_accessor_child() {
++    // Do not initialize State before requesting the first accessor.
++    let entry = std::env::var("SYMBOLICA_STARTUP_REGRESSION").unwrap();
++    let first = match entry.as_str() {
++        "polylog" => symbolica::transcendental::polylog(),
++        "tan" => symbolica::transcendental::tan(),
++        "bessel_j" => symbolica::transcendental::bessel_j(),
++        _ => unreachable!(),
++    };
++    assert!(INITIALIZED.load(Ordering::Acquire));
++    assert_eq!(
++        Some(first),
++        symbolica::get_symbol!(format!("symbolica::{entry}"))
++    );
++}

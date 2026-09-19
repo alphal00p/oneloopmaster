@@ -1,3 +1,26 @@
+# Upstream patches and historical fixes
+
+All seven fixes in the [Symbolica regression report](symbolica-main-regressions.md)
+are upstream in main `821b02451256a92039a0665006628bd5d91470cc`, now selected by
+OneLOop and both Python build roots. The patches and their tarball retain the
+original `08defb39` base as historical reproductions; do not apply them to current
+main. SymJIT defects remain tracked separately.
+
+The current migration targets unmodified Symbolica main
+`821b02451256a92039a0665006628bd5d91470cc` and released SymJIT 2.25.6.
+No current Cargo manifest applies a source patch. The
+[Numerica radial precision patch](numerica-hypot-precision.md) is now historical:
+its `hypot` fix and a further complex-logarithm precision fix are upstream in the
+selected revision. The standalone and Symbolica-tree patch formats retain their
+original bases and eight regression tests.
+
+The older standalone Numerica and polylog artifacts are patch proposals whose
+repairs are now in Symbolica main. The development patches below are archived
+references.
+See [the migration status](../SYMBOLICA_3_MIGRATION.md) for current validation.
+
+The remaining text describes the previous patched development setup.
+
 # Local Symbolica and SymJIT fixes
 
 `symbolica-dev.patch` is the complete local delta against Symbolica dev

@@ -1,0 +1,202 @@
+diff --git a/lib/numerica/src/domains/float.rs b/lib/numerica/src/domains/float.rs
+index 38499ced243ef0cdccffb0d44fa11d845c3253e4..4bb69d99447a05c8cad0fb8ffe3653cb0ca9c9d1 100644
+--- a/lib/numerica/src/domains/float.rs
++++ b/lib/numerica/src/domains/float.rs
+@@ -188,8 +188,16 @@ pub trait Real: FloatLike {
+         if b.is_fully_zero() {
+             return a;
+         }
++        // The ratio can have very little relative precision when the smaller
++        // component is uncertain. Only the exact identity borrows the stronger
++        // input precision; a, b and r must retain their tracked uncertainty.
++        let one = if a.get_precision() >= b.get_precision() {
++            a.one()
++        } else {
++            b.one()
++        };
+         let r = b / &a;
+-        a * (r.one() + r.clone() * r).sqrt()
++        a * (one + r.clone() * r).sqrt()
+     }
+ 
+     /// Absolute value with the sign of `sign`, including signed zero where supported.
+diff --git a/lib/numerica/tests/hypot_precision.rs b/lib/numerica/tests/hypot_precision.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..c872777f05ad1d272e4f22f175df741934b39e16
+--- /dev/null
++++ b/lib/numerica/tests/hypot_precision.rs
+@@ -0,0 +1,174 @@
++#![cfg(feature = "float-mpfr")]
++
++use numerica::domains::float::{Complex, DoubleFloat, Float, FloatLike, Real, RealLike};
++
++fn tiny(bits: u32, precision: u32) -> Float {
++    let mut value = rug::Float::with_val(precision, 1);
++    value >>= bits;
++    value.into()
++}
++
++fn assert_close(actual: &Float, expected: &rug::Float, bits: u32) {
++    if expected.is_zero() {
++        assert!(actual.is_fully_zero(), "{actual:?} != {expected}");
++        return;
++    }
++    let working = expected.prec().max(bits + 64);
++    let error = rug::Float::with_val(working, actual.as_raw() - expected).abs();
++    let mut tolerance = rug::Float::with_val(working, expected).abs();
++    tolerance >>= bits.saturating_sub(6);
++    assert!(
++        error <= tolerance,
++        "{actual:?} != {expected}, error={error}"
++    );
++}
++
++fn reference_hypot(a: &Float, b: &Float) -> rug::Float {
++    rug::Float::with_val(a.prec().max(b.prec()) + 64, a.as_raw()).hypot(b.as_raw())
++}
++
++#[test]
++fn hypot_retains_the_precise_dominant_component() {
++    for bits in [128, 512, 3456] {
++        for sign_a in [-1, 1] {
++            for sign_b in [-1, 1] {
++                let a = Float::with_val(bits, 2 * sign_a);
++                let b = tiny(bits - 8, 2) * sign_b;
++                for (x, y) in [(&a, &b), (&b, &a)] {
++                    let result = Real::hypot(x, y);
++                    assert!(
++                        result.prec() >= bits - 8,
++                        "lost radial precision: {result:?}"
++                    );
++                    assert_close(&result, &reference_hypot(x, y), bits - 8);
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn hypot_does_not_pad_an_uncertain_component() {
++    for bits in [128, 512, 3456] {
++        // A weak dominant component, or a weak component of comparable size,
++        // must still limit the output precision. No computed input is promoted.
++        for (a, b) in [
++            (Float::with_val(2, 2), tiny(bits - 8, bits)),
++            (Float::with_val(bits, 3), Float::with_val(2, 4)),
++            (Float::with_val(2, 3), Float::with_val(bits, 4)),
++        ] {
++            for (x, y) in [(&a, &b), (&b, &a)] {
++                let result = Real::hypot(x, y);
++                assert!(result.prec() <= 8, "invented precision: {result:?}");
++                assert_close(&result, &reference_hypot(x, y), result.prec());
++            }
++        }
++    }
++}
++
++#[test]
++fn hypot_matches_mpfr_across_component_precisions() {
++    for a_bits in [2, 32, 128] {
++        for b_bits in [2, 32, 128] {
++            for a_text in ["1e-100", "1.25", "1e100"] {
++                for b_text in ["1e-100", "1.25", "1e100"] {
++                    let a = Float::parse(a_text, Some(a_bits)).unwrap();
++                    let b = Float::parse(b_text, Some(b_bits)).unwrap();
++                    let result = Real::hypot(&a, &b);
++                    assert_close(&result, &reference_hypot(&a, &b), result.prec());
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn hypot_preserves_axes_and_extreme_exponents() {
++    for bits in [128, 3456] {
++        for text in ["1e-10000", "1e10000"] {
++            let a = Float::parse(text, Some(bits)).unwrap();
++            let mut raw = a.as_raw().clone();
++            raw >>= bits;
++            raw.set_prec(2);
++            let b: Float = raw.into();
++            for y in [b, Float::with_val(2, 0.), Float::with_val(2, -0.)] {
++                for (x, y) in [(&a, &y), (&y, &a)] {
++                    let result = Real::hypot(x, y);
++                    assert!(result.is_finite());
++                    assert!(result.prec() >= bits - 8, "{result:?}");
++                    assert_close(&result, &reference_hypot(x, y), bits - 8);
++                }
++            }
++        }
++        for x in [-0., 0.] {
++            for y in [-0., 0.] {
++                let result = Real::hypot(&Float::with_val(bits, x), &Float::with_val(2, y));
++                assert!(result.is_fully_zero());
++                assert!(!result.is_sign_negative());
++            }
++        }
++    }
++}
++
++#[test]
++fn complex_magnitude_retains_radial_precision() {
++    for bits in [128, 512, 3456] {
++        let a = Float::with_val(bits, 2);
++        let b = tiny(bits - 8, 2);
++        for z in [Complex::new(a.clone(), b.clone()), Complex::new(b, a)] {
++            let norm = z.norm();
++            assert!(norm.re.prec() >= bits - 8, "{norm:?}");
++            assert!(norm.im.is_fully_zero());
++            assert_close(&norm.re, &reference_hypot(&z.re, &z.im), bits - 8);
++        }
++    }
++}
++
++#[test]
++fn complex_log_retains_radial_precision_without_padding_the_phase() {
++    for bits in [128, 512, 3456] {
++        for sign in [-1, 1] {
++            let a = Float::with_val(bits, 2 * sign);
++            let b = tiny(bits - 8, 2);
++            for z in [Complex::new(a.clone(), b.clone()), Complex::new(b, a)] {
++                let logarithm = z.log();
++                let reference =
++                    rug::Complex::with_val(bits + 64, (z.re.as_raw(), z.im.as_raw())).ln();
++                assert!(logarithm.re.prec() >= bits - 8, "{logarithm:?}");
++                assert_close(&logarithm.re, reference.real(), bits - 8);
++                if sign > 0 && z.re.norm() > z.im.norm() {
++                    assert!(
++                        logarithm.im.prec() <= 4,
++                        "phase precision was inflated: {logarithm:?}"
++                    );
++                    assert_close(&logarithm.im, reference.imag(), logarithm.im.prec());
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn complex_log_keeps_the_small_real_part_near_the_unit_circle() {
++    for bits in [128, 512, 3456] {
++        let z = Complex::new(Float::with_val(bits, 1), tiny(bits - 8, 2));
++        let logarithm = z.log();
++        let reference = rug::Complex::with_val(2 * bits + 64, (z.re.as_raw(), z.im.as_raw())).ln();
++        assert!(!logarithm.re.is_fully_zero());
++        assert!(logarithm.re.prec() <= 8);
++        assert!(logarithm.im.prec() <= 4);
++        assert_close(&logarithm.re, reference.real(), logarithm.re.prec());
++        assert_close(&logarithm.im, reference.imag(), logarithm.im.prec());
++    }
++}
++
++#[test]
++fn fixed_precision_hypot_keeps_scaled_finite_results() {
++    for (x, y) in [(3., 4.), (1e300, 1e300), (1e-300, 1e-300)] {
++        let expected = f64::hypot(x, y);
++        assert_eq!(Real::hypot(&x, &y), expected);
++        let result = Real::hypot(&DoubleFloat::from(x), &DoubleFloat::from(y)).to_f64();
++        assert!(result.is_finite() && result > 0.);
++        assert!((result / expected - 1.).abs() < 1e-15);
++    }
++}

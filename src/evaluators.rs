@@ -1,6 +1,6 @@
 //! Portable SymJIT caches and row-major batched numerical evaluation.
 use crate::{ScalarIntegral, masters};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use symbolica::{
     domains::{float::Complex, rational::Rational},
     evaluate::{ExpressionEvaluator, JITCompilationSettings, JITCompiledEvaluator},
@@ -28,7 +28,7 @@ pub(crate) fn portable_environment() -> Result<(), String> {
 }
 
 // Deliberately version-bound: portable IR is not a stable cross-version ABI.
-const FORMAT: &[u8] = b"oneloop-jit-v1:fb845d34bda8ccf1fedef6544d3aa46dc24944e3:native-fixes-v1:symjit-2.24.1-patched-v3:strict-o2-simd1\0";
+const FORMAT: &[u8] = b"oneloop-evaluator-v2:821b02451256a92039a0665006628bd5d91470cc:symjit-2.25.6:strict-o2-complex1-simd0\0";
 
 fn cache_payload(data: &[u8]) -> Result<(&[u8], usize, usize), String> {
     let payload = data
@@ -44,16 +44,19 @@ fn cache_payload(data: &[u8]) -> Result<(&[u8], usize, usize), String> {
     Ok((&payload[16..], dimension(0)?, dimension(8)?))
 }
 
-/// Branch-preserving SymJIT O2 settings with row-major SIMD batching.
-/// The patched backend falls back to scalar lanes on divergent branches.
+/// SymJIT O2 settings for scalar code and row-major batches.
+/// The ordinary compiler avoids missing fractional-power call targets. SIMD is
+/// disabled because upstream crashes on zero-input batches and does not reliably
+/// propagate nested branch fallback. Packed complex arithmetic avoids the
+/// generic compiler's unrequested FMA contraction; fastmath remains disabled.
 pub fn jit_settings() -> JITCompilationSettings {
     JITCompilationSettings::new()
         .optimization_level(2)
-        .direct_translation(true)
+        .direct_translation(false)
         .with_option("fastmath", "false")
-        .with_option("fast_complex", "false")
+        .with_option("fast_complex", "true")
         .with_option("use_threads", "false")
-        .with_option("use_simd", "true")
+        .with_option("use_simd", "false")
         .with_option("simd_branch", "false")
         .with_option("enable_simd512", "false")
 }
@@ -63,6 +66,7 @@ pub fn jit_settings() -> JITCompilationSettings {
 #[derive(Clone)]
 pub struct JitEvaluator {
     inner: JITCompiledEvaluator<C>,
+    source: Arc<ExpressionEvaluator<C>>,
     inputs: usize,
     outputs: usize,
 }
@@ -74,14 +78,18 @@ impl JitEvaluator {
         outputs: usize,
     ) -> Result<Self, String> {
         portable_environment()?;
-        let inner = exact.jit_compile::<C>(jit_settings())?;
-        if inner.input_count() != inputs || inner.output_count() != outputs {
+        let source = exact
+            .clone()
+            .map_coeff(&|c| C::new(c.re.to_f64(), c.im.to_f64()));
+        if source.get_input_len() != inputs || source.get_output_len() != outputs {
             return Err(
                 "compiled evaluator dimensions disagree with requested expression shape".into(),
             );
         }
+        let inner = source.jit_compile(jit_settings())?;
         Ok(Self {
             inner,
+            source: Arc::new(source),
             inputs,
             outputs,
         })
@@ -132,18 +140,22 @@ impl JitEvaluator {
         Ok(())
     }
 
-    /// Serialize portable IR together with every nested function definition.
+    /// Serialize the numerical evaluator and every nested function definition.
     /// Treat this as trusted executable content, not an untrusted data format.
     pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
         let mut data = FORMAT.to_vec();
         data.extend_from_slice(&(self.inputs as u64).to_le_bytes());
         data.extend_from_slice(&(self.outputs as u64).to_le_bytes());
-        data.extend(self.inner.export_portable()?);
+        data.extend(
+            bincode::encode_to_vec(self.source.as_ref(), bincode::config::standard())
+                .map_err(|error| error.to_string())?,
+        );
         Ok(data)
     }
 
     /// Load a version-matched trusted cache. Native machine code is regenerated
-    /// for the host; no symbolic expression construction is required.
+    /// for the host with the same strict settings at every nesting level; no
+    /// symbolic expression construction is required.
     /// Register any custom numerical Symbol callbacks before loading. The
     /// `SYMJIT_TOML` must be unset and the working directory must not contain
     /// `symjit.toml`, since these can override the portable compiler settings.
@@ -155,16 +167,23 @@ impl JitEvaluator {
     fn from_bytes_raw(data: &[u8]) -> Result<Self, String> {
         portable_environment()?;
         let (payload, inputs, outputs) = cache_payload(data)?;
-        let inner = JITCompiledEvaluator::import_portable(payload, jit_settings())?;
+        let (source, consumed): (ExpressionEvaluator<C>, usize) =
+            bincode::decode_from_slice(payload, bincode::config::standard())
+                .map_err(|error| error.to_string())?;
+        if consumed != payload.len() {
+            return Err("trailing bytes in evaluator cache".into());
+        }
         // Dimensions in the outer header cannot authorize shorter slices than
         // the executable consumes. SymJIT enters raw generated machine code.
-        if inner.input_count() != inputs || inner.output_count() != outputs {
+        if source.get_input_len() != inputs || source.get_output_len() != outputs {
             return Err("evaluator cache dimensions disagree with executable".into());
         }
+        let inner = source.jit_compile(jit_settings())?;
         Ok(Self {
             inputs,
             outputs,
             inner,
+            source: Arc::new(source),
         })
     }
 }
@@ -205,7 +224,7 @@ impl ScalarEvaluator {
         portable_environment()?;
         Ok(Self {
             family,
-            evaluator: JitEvaluator::compile(masters::exact_evaluator(family), family.arity(), 3)?,
+            evaluator: masters::jit_evaluator(family)?,
         })
     }
 

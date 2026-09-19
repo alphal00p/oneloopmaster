@@ -25,29 +25,22 @@ a Laurent expansion through the finite term, not an unexpanded function of epsil
 
 ## Development dependency
 
-The manifest currently uses the sibling `../symbolica-dev-v3` checkout for local
-fixes: non-inlined evaluator external-function indices, exact native
-absolute values on the real axis, and native polylogarithm convergence near the
-unit circle, plus reuse of repeated non-inlined definitions before recursive
-evaluator compilation. Symbolica is based on dev revision
-`fb845d34bda8ccf1fedef6544d3aa46dc24944e3` (latest `dev` inspected on 2026-09-08).
-That checkout still declares version 2.2.0; this is preparation for the future
-3.0, not a claim that 3.0 has been released. Portable JIT restoration and complex
-function registration also require the local patch.
-The arbitrary-precision path also requires the precision-scaled complex
-dilogarithm repair and mixed-component precision fixes for roots, phases,
-exact power identities and zero arithmetic. Requesting more digits alone
-does not repair those avoidable losses in the unpatched dependency.
-The independent [arbitrary-precision audit](ARBITRARY_PRECISION_AUDIT.md)
-documents the reproduced defects, repairs, operation inventory, and remaining
-limits of fixed working precision.
-See [patches/README.md](patches/README.md) for a fresh-checkout
-bootstrap. Keep Symbolica, numerica and graphica compatible. This temporary path
-setup is **not a publishable dependency configuration**. A consuming project's
-root manifest must supply these overrides too; library-level patches do not
-propagate to consumers.
+The Rust library and both Python build roots pin unmodified Symbolica `main`
+`821b02451256a92039a0665006628bd5d91470cc` (2026-09-19), which includes the complex
+precision, polylogarithm, hypot and complex-logarithm repairs, plus the seven
+evaluator, JIT, startup and build-metadata fixes reported during this port. Numerica is selected
+from the same Git revision with a Cargo dependency override; this applies no
+source patch and requires no sibling checkout. Consuming build roots must repeat
+that Numerica override because dependency-level overrides do not propagate.
 
-Both manifests disable Symbolica's default features and explicitly retain
+OneLOop uses the public registered `polylog(2,z)` callbacks for numerical
+dilogarithms, retains its own exact function definitions for inspection, and
+serializes numerical evaluators through Symbolica's public bincode support.
+The [migration notes](SYMBOLICA_3_MIGRATION.md) track validation and any remaining
+runtime limitations. Historical audits describe the older patched dependency
+and do not establish results for this revision.
+
+All three manifests disable Symbolica's default features and explicitly retain
 `tracing_max_level_info`, `integer-gmp`, `float-mpfr`,
 `native_code_generation`, and `bincode`. This excludes `faster_alloc`, its optional
 global mimalloc allocator; the standalone extension uses Rust's system allocator.
@@ -60,14 +53,13 @@ feature graph at the consuming build root, not just this library's manifest.
 
 ## Quick start
 
-Clone this repository as `oneloopmaster`, then follow the sibling Symbolica
-[bootstrap instructions](patches/README.md). A recent Rust toolchain supporting
-edition 2024 and a working Symbolica license/setup are required (the audited
-toolchain is Rust 1.91.1). No Fortran compiler is needed for ordinary use or tests.
+Clone this repository as `oneloopmaster`. Cargo fetches the pinned dependencies.
+A recent Rust toolchain supporting
+edition 2024 and a working Symbolica license/setup are required (the validated
+toolchain is Rust 1.98.1). No Fortran compiler is needed for ordinary use or tests.
 
 ```sh
 git clone https://github.com/alphal00p/oneloopmaster.git
-# Set up the patched sibling symbolica-dev-v3 as described above, then:
 cd oneloopmaster
 cargo run --example basic
 ```
@@ -318,8 +310,15 @@ evaluator.batch_evaluate(&input, &mut output, 1024);
 ```
 
 The outer evaluator is compiled here; the five native family backends are
-already ready from eager initialization. Passing the native map allows optimization
-across transparent definitions. Both routes are measured separately below.
+already ready from eager initialization. For transparent expressions, use
+`OneLoopExpressions::jit_evaluator` or `MappedLaurentSeries::jit_evaluator`.
+These methods lower complex square roots and branch conditions to registered
+numeric callbacks before JIT compilation. Calling Symbolica's `jit_compile`
+directly on an exact evaluator bypasses those compatibility fixes. The exact
+interpreter uses upstream Numerica logarithms and magnitudes directly; its
+mixed-precision fixes preserve component precision. Inspection retains the
+original formulas, and native code generation emits the existing logarithm
+primitive.
 
 ## Numerical evaluators and batches
 
@@ -330,12 +329,13 @@ parameters are runtime inputs, including
 | API | Numerical backend | Numeric types |
 | --- | --- | --- |
 | `NativeEvaluator<T>` | Generated, ahead-of-time Rust arithmetic | `f64`, `DoubleFloat`, `Float` |
-| `ScalarEvaluator` | Portable SymJIT O2, with binary64 SIMD batches | `f64` |
+| `ScalarEvaluator` | Portable SymJIT O2, with scalar binary64 batches | `f64` |
 | `PrecisionEvaluator` | Explicit Native or exact-expression interpreter | `Float` |
 
-`NativeEvaluator` owns reusable constants and a workspace. Its raw constructor
-and evaluation do not initialize Symbolica State, build expressions, or compile
-a JIT. Rational constants are converted directly at construction.
+`NativeEvaluator` owns reusable constants and a workspace. Its arithmetic runs
+in generated Rust. Dilogarithms use Symbolica's registered polylog callback;
+first use can initialize Symbolica and OneLOop's shared backends. Rational
+constants are converted directly at construction.
 Clones have independent workspaces; batches run the generated scalar function
 for each row, without a SIMD promise or hidden worker threads. See
 [the native evaluator](src/native/mod.rs) and
@@ -380,8 +380,8 @@ evaluator.evaluate_batch(&input, &mut output, 2)?;
 ```
 
 `evaluate` handles one point; `evaluate_batch` accepts flat row-major arrays and
-checks their exact dimensions, including empty batches and, for SymJIT, partial
-SIMD tails.
+checks their exact dimensions, including empty batches. SymJIT currently runs
+scalar code for each row; its upstream SIMD path fails zero-input batches.
 For default manual evaluation without constructing an evaluator object,
 `oneloop::evaluate(family, input, output)` and
 `oneloop::evaluate_batch(family, input, output, rows)` use `DEFAULT_BACKEND`,
@@ -390,15 +390,15 @@ currently `EvaluationBackend::Native`. Select a route explicitly with
 `evaluate_batch_with_backend(family, input, output, rows, backend)`; `Expression`
 selects Symbolica's native expression interpreter. These convenience routes
 retain eager initialization, unlike a raw `NativeEvaluator`.
-Native is faster on the measured mixed-family workloads, but some uniform
-SIMD-friendly workloads still favor SymJIT. The selector does not control
+The historical measurements below used an older patched SIMD backend and do
+not establish performance for this revision. The selector does not control
 the native-only Symbol hooks. `ScalarEvaluator::cached(family)` clones the
 prepared SymJIT backend into an independently reusable workspace; an explicitly
 compiled custom expression keeps its own evaluator. See the
 [backend selectors](src/backend.rs).
-`to_bytes` / `from_bytes` serialize portable SymJIT intermediate code **and nested
-function definitions**, not machine code or process pointers. Loading regenerates
-host machine code. Cache compatibility is tied to the patched Symbolica/SymJIT
+`to_bytes` / `from_bytes` serialize numerical evaluator instructions **and nested
+function definitions**, not machine code or process pointers. Loading recompiles
+every level with the same strict JIT settings. Cache compatibility is tied to the Symbolica/SymJIT
 versions; load only trusted artifacts. Float/arbitrary-precision evaluators use
 `PrecisionEvaluator` or the original exact-expression API, not these f64 blobs.
 Those evaluators are constructed for the requested precision; eager startup
@@ -423,13 +423,15 @@ Applications can explicitly replace a shared SymJIT manual cache with
 `rebuild_cached_evaluator(ScalarIntegral::B0)`; this does not replace the direct
 native Symbol-hook cache. Native Rust source is generated by
 `cargo run --release --example generate_native` and compiled with the crate,
-not loaded from the portable blobs. Restored SymJIT scalar and mixed-batch
-regression checks pass; the
-requested performance target is not met across all sampled workloads. A batch
+not loaded from the portable blobs. Cache regeneration and fresh-load batch
+checks must pass for each dependency update. A batch
 method does not guarantee a speedup for divergent conditional branches.
-The current manifest also patches the published SymJIT 2.24.1 crate in a sibling
-checkout for the confirmed direct-power, complex-IF and SIMD defects; see the dependency
-[bootstrap notes](patches/README.md). The original Cargo registry is not modified.
+SymJIT is pinned to the unmodified 2.25.6 release. Ordinary compilation avoids
+the direct translator's missing fractional-power call targets. SIMD is disabled
+to avoid upstream batch crashes and nested branch fallback defects. Packed
+complex arithmetic is enabled with `fastmath=false`: the generic complex
+compiler otherwise contracts products into FMAs and can change exact-axis
+branch decisions.
 
 ## Python (PyO3)
 
@@ -500,7 +502,7 @@ global decimal context; subsequent arithmetic on returned Decimal components
 uses Python's context as usual. See [the Python precision guide](python/README.md#arbitrary-precision)
 for return types, per-call overrides, and complex inputs. Arbitrary precision
 uses `Complex<Float>` through the selected Native or Expression backend, not
-SymJIT SIMD; the binary64
+SymJIT; the binary64
 performance measurements below do not bound high-precision runtime.
 The optional [Python performance survey](python/performance_survey.py) defaults
 to 1024-row batches and records Python conversion/allocation overhead separately
@@ -522,11 +524,10 @@ startup checks pass on main threads capped at 8 MiB, but this is not a general
 stack bound for arbitrary expressions or explicit rebuilding. Sequential thread
 handoff is separately tested; the initializing thread need not remain alive for
 the verified cached-evaluator use case.
-Raw `NativeEvaluator<T>` is different: it performs no State initialization or
-expression-graph compilation. It uses only the calling thread and its owned
-numeric workspace. This distinction does not change Symbolica's licensing terms;
-the eager initialization contract still applies to Symbol access, Python import,
-and the higher-level convenience APIs, even when selecting Native there.
+Raw `NativeEvaluator<T>` uses the calling thread and its owned numeric workspace.
+Its first dilogarithm resolves Symbolica's public polylog callback and can trigger
+global initialization. The same calling-thread stack and license requirements
+therefore apply to that first use, as well as Symbol access and Python import.
 
 `PrecisionEvaluator` evaluates the same formulas at a fixed arbitrary working
 precision, with explicit Native or Expression selection and no additional direct

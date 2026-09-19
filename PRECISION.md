@@ -6,7 +6,7 @@ supports `f64`, `DoubleFloat` and `Float`; `PrecisionEvaluator` (Rust) and the
 Python `prec` keyword provide decimal-precision `Complex<Float>` interfaces.
 The direct native route is a transcription of that graph, not an alternative
 numerical OneLOop algorithm, a Fortran call, or a high-precision wrapper around
-binary64 output. The core still depends directly only on Symbolica.
+binary64 output. The core uses Symbolica's numeric types.
 
 See [the native evaluator](src/native/mod.rs),
 [numeric primitives](src/native/primitives.rs),
@@ -73,35 +73,31 @@ request unlimited precision implicitly.
 
 ## Dependency scope
 
-The local Symbolica patch includes precision-scaled complex dilogarithm
-convergence and exact endpoint predicates. The previous generic path limited
-its convergence threshold to roughly 900 bits and narrowed some checks to f64;
-merely exposing a larger `prec` would not have fixed either problem. The new
-path uses arbitrary-precision stopping comparisons. The separate fast binary64
-dilogarithm specialization is retained.
+OneLOop pins unmodified Symbolica main at
+`821b02451256a92039a0665006628bd5d91470cc` and its bundled Numerica. That revision
+includes arbitrary-precision polylogarithm convergence and endpoint checks,
+Cartesian complex roots, dominant-axis phase evaluation, precision-preserving
+power identities, and direct half-integer powers. Numerical dilogarithms use
+the public registered `polylog(2,z)` callback in each numeric domain.
 
-A separate precision-provenance audit found problems when complex components
-have different relative precisions, as can happen after cancellation. The patch
-also supplies Float-only Cartesian complex roots, dominant-axis phase evaluation,
-precision-safe exact power identities, and direct half-integer root powers used
-by the scalar expressions. Adding or subtracting zero no longer inflates the
-nonzero operand's precision. Generic domains keep their existing fallback;
-computed small corrections retain their uncertainty, rather than being padded
-to a larger requested precision. Independent MPC root comparisons, component
-precision matrices, signed-axis tests and exact zero-arithmetic checks exercise
-these changes separately from integral parity.
+The upstream scaled `hypot` and complex logarithm now construct exact constants
+at the stronger component's precision. OneLOop uses these operations directly;
+its temporary logarithm and magnitude adapters have been removed. Computed small
+corrections retain their uncertainty. Regression coverage checks both a weak
+tiny component beside a precise dominant component and an accurately known tiny
+component beside a low-precision exact unit value. The earlier
+[upstream Numerica patch](patches/numerica-hypot-precision.md) is retained as a
+historical artifact and is not applied by any OneLOop manifest.
 
-These repairs concern the arithmetic used by these OneLOop expressions, not a
-claim that every unrelated Symbolica special function has been validated at
-1000 digits. The patch is bundled in `patches/symbolica-dev.patch`; it has not
-been accepted upstream. Existing f64 portable caches remain f64 caches and do
-not serialize a different precision's evaluator.
-The independent [precision audit](ARBITRARY_PRECISION_AUDIT.md) records concrete
-before/after probes and every power operation reached by the generated masters.
+These checks cover arithmetic used by the scalar expressions; they do not
+establish thousand-digit accuracy for every Symbolica special function or every
+kinematic point. Portable JIT caches remain binary64. See the
+[current migration validation](SYMBOLICA_3_MIGRATION.md) and the historical
+[precision audit](ARBITRARY_PRECISION_AUDIT.md) for their respective evidence.
 
 ## Usage
 
-For a State/JIT-free Float workspace with exactly the supplied working bits:
+For a native Float workspace with exactly the supplied working bits:
 
 ```rust,ignore
 use oneloop::{NativeEvaluator, ScalarIntegral};
@@ -120,8 +116,9 @@ masses, scales, batches, and per-call precision/backend changes. Symbol access,
 prepare all five binary64 Native and all five SymJIT backends. Float workspaces
 are precision-specific and built on request. That eager symbolic work requires
 an adequate calling-thread stack and the installed Symbolica license's thread
-limits. Raw `NativeEvaluator` constructs no State, Atom, interpreter or JIT; it
-does not remove the dependency's licensing terms or spawn a hidden worker.
+limits. Native evaluation executes generated Rust arithmetic; its first
+dilogarithm call can initialize Symbolica state while resolving the registered
+polylog callback. The adapter does not spawn a hidden worker.
 
 The prior performance survey measures binary64 evaluation only. Its observed
 slowdowns are not upper bounds for arbitrary precision. Likewise, the retained
@@ -130,6 +127,9 @@ establish 1000-digit accuracy. High-precision identity and convergence tests
 must be considered separately from sampled Fortran parity.
 
 ## Precision checks (2026-09-08)
+
+The following results describe the earlier patched snapshot. Current results
+are recorded in the [migration report](SYMBOLICA_3_MIGRATION.md).
 
 The final standalone Python suite passes **27 tests** (83.755 seconds), including
 the Native default, explicit Native/SymJIT/Expression selection and rebuilds,

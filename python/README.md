@@ -27,7 +27,7 @@ maturin develop --release
 This development distribution provides `symbolica.core` itself and links the
 OneLOop adapter into that same extension. It must not be installed over another
 distribution providing `symbolica.core`. It does not clone or modify the full
-Symbolica community repository. The local dependency patches and Rust/Python
+Symbolica community repository. The dependency revisions and Rust/Python
 requirements described below apply to this host as well; its own lockfile and
 Cargo manifest form the build root. NumPy is installed for Symbolica's evaluator
 API, even though OneLOop's manual batched evaluations accept ordinary lists.
@@ -67,13 +67,12 @@ maturin develop --release
 ```
 
 Python 3.9 or newer and Rust edition 2024 are required. The manifest pins the same
-Symbolica revision as the core, `fb845d34bda8ccf1fedef6544d3aa46dc24944e3`, and
-uses PyO3 0.28. Its development patches expect the sibling checkout
-`../../symbolica-dev-v3`, including its `numerica` and `graphica` subcrates.
-They also use `../../symjit-2.24.1-patched` for the tested local backend fixes.
-Those paths must be adjusted at the consuming Cargo build root if the checkout
-layout differs. Patches in a dependency's manifest do not propagate to its host.
-The supplied lockfile records the standalone build's dependency resolution.
+Symbolica revision as the core, `821b02451256a92039a0665006628bd5d91470cc`, and
+uses PyO3 0.28. Numerica is selected from that same upstream revision with a
+Cargo override at each build root. There are no local source patches or sibling
+checkout requirements. A consuming host must repeat the Numerica override;
+overrides in a dependency's manifest do not propagate. The supplied lockfiles
+record the standalone and shared-host dependency resolutions.
 
 The core and adapter dependencies use `default-features = false` for Symbolica,
 explicitly retaining `tracing_max_level_info`, `integer-gmp`, `float-mpfr`,
@@ -86,8 +85,8 @@ pass; no JIT-clone fix or extra cache/thread-lifetime restriction was required.
 
 Import eagerly registers every native symbol and the complete transparent
 function map, then prepares all five Native and all five SymJIT caches. With the core's default
-`prebuilt` feature, this loads portable intermediate code and regenerates host
-machine code; it does not deserialize foreign native code. Without that feature,
+`prebuilt` feature, this loads numerical evaluator instructions and recompiles each level with the
+same strict JIT settings; it does not deserialize foreign native code. Without that feature,
 startup builds all five evaluators from the expressions instead. A missing or
 incompatible enabled cache raises `RuntimeError` during import. Subsequent
 ordinary calls use the direct Rust backend. `backend="symjit", rebuild=True`
@@ -95,8 +94,8 @@ explicitly recompiles the requested SymJIT evaluator and is substantially more
 expensive than warmed evaluation. Native rebuilding prepares fresh constants
 and a numeric workspace, without JIT compilation.
 
-The core enables its five embedded cache assets by default. The final release
-extension with the system allocator and native binary64 Li2 passes all eleven
+The core enables its five embedded cache assets by default. The 2026-09-08 release
+extension with the system allocator and native binary64 Li2 passed all eleven
 standalone tests on CPython 3.13.12: seven API tests and four pure performance-
 harness tests. These include cold import, mixed batches, rebuilding, and
 sequential fresh test threads. Batch performance has also been measured below;
@@ -244,7 +243,8 @@ The reusable object keeps a precision-specific workspace for reuse; changing
 precision prepares its constants again. Both sets of five binary64 backends are
 loaded eagerly on import, but arbitrary precisions are prepared on request.
 Arbitrary-precision batches amortize Python overhead; they do not use binary64
-SymJIT SIMD. `rebuild=True` rebuilds the selected backend, and no custom
+SymJIT. Its current binary64 batches also use scalar code because upstream
+SIMD fails zero-input batches. `rebuild=True` rebuilds the selected backend, and no custom
 automatic precision-escalation policy is added.
 
 Requested precision is a working-precision choice, not a certified error bound.
@@ -344,8 +344,7 @@ oneloop-python = { path = "../oneloopmaster/python", default-features = false, f
 ```
 
 The host must resolve a single compatible Symbolica/PyO3 dependency graph and
-apply the matching Symbolica, numerica, graphica, and SymJIT patches at its own Cargo
-build root. Link this Rust library into that host; do not also load a standalone
+select Numerica from the pinned Symbolica revision at its own Cargo build root. Link this Rust library into that host; do not also load a standalone
 OneLOop wheel as an expression bridge. Cargo unifies dependency features:
 another host dependency enabling Symbolica defaults or `faster_alloc` can
 re-enable its global mimalloc allocator despite this adapter's manifest. The

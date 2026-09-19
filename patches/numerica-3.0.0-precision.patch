@@ -1,0 +1,778 @@
+diff --git a/src/domains/float.rs b/src/domains/float.rs
+index 4427555..f1e263c 100644
+--- a/src/domains/float.rs
++++ b/src/domains/float.rs
+@@ -211,6 +211,43 @@ pub trait Real: FloatLike {
+     }
+ 
+     fn sqrt(&self) -> Self;
++    /// Principal square root of `self + i * imaginary`.
++    /// Domains with component-dependent precision may override this operation.
++    #[inline]
++    fn complex_sqrt(&self, imaginary: &Self) -> Complex<Self> {
++        use std::cmp::Ordering;
++        let value = Complex::new(self.clone(), imaginary.clone());
++        let (a, b) = (value.re.norm(), value.im.norm());
++        let order = a.real_cmp(&b);
++        if order.is_none() {
++            let (r, phi) = value.clone().to_polar_coordinates();
++            return Complex::from_polar_coordinates(r.sqrt(), phi / value.re.from_usize(2));
++        }
++        let two = a.from_usize(2);
++        let h = a.hypot(&b);
++        let s = if !h.needs_rescaling() {
++            (a.clone() / &two + h / &two).sqrt()
++        } else {
++            let scale = if order == Some(Ordering::Less) {
++                b.clone()
++            } else {
++                a.clone()
++            };
++            if scale.is_fully_zero() {
++                return Complex::new(value.re.zero(), value.im.clone());
++            }
++            let x = a / &scale;
++            let y = b.clone() / &scale;
++            scale.sqrt() * ((x.hypot(&y) + x) / &two).sqrt()
++        };
++        let d = value.im.clone() / &s / two;
++        if value.re.real_cmp(&value.re.zero()) == Some(Ordering::Less) {
++            Complex::new(d.norm(), s.copy_sign(&value.im))
++        } else {
++            Complex::new(s, d)
++        }
++    }
++
+     fn log(&self) -> Self;
+     fn exp(&self) -> Self;
+     fn sin(&self) -> Self;
+diff --git a/src/domains/float/complex.rs b/src/domains/float/complex.rs
+index 778192a..16d422b 100644
+--- a/src/domains/float/complex.rs
++++ b/src/domains/float/complex.rs
+@@ -839,12 +839,21 @@ impl<T: FloatLike> FloatLike for Complex<T> {
+     }
+ 
+     fn pow(&self, e: u64) -> Self {
+-        // TODO: use binary exponentiation
+-        let mut r = self.one();
+-        for _ in 0..e {
+-            r *= self;
++        if e != 0 {
++            // Avoid multiplying by a weak-precision identity or changing a
++            // signed zero before the first actual multiplication.
++            let mut result = self.clone();
++            for _ in 1..e {
++                result *= self;
++            }
++            return result;
+         }
+-        r
++        let prototype = if self.re.get_precision() >= self.im.get_precision() {
++            &self.re
++        } else {
++            &self.im
++        };
++        Self::new(prototype.one(), prototype.zero())
+     }
+ 
+     fn inv(&self) -> Self {
+@@ -955,35 +964,7 @@ impl<T: Real> Real for Complex<T> {
+ 
+     #[inline]
+     fn sqrt(&self) -> Self {
+-        let (a, b) = (self.re.norm(), self.im.norm());
+-        let order = a.real_cmp(&b);
+-        if order.is_none() {
+-            let (r, phi) = self.clone().to_polar_coordinates();
+-            return Complex::from_polar_coordinates(r.sqrt(), phi / self.re.from_usize(2));
+-        }
+-        let two = a.from_usize(2);
+-        let h = a.hypot(&b);
+-        let s = if !h.needs_rescaling() {
+-            (a.clone() / &two + h / &two).sqrt()
+-        } else {
+-            let scale = if order == Some(Ordering::Less) {
+-                b.clone()
+-            } else {
+-                a.clone()
+-            };
+-            if scale.is_fully_zero() {
+-                return Self::new(self.re.zero(), self.im.clone());
+-            }
+-            let x = a / &scale;
+-            let y = b.clone() / &scale;
+-            scale.sqrt() * ((x.hypot(&y) + x) / &two).sqrt()
+-        };
+-        let d = self.im.clone() / &s / two;
+-        if self.re.real_cmp(&self.re.zero()) == Some(Ordering::Less) {
+-            Self::new(d.norm(), s.copy_sign(&self.im))
+-        } else {
+-            Self::new(s, d)
+-        }
++        self.re.complex_sqrt(&self.im)
+     }
+ 
+     #[inline]
+@@ -1194,8 +1175,24 @@ impl<T: Real> Real for Complex<T> {
+     #[inline]
+     fn powf(&self, e: &Self) -> Self {
+         if e.re == self.re.zero() && e.im == self.im.zero() {
+-            self.one()
++            self.pow(0)
+         } else if e.im == self.im.zero() {
++            // Exact half powers retain Cartesian root precision and branch lips.
++            let half = e.re.one() / e.re.from_usize(2);
++            if e.re == half {
++                return self.sqrt();
++            }
++            if e.re == -half {
++                return self.sqrt().inv();
++            }
++            let three_halves = e.re.from_usize(3) / e.re.from_usize(2);
++            if e.re == three_halves {
++                return self.clone() * self.sqrt();
++            }
++            if e.re == -three_halves {
++                // Invert before cubing to avoid overflowing a representable result.
++                return self.sqrt().inv().pow(3);
++            }
+             let (r, phi) = self.clone().to_polar_coordinates();
+             let radius = if r.needs_rescaling() && !self.is_fully_zero() {
+                 (self.log().re * &e.re).exp()
+diff --git a/src/domains/float/multiprecision.rs b/src/domains/float/multiprecision.rs
+index 912bbdd..3b6dd6d 100644
+--- a/src/domains/float/multiprecision.rs
++++ b/src/domains/float/multiprecision.rs
+@@ -1059,6 +1059,78 @@ impl Real for Float {
+         MultiPrecisionFloat::with_val(self.prec() + 1, self.0.sqrt_ref()).into()
+     }
+ 
++    fn complex_sqrt(&self, imaginary: &Self) -> super::Complex<Self> {
++        let bits = self.prec().max(imaginary.prec());
++        let signed = |value: Self| {
++            if imaginary.is_sign_negative() {
++                -value
++            } else {
++                value
++            }
++        };
++
++        // Resolve infinite limits before scaling: otherwise infinity divided
++        // by infinity would turn a well-defined component into NaN.
++        if !imaginary.is_finite() && !imaginary.0.is_nan() {
++            return super::Complex::new(imaginary.norm(), imaginary.clone());
++        }
++        if !self.is_finite() && !self.0.is_nan() {
++            return if self.is_negative() {
++                super::Complex::new(
++                    if imaginary.0.is_nan() {
++                        imaginary.clone()
++                    } else {
++                        Self::new(bits)
++                    },
++                    signed(self.norm()),
++                )
++            } else {
++                super::Complex::new(
++                    self.clone(),
++                    if imaginary.0.is_nan() {
++                        imaginary.clone()
++                    } else {
++                        signed(Self::new(bits))
++                    },
++                )
++            };
++        }
++        if self.0.is_nan() || imaginary.0.is_nan() {
++            let nan = Self::with_val(bits, f64::NAN);
++            return super::Complex::new(nan.clone(), nan);
++        }
++
++        // Exact axes retain signed-zero lips without trigonometric residue.
++        if imaginary.is_fully_zero() {
++            let root = self.norm().sqrt();
++            return if self.is_negative() {
++                super::Complex::new(Self::new(bits), signed(root))
++            } else {
++                super::Complex::new(root, imaginary.clone())
++            };
++        }
++
++        // Cartesian construction avoids assigning a well-determined dominant
++        // root component the poor relative precision of a tiny phase. Scaling
++        // bounds both squares; tracked arithmetic retains genuine component
++        // uncertainty. Only the exact divisor is created at the larger input
++        // precision: no computed value is padded.
++        let x = self.norm();
++        let y = imaginary.norm();
++        let scale = if x >= y { x } else { y };
++        let x = self.clone() / &scale;
++        let y = imaginary.clone() / &scale;
++        let radius = (x.clone() * &x + y.clone() * &y).sqrt();
++        let two = Self::with_val(bits, 2);
++        let large = scale.sqrt() * ((radius + x.norm()) / &two).sqrt();
++        if self.is_negative() {
++            super::Complex::new(imaginary.norm() / &large / two, signed(large))
++        } else {
++            let small = imaginary.clone() / &large / two;
++            super::Complex::new(large, small)
++        }
++    }
++
+     #[inline(always)]
+     fn log(&self) -> Self {
+         // Log grows in precision if the input is less than 1/e and more than e
+@@ -1116,7 +1188,43 @@ impl Real for Float {
+ 
+     #[inline(always)]
+     fn atan2(&self, x: &Self) -> Self {
+-        self.0.clone().atan2(&x.0).into()
++        if self.prec() == x.prec() {
++            return self.0.clone().atan2(&x.0).into();
++        }
++        let precision = self.prec().max(x.prec());
++        if !self.is_finite() || !x.is_finite() || self.is_zero() || x.is_zero() {
++            // Axis angles are exact zeros or exact multiples of pi. Preserve
++            // the backend's signed-zero/nonfinite conventions without making
++            // the precision of an exact zero throttle a known angle.
++            return MultiPrecisionFloat::with_val(precision, &self.0)
++                .atan2(&x.0)
++                .into();
++        }
++
++        // A tiny component can retain few relative bits after cancellation,
++        // yet the phase near +/-pi or +/-pi/2 is accurately known in absolute
++        // terms. Compute only the small correction at the ratio's precision;
++        // Float subtraction then tracks its absolute uncertainty against a
++        // freshly computed exact constant. Never pad a computed small angle.
++        let pi = || Float::with_val(precision, Constant::Pi);
++        if x.norm() >= self.norm() {
++            let correction: Float = (self.clone() / x.norm()).0.atan().into();
++            if x.is_negative() {
++                let axis = if self.is_negative() { -pi() } else { pi() };
++                axis - correction
++            } else {
++                correction
++            }
++        } else {
++            let correction: Float = (x.clone() / self).0.atan().into();
++            let half_pi = pi() / 2;
++            let axis = if self.is_negative() {
++                -half_pi
++            } else {
++                half_pi
++            };
++            axis - correction
++        }
+     }
+ 
+     #[inline(always)]
+diff --git a/tests/complex_precision_provenance.rs b/tests/complex_precision_provenance.rs
+new file mode 100644
+index 0000000..b73fbef
+--- /dev/null
++++ b/tests/complex_precision_provenance.rs
+@@ -0,0 +1,208 @@
++#![cfg(feature = "float-mpfr")]
++
++//! Independent regressions for exact constants and mixed-precision phases.
++use numerica::domains::float::{Complex, Float, FloatLike, Real};
++
++#[test]
++fn a_small_uncertain_component_does_not_spoil_a_known_large_phase() {
++    for (bits, tiny, tolerance) in [(512, "1e-170", "1e-140"), (3456, "1e-1100", "1e-1000")] {
++        let n = |text| Float::parse(text, Some(bits)).unwrap();
++        let tiny = Float::parse(tiny, Some(2)).unwrap();
++        let pi = n("0").pi();
++        for imaginary_negative in [false, true] {
++            let sign = if imaginary_negative { -1 } else { 1 };
++            let y = tiny.clone() * sign;
++            let actual = y.atan2(&n("-1"));
++            let expected = pi.clone() * sign;
++            assert!((actual.clone() - expected).norm() < n(tolerance));
++            assert!(
++                actual.prec() >= bits - 8,
++                "lost phase bits: {}",
++                actual.prec()
++            );
++            for real_negative in [false, true] {
++                let x = if real_negative {
++                    -tiny.clone()
++                } else {
++                    tiny.clone()
++                };
++                let actual = (n("1.25") * sign).atan2(&x);
++                let expected = pi.clone() * sign / 2;
++                assert!((actual.clone() - expected).norm() < n(tolerance));
++                assert!(
++                    actual.prec() >= bits - 8,
++                    "lost phase bits: {}",
++                    actual.prec()
++                );
++            }
++        }
++        // A small angle itself is known to only two relative bits. Do not
++        // claim the large component can recover the missing input digits.
++        let actual = tiny.atan2(&n("1"));
++        assert!(actual.prec() <= 3);
++    }
++}
++
++#[test]
++fn exact_integer_power_identity_uses_the_strong_component() {
++    for (bits, tiny, tolerance) in [(512, "1e-170", "1e-140"), (3456, "1e-1100", "1e-1000")] {
++        let n = |text| Float::parse(text, Some(bits)).unwrap();
++        let tiny = Float::parse(tiny, Some(2)).unwrap();
++        for real_negative in [false, true] {
++            for imaginary_negative in [false, true] {
++                let z = Complex::new(
++                    if real_negative {
++                        -tiny.clone()
++                    } else {
++                        tiny.clone()
++                    },
++                    if imaginary_negative {
++                        -n("1.25")
++                    } else {
++                        n("1.25")
++                    },
++                );
++                let actual = z.pow(2);
++                assert!((actual.re.clone() - n("-1.5625")).norm() < n(tolerance));
++                assert!(actual.re.prec() >= bits - 8);
++                assert_eq!(z.pow(0).re, n("1"));
++            }
++        }
++    }
++}
++
++#[test]
++fn integer_powers_preserve_real_axis_signed_lips() {
++    for bits in [512, 3456] {
++        for real in [-2, 2] {
++            for imaginary_negative in [false, true] {
++                let z = Complex::new(
++                    Float::with_val(bits, real),
++                    Float::with_val(bits, if imaginary_negative { -0.0 } else { 0.0 }),
++                );
++                for exponent in 1..=5 {
++                    let actual = z.pow(exponent);
++                    assert!(actual.im.is_fully_zero());
++                    let expected_negative = imaginary_negative ^ (real < 0 && exponent % 2 == 0);
++                    assert_eq!(
++                        actual.im.is_sign_negative(),
++                        expected_negative,
++                        "base={real}, exponent={exponent}, imaginary_negative={imaginary_negative}"
++                    );
++                    assert_eq!(
++                        actual.re,
++                        Float::with_val(bits, i64::from(real).pow(exponent as u32))
++                    );
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn phase_preserves_axis_and_signed_zero_conventions() {
++    for (real_bits, imaginary_bits) in [(2, 512), (512, 2), (512, 512)] {
++        for real in ["-1", "-0", "0", "1"] {
++            for imaginary in ["-1", "-0", "0", "1"] {
++                let x = Float::parse(real, Some(real_bits)).unwrap();
++                let y = Float::parse(imaginary, Some(imaginary_bits)).unwrap();
++                if !x.is_fully_zero() && !y.is_fully_zero() {
++                    continue;
++                }
++                let mut expected = y.clone();
++                expected.set_prec(512);
++                let expected = expected.as_raw().clone().atan2(x.as_raw());
++                let actual = y.atan2(&x);
++                let error = (actual.clone() - Float::from(expected)).norm();
++                assert!(
++                    error < Float::parse("1e-140", Some(512)).unwrap(),
++                    "atan2({imaginary}, {real})"
++                );
++                if actual.is_fully_zero() {
++                    assert_eq!(actual.is_sign_negative(), y.is_sign_negative());
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn half_powers_use_the_precision_safe_square_root() {
++    for (bits, tiny, tolerance) in [(512, "1e-170", "1e-140"), (3456, "1e-1100", "1e-1000")] {
++        let n = |text| Float::parse(text, Some(bits)).unwrap();
++        let tiny = Float::parse(tiny, Some(2)).unwrap();
++        for real_negative in [false, true] {
++            for imaginary_negative in [false, true] {
++                for tiny_real in [false, true] {
++                    let re = if tiny_real { tiny.clone() } else { n("2") };
++                    let im = if tiny_real { n("1.25") } else { tiny.clone() };
++                    let z = Complex::new(
++                        if real_negative { -re } else { re },
++                        if imaginary_negative { -im } else { im },
++                    );
++                    let mut reference = z.clone();
++                    reference.re.set_prec(bits + 128);
++                    reference.im.set_prec(bits + 128);
++                    let reference = reference.sqrt();
++                    for exponent in ["-1.5", "-0.5", "0.5", "1.5"] {
++                        let actual = z.powf(&Complex::new(n(exponent), n("0")));
++                        let expected = if exponent.ends_with("1.5") {
++                            let mut strong_z = z.clone();
++                            strong_z.re.set_prec(bits + 128);
++                            strong_z.im.set_prec(bits + 128);
++                            reference.clone() * strong_z
++                        } else {
++                            reference.clone()
++                        };
++                        let expected = if exponent.starts_with('-') {
++                            expected.inv()
++                        } else {
++                            expected
++                        };
++                        assert!(
++                            (actual.re.clone() - expected.re).norm() < n(tolerance),
++                            "exponent={exponent}"
++                        );
++                        assert!(
++                            (actual.im.clone() - expected.im).norm() < n(tolerance),
++                            "exponent={exponent}"
++                        );
++                    }
++                }
++            }
++        }
++        for re in ["-2", "2"] {
++            for im in ["-0", "0"] {
++                let z = Complex::new(n(re), n(im));
++                for exponent in ["-1.5", "-0.5", "0.5", "1.5"] {
++                    let actual = z.powf(&Complex::new(n(exponent), n("0")));
++                    let expected = if exponent.ends_with("1.5") {
++                        z.clone() * z.sqrt()
++                    } else {
++                        z.sqrt()
++                    };
++                    let expected = if exponent.starts_with('-') {
++                        expected.inv()
++                    } else {
++                        expected
++                    };
++                    // Equivalent reciprocal-first products may differ by a
++                    // few final rounding bits; the branch lips must agree.
++                    assert!((actual.re.clone() - expected.re.clone()).norm() < n(tolerance));
++                    assert!((actual.im.clone() - expected.im.clone()).norm() < n(tolerance));
++                    assert_eq!(actual.re.is_sign_negative(), expected.re.is_sign_negative());
++                    assert_eq!(actual.im.is_sign_negative(), expected.im.is_sign_negative());
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn half_powers_avoid_overflow_before_a_representable_result() {
++    for (base, exponent) in [(1e210, -1.5), (1e-210, 1.5)] {
++        let result = Complex::new(base, 0.0_f64).powf(&Complex::new(exponent, 0.0));
++        assert!((result.re - 1e-315).abs() <= 1e-323, "{result:?}");
++        assert_eq!(result.im, 0.0);
++    }
++}
+diff --git a/tests/complex_sqrt_mpc.rs b/tests/complex_sqrt_mpc.rs
+new file mode 100644
+index 0000000..f45640e
+--- /dev/null
++++ b/tests/complex_sqrt_mpc.rs
+@@ -0,0 +1,123 @@
++#![cfg(feature = "float-mpfr")]
++
++use numerica::domains::float::{Complex, Float, FloatLike, Real};
++
++fn compare_mpc(value: &Complex<Float>, root: &Complex<Float>, bits: u32) {
++    // MPC independently implements complex sqrt; promote the represented
++    // input values only in this reference, never in the production operation.
++    let reference =
++        rug::Complex::with_val(bits + 128, (value.re.as_raw(), value.im.as_raw())).sqrt();
++    for (actual, expected) in [(&root.re, reference.real()), (&root.im, reference.imag())] {
++        if expected.is_zero() {
++            assert!(actual.is_fully_zero(), "{value:?}: {root:?}");
++            assert_eq!(actual.is_sign_negative(), expected.is_sign_negative());
++        } else {
++            let delta = rug::Float::with_val(bits + 128, actual.as_raw() - expected).abs();
++            let mut tolerance = rug::Float::with_val(bits + 128, expected).abs();
++            tolerance >>= actual.prec().min(bits).saturating_sub(8);
++            assert!(delta <= tolerance, "{value:?}: {root:?} vs {reference:?}");
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_disparate_precision() {
++    for (bits, tiny_text) in [(512, "1e-154"), (3456, "1e-1100")] {
++        let tiny = Float::parse(tiny_text, Some(2)).unwrap();
++        for sign_re in [-1, 1] {
++            for sign_im in [-1, 1] {
++                let value = Complex::new(
++                    tiny.clone() * Float::with_val(2, sign_re),
++                    Float::with_val(bits, 1.25 * f64::from(sign_im)),
++                );
++                let root = value.sqrt();
++                assert!(root.re.prec() >= bits - 16, "{root:?}");
++                assert!(root.im.prec() >= bits - 16, "{root:?}");
++                compare_mpc(&value, &root, bits);
++
++                let value = Complex::new(
++                    Float::with_val(bits, 2 * sign_re),
++                    tiny.clone() * Float::with_val(2, sign_im),
++                );
++                let root = value.sqrt();
++                let (large, small) = if sign_re > 0 {
++                    (&root.re, &root.im)
++                } else {
++                    (&root.im, &root.re)
++                };
++                assert!(large.prec() >= bits - 16, "{root:?}");
++                assert!(small.prec() <= tiny.prec() + 4, "{root:?}");
++                compare_mpc(&value, &root, bits);
++            }
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_axes_and_extremes() {
++    for bits in [128, 3456] {
++        for x in [-4., -0., 0., 4.] {
++            for y in [-0., 0.] {
++                let value = Complex::new(Float::with_val(bits, x), Float::with_val(2, y));
++                compare_mpc(&value, &value.sqrt(), bits);
++            }
++        }
++        for y in [-4., 4.] {
++            let value = Complex::new(Float::with_val(2, 0), Float::with_val(bits, y));
++            compare_mpc(&value, &value.sqrt(), bits);
++        }
++        for text in ["1e-10000", "1e10000"] {
++            for sign in [-1, 1] {
++                let v = Float::parse(text, Some(bits)).unwrap();
++                let value = Complex::new(v.clone(), v * Float::with_val(bits, sign));
++                compare_mpc(&value, &value.sqrt(), bits);
++            }
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_component_precision_matrix() {
++    for real_bits in [2, 32, 128] {
++        for imaginary_bits in [2, 32, 128] {
++            for real_text in ["-1e100", "-1.25", "-1e-100", "1e-100", "1.25", "1e100"] {
++                for imaginary_text in ["-1e100", "-1.25", "-1e-100", "1e-100", "1.25", "1e100"] {
++                    let value = Complex::new(
++                        Float::parse(real_text, Some(real_bits)).unwrap(),
++                        Float::parse(imaginary_text, Some(imaginary_bits)).unwrap(),
++                    );
++                    compare_mpc(&value, &value.sqrt(), real_bits.max(imaginary_bits));
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn float_complex_sqrt_nonfinite_limits() {
++    let at = |v| Float::with_val(128, v);
++    for sign in [-1., 1.] {
++        for real in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 2.] {
++            let root = Complex::new(at(real), at(sign * f64::INFINITY)).sqrt();
++            assert_eq!(root.re, at(f64::INFINITY));
++            assert_eq!(root.im, at(sign * f64::INFINITY));
++        }
++        let root = Complex::new(at(f64::INFINITY), at(sign)).sqrt();
++        assert_eq!(root.re, at(f64::INFINITY));
++        assert!(root.im.is_fully_zero());
++        assert_eq!(root.im.is_sign_negative(), sign.is_sign_negative());
++        let root = Complex::new(at(f64::NEG_INFINITY), at(sign)).sqrt();
++        assert!(root.re.is_fully_zero());
++        assert!(!root.re.is_sign_negative());
++        assert_eq!(root.im, at(sign * f64::INFINITY));
++    }
++    for value in [
++        Complex::new(at(f64::NAN), at(0.)),
++        Complex::new(at(0.), at(f64::NAN)),
++        Complex::new(at(f64::NAN), at(f64::NAN)),
++    ] {
++        let root = value.sqrt();
++        assert!(root.re.as_raw().is_nan());
++        assert!(root.im.as_raw().is_nan());
++    }
++}
+diff --git a/tests/complex_sqrt_precision.rs b/tests/complex_sqrt_precision.rs
+new file mode 100644
+index 0000000..ff607a5
+--- /dev/null
++++ b/tests/complex_sqrt_precision.rs
+@@ -0,0 +1,47 @@
++#![cfg(feature = "float-mpfr")]
++
++//! Regression for Numerica's exact half-angle constant precision provenance.
++use numerica::domains::float::{Complex, Float, Real};
++
++#[test]
++fn nearly_imaginary_sqrt_does_not_inherit_cancelled_real_precision() {
++    for (bits, tiny, tolerance) in [(512, "1e-154", "1e-140"), (3456, "1e-1100", "1e-1000")] {
++        let n = |text| Float::parse(text, Some(bits)).unwrap();
++        let absolute = |value: Float| {
++            if value.is_sign_negative() {
++                -value
++            } else {
++                value
++            }
++        };
++        let expected = (n("0.5")).sqrt();
++        for real_negative in [false, true] {
++            for imaginary_negative in [false, true] {
++                // Only two relative bits remain in the negligible real part;
++                // its absolute uncertainty is far below the requested digits.
++                let mut re = Float::parse(tiny, Some(2)).unwrap();
++                let mut im = n("1");
++                if real_negative {
++                    re = -re;
++                }
++                if imaginary_negative {
++                    im = -im;
++                }
++                let actual = Complex::new(re, im).sqrt();
++                let expected_im = if imaginary_negative {
++                    -expected.clone()
++                } else {
++                    expected.clone()
++                };
++                assert!(absolute(actual.re.clone() - expected.clone()) < n(tolerance));
++                assert!(absolute(actual.im.clone() - expected_im) < n(tolerance));
++                assert!(
++                    actual.re.prec() >= bits - 8 && actual.im.prec() >= bits - 8,
++                    "phase precision was poisoned: real={}, imaginary={}, working={bits}",
++                    actual.re.prec(),
++                    actual.im.prec()
++                );
++            }
++        }
++    }
++}
+diff --git a/tests/float_zero_precision.rs b/tests/float_zero_precision.rs
+new file mode 100644
+index 0000000..61d09b2
+--- /dev/null
++++ b/tests/float_zero_precision.rs
+@@ -0,0 +1,106 @@
++#![cfg(feature = "float-mpfr")]
++
++//! Adding exact zero must not advertise recovered arbitrary-precision bits.
++use numerica::domains::float::Float;
++
++fn same(value: &Float, expected: &Float) {
++    assert_eq!(value.as_raw(), expected.as_raw());
++    assert_eq!(
++        value.prec(),
++        expected.prec(),
++        "zero inflated a nonzero value"
++    );
++    assert_eq!(value.is_sign_negative(), expected.is_sign_negative());
++}
++
++#[test]
++fn zero_addition_and_subtraction_preserve_nonzero_precision() {
++    for bits in [2, 53, 512, 3456] {
++        for zero_bits in [2, 53, 512, 3456] {
++            for text in ["1.5", "-1.5", "0.125", "-1e-1000"] {
++                let value = Float::parse(text, Some(bits)).unwrap();
++                let negative = -value.clone();
++                for zero_sign in [0.0, -0.0] {
++                    let zero = Float::with_val(zero_bits, zero_sign);
++                    for result in [
++                        value.clone() + &zero,
++                        value.clone() + zero.clone(),
++                        zero.clone() + &value,
++                        zero.clone() + value.clone(),
++                        value.clone() - &zero,
++                        value.clone() - zero.clone(),
++                    ] {
++                        same(&result, &value);
++                    }
++                    same(&(zero.clone() - &value), &negative);
++                    same(&(zero.clone() - value.clone()), &negative);
++
++                    let mut result = value.clone();
++                    result += &zero;
++                    same(&result, &value);
++                    result += zero.clone();
++                    same(&result, &value);
++                    result -= &zero;
++                    same(&result, &value);
++                    result -= zero.clone();
++                    same(&result, &value);
++                    for borrowed in [false, true] {
++                        let mut result = zero.clone();
++                        if borrowed {
++                            result += &value;
++                        } else {
++                            result += value.clone();
++                        }
++                        same(&result, &value);
++                        let mut result = zero.clone();
++                        if borrowed {
++                            result -= &value;
++                        } else {
++                            result -= value.clone();
++                        }
++                        same(&result, &negative);
++                    }
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn signed_zero_and_nonfinite_addition_keep_numerical_behavior() {
++    for left in [0.0_f64, -0.0] {
++        for right in [0.0_f64, -0.0] {
++            let a = Float::with_val(2, left);
++            let b = Float::with_val(512, right);
++            let sum = a.clone() + &b;
++            let difference = a.clone() - &b;
++            assert_eq!(sum.is_sign_negative(), (left + right).is_sign_negative());
++            assert_eq!(
++                difference.is_sign_negative(),
++                (left - right).is_sign_negative()
++            );
++            assert_eq!(sum.prec(), 512);
++            assert_eq!(difference.prec(), 512);
++            let mut sum = a.clone();
++            sum += &b;
++            let mut difference = a;
++            difference -= &b;
++            assert_eq!(sum.is_sign_negative(), (left + right).is_sign_negative());
++            assert_eq!(
++                difference.is_sign_negative(),
++                (left - right).is_sign_negative()
++            );
++        }
++    }
++    for value in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
++        let a = Float::with_val(2, value);
++        let zero = Float::new(512);
++        for result in [a.clone() + &zero, zero.clone() + &a, a.clone() - &zero] {
++            assert!(!result.is_finite());
++            assert_eq!(result.as_raw().is_nan(), value.is_nan());
++            if !value.is_nan() {
++                assert_eq!(result.is_sign_negative(), value.is_sign_negative());
++            }
++        }
++    }
++}

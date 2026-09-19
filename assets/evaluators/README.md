@@ -1,56 +1,47 @@
 # Portable scalar evaluators
 
-Generated from the native expressions by `examples/rebuild_evaluators.rs` on
-2026-09-08, using Symbolica dev `fb845d34bda8ccf1fedef6544d3aa46dc24944e3`
-and the two local dependency patches documented in `../../patches/README.md`.
-These are versioned portable intermediate-code/data files, not native CPU code.
-Loading recompiles code for the host and restores nested native definitions.
-The later zero-argument SIMD input-transpose repair changes code generation only,
-not this serialized IR; these scalar-family assets do not require regeneration
-for that repair.
+Generated on 2026-09-19 with unmodified Symbolica and Numerica at
+`821b02451256a92039a0665006628bd5d91470cc` and released SymJIT 2.25.6.
+No dependency source patches are applied.
 
-Final regeneration after the arbitrary-precision repairs again passed all
-293 acceptance and 31 benchmark rows after restoration; the shipped assets
-were kept unchanged. A0/B0/dB0 matched byte-for-byte. C0/D0 differed only in
-the serialization order of 12/18 function names from SymJIT's `HashSet` table:
-their complete name sets match, and sorting only those entries makes each whole
-blob byte-identical. Thus numeric constants, instructions, nested evaluator
-payloads and all other metadata are unchanged; export is not byte-deterministic
-in this table. See the [regeneration log](../../performance/2026-09-08-native/verification/asset-regeneration.log),
-[hashes](../../performance/2026-09-08-native/verification/asset-sha256sums.txt),
-and [structural comparison result](../../performance/2026-09-08-native/verification/asset-semantic-comparison.log).
-The [read-only comparison source](../../performance/2026-09-08-native/verification/asset-compare-portable.rs)
-records the exact binary-layout proof and the temporary paths of that run.
+These files contain bincode-serialized numerical `ExpressionEvaluator` graphs,
+including nested definitions and registered callback metadata. They contain no
+native machine code. Loading recompiles every level for the host with OneLOop's
+explicit settings: O2, ordinary translation, packed complex arithmetic enabled,
+and fastmath, SIMD batches, threads and AVX-512 disabled. Registered numerical
+callbacks preserve complex square-root branches and complex conditions. Packed
+complex arithmetic avoids unwanted FMA contraction in the generic compiler.
 
-SymJIT settings: O2, direct translation, SIMD enabled, scalar retry on divergent
-branches, threads/fastmath/fast-complex/AVX-512 disabled. Native x86-64 execution
-is tested; generated code on other architectures has not been exercised here.
-The original registry, Fortran library, and numerical Rust port are unchanged.
+The generator restored each file and checked all three Laurent coefficients
+against all 293 acceptance and 31 benchmark rows before writing it. All five
+families passed. Fresh-process, batch and Python validation is tracked in the
+[migration notes](../../SYMBOLICA_3_MIGRATION.md). Native x86-64 execution is tested;
+other architectures have not been exercised here. These fixtures do not establish
+exhaustive analytic-region coverage.
 
 | Family | Bytes | SHA-256 |
 | --- | ---: | --- |
-| A0 | 1,437 | `d9e13db197c6684931efb84ad82b83b4e541cfe8744468ed2c880a8cc300e2fb` |
-| B0 | 8,968 | `77b9ea18bdf4ccb8a2eb50c7c9b8dc61a70eaeaa61068712d193bd2da1ac467f` |
-| dB0 | 39,225 | `1289b1d1e8e9fd2d43d30d3b75f87facf69b4b1f20da5f963d42c8dbb6233874` |
-| C0 | 545,750 | `b579a59dbd74e0c8484f51c798f40e505d0eaee56a253f2cbb72f4e0651afde9` |
-| D0 | 10,441,150 | `2587812c4f1ea2ec1610b64b4403a3e324bbbc46a9fb28152bc9ddac904579e3` |
+| A0 | 1,891 | `7cfe260396001602a94b9b768899a092793c3584dfb50fdd1ed8302264aabd26` |
+| B0 | 14,880 | `e22b4a035d092f9ac9d34e7587e81c8c5bdb388713fa558ae67ac74e72ba8ca9` |
+| dB0 | 71,901 | `ff7a37d25d2150a26d6d933996f014b664067584944630151516cd2e6957c98c` |
+| C0 | 590,631 | `9b6b597e2de2f2cc9873ce0caa1624b533c867baba6eedab1bc78718217542b2` |
+| D0 | 13,160,627 | `6d32bfa9a7d3a9032303dd732e9e1e872fb889c8e5920b85a92eb6d19933579e` |
 
-The format discriminator identifies the strict `symjit-2.24.1-patched-v3` backend.
-The generator reloads each serialized family and verifies all of its rows in
-`tests/data/parity.txt` and `tests/data/benchmark.txt` before writing it (293 + 31
-rows, all three Laurent coefficients). All five families passed this gate. A
-validation failure leaves that family's existing asset untouched. Fresh-process
-loads, heterogeneous batch layouts, broader original
-fixtures, and Python are separate tests; see the current audit status for their
-results. These checks are not proof of exhaustive analytic-region coverage.
+The `oneloop-evaluator-v2` discriminator binds these files to the selected
+Symbolica/SymJIT versions and settings. Earlier patched-backend caches are
+incompatible. Helper aliases retain their original relative symbol order so
+hash-map iteration cannot change the order of floating-point operations.
 
-From the crate root, rebuild all five files with:
+Regenerate with:
 
 ```sh
 cargo run --release --no-default-features --example rebuild_evaluators -- assets/evaluators
 ```
 
-An optional final family name regenerates just one file. Commit matching source,
-dependency patches and regenerated assets together; update this manifest's sizes
-and hashes too. A backend option, patch or expression change may require a format
-revision and rebuilding all assets. Do not load untrusted serialized evaluators.
+An optional final family name writes only that family. Startup still prepares
+all five evaluators. Validation failure leaves the affected existing file
+untouched. Commit matching source and regenerated assets together, and update
+this manifest's sizes and hashes. Load only trusted serialized evaluators.
+
+The previous generation and its dependency patches are documented in the
+[2026-09-08 audit](../../performance/2026-09-08-native/README.md).

@@ -35,8 +35,8 @@ fn compile_bare(family: ScalarIntegral, order: [usize; 3]) -> JITCompiledEvaluat
         .jit_compile::<C>(oneloop::jit_settings())
         .expect("compile bare public-master callbacks");
     assert!(evaluator.has_external_functions());
-    assert_eq!(evaluator.input_count(), family.arity());
-    assert_eq!(evaluator.output_count(), 3);
+    assert_eq!(exact.get_input_len(), family.arity());
+    assert_eq!(exact.get_output_len(), 3);
     evaluator
 }
 
@@ -191,13 +191,13 @@ fn bare_master_outer_jit_and_portable_batches_match_all_acceptance_rows() {
                 let controls = [0, pole, rows.len() - 1, 0, pole, rows.len() - 1, 0, 0];
                 for order in orders {
                     let mut original = compile_bare(family, order);
-                    let bytes = original.export_portable().unwrap();
-                    let mut restored =
-                        JITCompiledEvaluator::<C>::import_portable(&bytes, oneloop::jit_settings())
+                    let bytes = bincode::encode_to_vec(&original, bincode::config::standard()).unwrap();
+                    // This bare graph has no nested evaluators needing custom settings.
+                    let (mut restored, consumed): (JITCompiledEvaluator<C>, usize) =
+                        bincode::decode_from_slice(&bytes, bincode::config::standard())
                             .expect("restore bare public-master callback definitions");
+                    assert_eq!(consumed, bytes.len());
                     assert!(restored.has_external_functions());
-                    assert_eq!(restored.input_count(), family.arity());
-                    assert_eq!(restored.output_count(), 3);
                     // The canonical order covers all 293 rows; each other tag
                     // permutation covers repeated/mixed finite and pole controls.
                     let indices = if order == [0, 1, 2] {

@@ -8,7 +8,7 @@ fn same(value: &Float, expected: &Float) {
         expected.prec(),
         "zero inflated a nonzero value"
     );
-    assert_eq!(value.is_negative(), expected.is_negative());
+    assert_eq!(value.is_sign_negative(), expected.is_sign_negative());
 }
 
 #[test]
@@ -72,16 +72,22 @@ fn signed_zero_and_nonfinite_addition_keep_numerical_behavior() {
             let b = Float::with_val(512, right);
             let sum = a.clone() + &b;
             let difference = a.clone() - &b;
-            assert_eq!(sum.is_negative(), (left + right).is_sign_negative());
-            assert_eq!(difference.is_negative(), (left - right).is_sign_negative());
+            assert_eq!(sum.is_sign_negative(), (left + right).is_sign_negative());
+            assert_eq!(
+                difference.is_sign_negative(),
+                (left - right).is_sign_negative()
+            );
             assert_eq!(sum.prec(), 512);
             assert_eq!(difference.prec(), 512);
             let mut sum = a.clone();
             sum += &b;
             let mut difference = a;
             difference -= &b;
-            assert_eq!(sum.is_negative(), (left + right).is_sign_negative());
-            assert_eq!(difference.is_negative(), (left - right).is_sign_negative());
+            assert_eq!(sum.is_sign_negative(), (left + right).is_sign_negative());
+            assert_eq!(
+                difference.is_sign_negative(),
+                (left - right).is_sign_negative()
+            );
         }
     }
     for value in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
@@ -91,7 +97,7 @@ fn signed_zero_and_nonfinite_addition_keep_numerical_behavior() {
             assert!(!result.is_finite());
             assert_eq!(result.as_raw().is_nan(), value.is_nan());
             if !value.is_nan() {
-                assert_eq!(result.is_negative(), value.is_sign_negative());
+                assert_eq!(result.is_sign_negative(), value.is_sign_negative());
             }
         }
     }

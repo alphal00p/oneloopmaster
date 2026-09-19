@@ -11,7 +11,7 @@ use symbolica::{
 /// to Symbolica or use [Self::evaluator] to compile a combination of integrals.
 #[derive(Clone, Debug)]
 pub struct OneLoopExpressions {
-    map: FunctionMap,
+    map: &'static FunctionMap,
 }
 
 impl Default for OneLoopExpressions {
@@ -24,16 +24,20 @@ impl OneLoopExpressions {
     /// Builds the native definitions once per process and reuses them thereafter.
     pub fn new() -> Self {
         Self {
-            map: shared_definitions().clone(),
+            map: shared_definitions(),
         }
     }
 
     /// Returns the shared transparent Symbolica definitions.
-    pub fn function_map(&self) -> &FunctionMap {
-        &self.map
+    pub fn function_map(&self) -> &symbolica::evaluate::FunctionMap {
+        self.map.as_symbolica()
     }
     /// Transfers the definitions to a Symbolica evaluator builder.
-    pub fn into_function_map(self) -> FunctionMap {
+    pub fn into_function_map(self) -> symbolica::evaluate::FunctionMap {
+        self.map.as_symbolica().clone()
+    }
+
+    pub(crate) fn into_definitions(self) -> &'static FunctionMap {
         self.map
     }
 
@@ -56,7 +60,7 @@ impl OneLoopExpressions {
         expressions: &[Atom],
         parameters: &[Atom],
     ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
-        compile(expressions, parameters, self.map.clone())
+        compile(expressions, parameters, self.map, false)
     }
 
     /// Compile a manually assembled amplitude with SymJIT O2. The returned
@@ -67,9 +71,7 @@ impl OneLoopExpressions {
         expressions: &[Atom],
         parameters: &[Atom],
     ) -> Result<JitEvaluator, String> {
-        let exact = self
-            .evaluator(expressions, parameters)
-            .map_err(|e| e.to_string())?;
+        let exact = compile(expressions, parameters, self.map, true).map_err(|e| e.to_string())?;
         JitEvaluator::compile(&exact, parameters.len(), expressions.len())
     }
 }
@@ -85,6 +87,7 @@ pub(crate) fn shared_definitions() -> &'static FunctionMap {
         register_triangles(&mut map);
         register_boxes(&mut map);
         register_masters(&mut map);
+        map.prepare_symbols();
         map
     })
 }
@@ -159,12 +162,22 @@ fn series_call(family: &str, sector: usize, args: &[Atom]) -> LaurentSeries {
 fn compile(
     expressions: &[Atom],
     parameters: &[Atom],
-    map: FunctionMap,
+    map: &FunctionMap,
+    jit: bool,
 ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
-    let views = expressions.iter().map(Atom::as_view).collect::<Vec<_>>();
-    Atom::evaluator_multiple(&views, parameters)
-        .function_map(map)
+    let (expressions, parameters) = map.normalize_inputs(expressions, parameters, jit);
+    Atom::evaluator_multiple(&expressions, &parameters)
+        .function_map(
+            if jit {
+                map.as_jit_symbolica()
+            } else {
+                map.as_symbolica()
+            }
+            .clone(),
+        )
         .direct_translation(true)
+        // Keep the formulas' arithmetic order and skip whole-map Horner expansion.
+        .horner_iterations(0)
         .build()
 }
 
@@ -174,12 +187,13 @@ impl MappedLaurentSeries {
         &self,
         parameters: &[Atom],
     ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
-        compile(self.coefficients(), parameters, self.function_map.clone())
+        compile(self.coefficients(), parameters, self.function_map, false)
     }
 
     /// Compile all three coefficients for scalar or batched SymJIT evaluation.
     pub fn jit_evaluator(&self, parameters: &[Atom]) -> Result<JitEvaluator, String> {
-        let exact = self.evaluator(parameters).map_err(|e| e.to_string())?;
+        let exact = compile(self.coefficients(), parameters, self.function_map, true)
+            .map_err(|e| e.to_string())?;
         JitEvaluator::compile(&exact, parameters.len(), 3)
     }
 }

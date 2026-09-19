@@ -1,12 +1,9 @@
 //! Exact but compact sheet expressions used by the mapped box sectors.
+use crate::definitions::FunctionMap;
 
 use core::ops::{Div, Mul};
 
-use symbolica::{
-    atom::{Atom, AtomCore, Symbol},
-    evaluate::FunctionMap,
-    transcendental::TranscendentalFunctions,
-};
+use symbolica::atom::{Atom, AtomCore, Symbol};
 
 fn choose(c: &Atom, yes: Atom, no: Atom) -> Atom {
     Symbol::IF.call((c, yes, no))
@@ -75,8 +72,9 @@ fn dilog_body(value: &Atom, phase: &Atom, odd: &Atom) -> Atom {
     let sheet_logarithm = &logarithm + &i_pi * (&even + &odd);
     let log_one_minus = (Atom::num(1) - &normalized).log();
     let below_half = negative(&(Atom::num(2) * re(&normalized) - 1));
-    let below = &pi_squared / 6 - normalized.polylog(2) - &log_one_minus * &sheet_logarithm;
-    let above = (Atom::num(1) - &normalized).polylog(2) - &log_one_minus * &i_pi * even;
+    let below =
+        &pi_squared / 6 - crate::dilog_atom(&normalized) - &log_one_minus * &sheet_logarithm;
+    let above = crate::dilog_atom(Atom::num(1) - &normalized) - &log_one_minus * &i_pi * even;
     let base = choose(&below_half, below, above);
     let ordinary = choose(
         &inverted,
@@ -329,7 +327,7 @@ mod tests {
         let exact = [&x * &y, &x / &y].map(|q| {
             let values = [q.value.clone(), q.phase.clone(), q.log(), q.dilog()];
             Atom::evaluator_multiple(&values.iter().map(Atom::as_view).collect::<Vec<_>>(), &args)
-                .function_map(map.clone())
+                .function_map(map.clone().into())
                 .direct_translation(true)
                 .build()
                 .unwrap()
@@ -412,7 +410,7 @@ mod tests {
         register(&mut map);
         let mut eval = dilog_body(&x, &phase, &odd)
             .evaluator(&[x, phase, odd])
-            .function_map(map)
+            .function_map(map.into())
             .build()
             .unwrap()
             .map_coeff(&|v| Complex::new(v.re.to_f64(), v.im.to_f64()));

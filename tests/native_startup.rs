@@ -3,13 +3,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static DEPENDENT_INITIALIZER_RAN: AtomicBool = AtomicBool::new(false);
 
-// Exercise the same reentrant lookup pattern for all three symbol caches.
-// OneLOop's real initializer already calls polylog while preparing its maps.
+// Exercise accessor reentry during State initialization. Upstream must enter
+// State before locking its symbol caches, including when OneLOop is linked.
 symbolica::initialize!(
     || {
-        let _ = symbolica::transcendental::polylog();
-        let _ = symbolica::transcendental::tan();
-        let _ = symbolica::transcendental::bessel_j();
+        assert_eq!(
+            symbolica::transcendental::polylog().get_name(),
+            "symbolica::polylog"
+        );
+        assert_eq!(
+            symbolica::transcendental::tan().get_name(),
+            "symbolica::tan"
+        );
+        assert_eq!(
+            symbolica::transcendental::bessel_j().get_name(),
+            "symbolica::bessel_j"
+        );
         DEPENDENT_INITIALIZER_RAN.store(true, Ordering::Release);
     },
     "oneloop"

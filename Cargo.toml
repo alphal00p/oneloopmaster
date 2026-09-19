@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Exact Symbolica expressions for one-loop integrals"
-publish = false # Development snapshot: dependency patches and licensing approval remain open.
+publish = false # Development snapshot: licensing approval remains open.
 
 [features]
 default = ["prebuilt"]
@@ -12,13 +12,12 @@ prebuilt = []
 
 [dependencies]
 # Do not impose Symbolica's optional global mimalloc allocator on embedding hosts.
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "fb845d34bda8ccf1fedef6544d3aa46dc24944e3", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "821b02451256a92039a0665006628bd5d91470cc", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
+bincode = "2.0"
+# Evaluator cache compatibility includes the JIT backend version.
+symjit = "=2.25.6"
 
+# Use the upstream Numerica fixes from the same Symbolica revision.
+# Dependency-level overrides do not propagate to these build roots.
 [patch.crates-io]
-symjit = { path = "../symjit-2.24.1-patched" }
-graphica = { path = "../symbolica-dev-v3/lib/graphica" }
-numerica = { path = "../symbolica-dev-v3/lib/numerica" }
-
-# Local evaluator and transcendental fixes; remove after upstream includes them.
-[patch."https://github.com/symbolica-dev/symbolica"]
-symbolica = { path = "../symbolica-dev-v3" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "821b02451256a92039a0665006628bd5d91470cc" }

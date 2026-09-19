@@ -571,7 +571,7 @@ pub fn c0(p: [&Atom; 3], m: [&Atom; 3], mu_squared: &Atom) -> MappedLaurentSerie
     let expressions = OneLoopExpressions::new();
     MappedLaurentSeries {
         series: expressions.c0(p, m, mu_squared),
-        function_map: expressions.into_function_map(),
+        function_map: expressions.into_definitions(),
     }
 }
 

@@ -1,9 +1,9 @@
 //! Complete, inspectable master expressions, independent of numerical backends.
+use crate::definitions::FunctionMap;
 use crate::{LaurentSeries, ScalarIntegral};
 use std::collections::{HashMap, HashSet};
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol},
-    evaluate::FunctionMap,
     transcendental::TranscendentalFunctions,
 };
 
@@ -260,7 +260,7 @@ fn helper_name(symbol: Symbol) -> Option<&'static str> {
 }
 
 fn known_real(value: AtomView<'_>) -> bool {
-    value.is_real()
+    value.is_real().is_true()
 }
 
 fn normalized_call(symbol: Symbol, mut arguments: Vec<Atom>) -> Atom {
@@ -276,7 +276,8 @@ fn normalized_call(symbol: Symbol, mut arguments: Vec<Atom>) -> Atom {
         }
         // Nonnegative is sufficient here: sign_nonnegative(0) is exactly +1.
         // This does not use positivity as a proof that a zero-test is true.
-        if helper_name(symbol) == Some("__olo_sign_nonnegative") && argument.is_positive() {
+        if helper_name(symbol) == Some("__olo_sign_nonnegative") && argument.is_positive().is_true()
+        {
             return Atom::num(1);
         }
     }

@@ -257,7 +257,7 @@ fn numeric_truth(condition: AtomView<'_>) -> Option<bool> {
         }
     }
     let value: Complex<Float> = condition
-        .evaluate_with_prec::<Atom, _>(&Default::default(), bits)
+        .evaluate_with_prec::<Atom, _>(&std::collections::HashMap::new(), bits)
         .ok()?;
     value.is_finite().then(|| !value.is_zero())
 }

@@ -1,4 +1,4 @@
-//! These tests use only numerical values: no Symbolica State or evaluator.
+//! Numerical primitives, including Symbolica's registered polylog callback.
 
 #[path = "../src/native/primitives.rs"]
 mod primitives;
@@ -254,7 +254,7 @@ fn native_float_hypot_tracks_component_precision() {
                     assert!(actual.as_raw().is_nan());
                 } else {
                     assert_eq!(actual.as_raw(), &expected);
-                    assert_eq!(actual.is_negative(), expected.is_sign_negative());
+                    assert_eq!(actual.is_sign_negative(), expected.is_sign_negative());
                 }
                 assert_eq!(actual.prec(), bits);
             }
@@ -326,10 +326,7 @@ fn native_primitives_double_float_retains_low_components() {
         (primitives::sqrt(&value), reference.sqrt()),
         (primitives::log(&value), reference.log()),
         (primitives::powi(&value, -1, false), reference.inv()),
-        (
-            primitives::polylog2(&value),
-            symbolica::transcendental::dilog_complex_float(&reference, 256).unwrap(),
-        ),
+        (primitives::polylog2(&value), Float::dilog(&reference)),
     ] {
         relative(&dd_float(actual.re, 256), &expected.re, 106);
         relative(&dd_float(actual.im, 256), &expected.im, 106);
@@ -512,7 +509,7 @@ fn native_primitives_thousand_decimal_digits() {
         value.re.at_precision(BITS + 384),
         value.im.at_precision(BITS + 384),
     );
-    let expected = symbolica::transcendental::dilog_complex_float(&refined, BITS + 384).unwrap();
+    let expected = Float::dilog(&refined);
     relative(&actual.re, &expected.re, BITS);
     relative(&actual.im, &expected.im, BITS);
     let width = Float::parse("-1e-1000", Some(BITS)).unwrap();

@@ -1,5 +1,5 @@
 //! Diagnostic of native complex branch conditions before and after portable JIT restoration.
-use symbolica::evaluate::JITCompiledEvaluator;
+use symbolica::evaluate::ExpressionEvaluator;
 use symbolica::prelude::*;
 
 fn main() {
@@ -46,10 +46,15 @@ fn run() {
             .with_option("use_simd", simd.to_string())
             .with_option("simd_branch", branch.to_string())
             .with_option("fast_complex", fast_complex.to_string());
-        let mut original = exact.jit_compile::<Complex<f64>>(settings.clone()).unwrap();
-        let bytes = original.export_portable().unwrap();
-        let mut restored =
-            JITCompiledEvaluator::<Complex<f64>>::import_portable(&bytes, settings).unwrap();
+        let source = exact
+            .clone()
+            .map_coeff(&|c| Complex::new(c.re.to_f64(), c.im.to_f64()));
+        let mut original = source.jit_compile(settings.clone()).unwrap();
+        let bytes = bincode::encode_to_vec(&source, bincode::config::standard()).unwrap();
+        let (source, consumed): (ExpressionEvaluator<Complex<f64>>, usize) =
+            bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+        assert_eq!(consumed, bytes.len());
+        let mut restored = source.jit_compile(settings).unwrap();
         for (stage, compiled) in [("original", &mut original), ("restored", &mut restored)] {
             let mut expected = vec![Complex::new(0., 0.); inputs.len() * labels.len()];
             let mut actual = expected.clone();

@@ -1,5 +1,9 @@
 # Native OneLOop status
 
+This page preserves the September 8 development snapshot. See the
+[Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
+dependency setup and validation.
+
 ## Current development status (2026-09-08)
 
 Direct generic Rust evaluation is now the default for the five scalar masters.

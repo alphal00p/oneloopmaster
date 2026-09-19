@@ -44,14 +44,11 @@ fn run(family: &str) {
     let exact = context.evaluator(series.coefficients(), &args).unwrap();
     eprintln!("{family} native build: {:?}", start.elapsed());
     let start = Instant::now();
-    let mut jit = exact
-        .jit_compile::<Complex<f64>>(oneloop::jit_settings())
-        .unwrap();
+    let mut jit = context.jit_evaluator(series.coefficients(), &args).unwrap();
     eprintln!(
-        "{family} JIT O2: {:?}; IR bytes: {}; externals: {}",
+        "{family} JIT O2: {:?}; cache bytes: {}",
         start.elapsed(),
-        jit.as_bytes().len(),
-        jit.has_external_functions()
+        jit.to_bytes().unwrap().len()
     );
     let input = match family {
         "A0" => vec![2., 1.],
@@ -67,7 +64,7 @@ fn run(family: &str) {
     let mut expected = [Complex::new(0., 0.); 3];
     let mut actual = expected;
     native.evaluate(&input, &mut expected);
-    jit.evaluate(&input, &mut actual);
+    jit.evaluate(&input, &mut actual).unwrap();
     eprintln!("native {expected:?}; JIT {actual:?}");
     for (a, b) in actual.into_iter().zip(expected) {
         let error = (a.re - b.re).hypot(a.im - b.im);

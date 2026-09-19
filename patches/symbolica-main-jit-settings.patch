@@ -1,0 +1,208 @@
+diff --git a/src/evaluate/backend.rs b/src/evaluate/backend.rs
+index cc64663..2b6baad 100644
+--- a/src/evaluate/backend.rs
++++ b/src/evaluate/backend.rs
+@@ -790,6 +790,7 @@ impl JITCompiledNumber for f64 {
+             code: app.seal().map_err(|e| e.to_string())?,
+             external_functions,
+             compressed_ir,
++            settings,
+             batch_input_buffer: Vec::new(),
+             batch_output_buffer: Vec::new(),
+         })
+@@ -816,6 +817,10 @@ impl JITCompiledNumber for f64 {
+ }
+ 
+ /// A JIT-compiled evaluator for expressions, using the SymJIT compiler.
++///
++/// Serialization retains the compilation settings for recursively rebuilding
++/// non-inlined evaluators. Serialized JIT payloads are revision-dependent;
++/// payloads written before settings were included must be regenerated.
+ #[derive(Clone)]
+ pub struct JITCompiledEvaluator<T> {
+     code: Applet,
+@@ -823,6 +828,8 @@ pub struct JITCompiledEvaluator<T> {
+     external_functions: Vec<ExternalFunctionContainer<T>>,
+     #[allow(dead_code)]
+     compressed_ir: Vec<u8>,
++    #[allow(dead_code)] // Used when serialization support is enabled.
++    settings: JITCompilationSettings,
+     batch_input_buffer: Vec<T>,
+     batch_output_buffer: Vec<T>,
+ }
+@@ -842,7 +849,12 @@ impl<T> JITCompiledEvaluator<T> {
+ #[cfg(feature = "serde")]
+ impl<T: serde::Serialize> serde::Serialize for JITCompiledEvaluator<T> {
+     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+-        (&self.external_functions, &self.compressed_ir).serialize(serializer)
++        (
++            &self.external_functions,
++            &self.compressed_ir,
++            &self.settings,
++        )
++            .serialize(serializer)
+     }
+ }
+ 
+@@ -853,9 +865,12 @@ impl<
+ > serde::Deserialize<'de> for JITCompiledEvaluator<T>
+ {
+     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+-        let (fs, compressed_ir): (Vec<ExternalFunctionContainer<T>>, Vec<u8>) =
+-            serde::Deserialize::deserialize(deserializer)?;
+-        Self::load(compressed_ir, fs).map_err(serde::de::Error::custom)
++        let (fs, compressed_ir, settings): (
++            Vec<ExternalFunctionContainer<T>>,
++            Vec<u8>,
++            JITCompilationSettings,
++        ) = serde::Deserialize::deserialize(deserializer)?;
++        Self::load(compressed_ir, fs, settings).map_err(serde::de::Error::custom)
+     }
+ }
+ 
+@@ -867,6 +882,7 @@ impl<T: bincode::Encode> bincode::Encode for JITCompiledEvaluator<T> {
+     ) -> core::result::Result<(), bincode::error::EncodeError> {
+         bincode::Encode::encode(&self.external_functions, encoder)?;
+         bincode::Encode::encode(&self.compressed_ir, encoder)?;
++        bincode::Encode::encode(&self.settings, encoder)?;
+         Ok(())
+     }
+ }
+@@ -880,7 +896,8 @@ impl<Context, T: JITCompiledNumber + EvaluationDomain + Clone + bincode::Decode<
+     ) -> Result<Self, bincode::error::DecodeError> {
+         let fs: Vec<ExternalFunctionContainer<T>> = bincode::Decode::decode(decoder)?;
+         let compressed_ir: Vec<u8> = bincode::Decode::decode(decoder)?;
+-        Self::load(compressed_ir, fs).map_err(|e| bincode::error::DecodeError::OtherString(e))
++        let settings: JITCompilationSettings = bincode::Decode::decode(decoder)?;
++        Self::load(compressed_ir, fs, settings).map_err(bincode::error::DecodeError::OtherString)
+     }
+ }
+ 
+@@ -916,9 +933,10 @@ impl<T: JITCompiledNumber + Clone> JITCompiledEvaluator<T> {
+     fn load(
+         compressed_ir: Vec<u8>,
+         external_functions: Vec<ExternalFunctionContainer<T>>,
++        settings: JITCompilationSettings,
+     ) -> Result<Self, String> {
+-        let settings = JITCompilationSettings::default();
+         let mut config = Config::default();
++        settings.apply_to_config(&mut config)?;
+         config.set_defuns(T::convert_external_functions(
+             &external_functions,
+             &settings,
+@@ -932,6 +950,7 @@ impl<T: JITCompiledNumber + Clone> JITCompiledEvaluator<T> {
+             code: app,
+             external_functions,
+             compressed_ir,
++            settings,
+             batch_input_buffer: Vec::new(),
+             batch_output_buffer: Vec::new(),
+         })
+@@ -1035,6 +1054,7 @@ impl JITCompiledNumber for wide::f64x4 {
+             code: app.seal().map_err(|e| e.to_string())?,
+             external_functions,
+             compressed_ir,
++            settings,
+             batch_input_buffer: Vec::new(),
+             batch_output_buffer: Vec::new(),
+         })
+@@ -1225,6 +1245,7 @@ impl JITCompiledNumber for Complex<f64> {
+             code: app.seal().map_err(|e| e.to_string())?,
+             external_functions,
+             compressed_ir,
++            settings,
+             batch_input_buffer: Vec::new(),
+             batch_output_buffer: Vec::new(),
+         })
+@@ -1373,6 +1394,7 @@ impl JITCompiledNumber for Complex<wide::f64x4> {
+             code: app.seal().map_err(|e| e.to_string())?,
+             external_functions,
+             compressed_ir,
++            settings,
+             batch_input_buffer: Vec::new(),
+             batch_output_buffer: Vec::new(),
+         })
+diff --git a/tests/jit_settings_roundtrip.rs b/tests/jit_settings_roundtrip.rs
+new file mode 100644
+index 0000000..3f5a7c7
+--- /dev/null
++++ b/tests/jit_settings_roundtrip.rs
+@@ -0,0 +1,78 @@
++#![cfg(all(feature = "native_code_generation", feature = "bincode"))]
++
++use symbolica::{
++    atom::{AtomCore, Symbol},
++    domains::float::Complex,
++    evaluate::{
++        FunctionMap, FunctionRegistrationOptions, InliningPolicy, JITCompilationSettings,
++        JITCompiledEvaluator,
++    },
++    symbol,
++};
++
++#[test]
++fn jit_roundtrips_preserve_nested_compilation_policy() {
++    let x = symbol!("symbolica::jit_roundtrip_settings::x");
++    let f = symbol!("symbolica::jit_roundtrip_settings::f");
++    let g = symbol!("symbolica::jit_roundtrip_settings::g");
++    let mut functions = FunctionMap::new();
++    let options = FunctionRegistrationOptions::new().inlining(InliningPolicy::Never);
++    functions
++        .add_function_with_options(
++            f,
++            vec![x],
++            x.to_atom() * Symbol::CONJ.call((x,)),
++            options.clone(),
++        )
++        .unwrap();
++    functions
++        .add_function_with_options(g, vec![x], f.call((x,)), options)
++        .unwrap();
++    let exact = g
++        .call((x,))
++        .evaluator(&[x.to_atom()])
++        .function_map(functions)
++        .build()
++        .unwrap();
++    let inputs = [
++        Complex::new(0.1, 0.2),
++        Complex::new(0.3, -0.7),
++        Complex::new(2., 3.),
++    ];
++    for direct in [false, true] {
++        for fast_complex in [false, true] {
++            let settings = JITCompilationSettings::new()
++                .optimization_level(2)
++                .direct_translation(direct)
++                .with_option("fastmath", "false")
++                .with_option("fast_complex", fast_complex.to_string())
++                .with_option("use_simd", "false")
++                .with_option("use_threads", "false");
++            let mut evaluator = exact.jit_compile::<Complex<f64>>(settings).unwrap();
++            let mut expected = [Complex::new(0., 0.); 3];
++            evaluator.batch_evaluate(&inputs, &mut expected, 3);
++            // The two backends currently round some operations differently.
++            // This test checks preservation of the selected backend and policy,
++            // independently of either backend's absolute numerical accuracy.
++            for _ in 0..2 {
++                let bytes =
++                    bincode::encode_to_vec(&evaluator, bincode::config::standard()).unwrap();
++                let (restored, consumed): (JITCompiledEvaluator<Complex<f64>>, usize) =
++                    bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
++                assert_eq!(consumed, bytes.len());
++                evaluator = restored;
++                let mut actual = [Complex::new(0., 0.); 3];
++                evaluator.batch_evaluate(&inputs, &mut actual, 3);
++                assert_eq!(
++                    actual, expected,
++                    "direct={direct}, fast_complex={fast_complex}"
++                );
++                for (input, expected) in inputs.iter().zip(expected) {
++                    let mut output = [Complex::new(0., 0.)];
++                    evaluator.evaluate(&[*input], &mut output);
++                    assert_eq!(output, [expected]);
++                }
++            }
++        }
++    }
++}

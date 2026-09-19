@@ -141,6 +141,15 @@ pub(crate) fn exact_evaluator(family: ScalarIntegral) -> &'static ExactEvaluator
     })
 }
 
+pub(crate) fn jit_evaluator(family: ScalarIntegral) -> Result<JitEvaluator, String> {
+    let args = family
+        .parameters()
+        .into_iter()
+        .map(Symbol::to_atom)
+        .collect::<Vec<_>>();
+    OneLoopExpressions::new().jit_evaluator(family.series(&args).coefficients(), &args)
+}
+
 fn scalar_f64(family: Family, tag: usize, args: &[Complex<f64>]) -> Complex<f64> {
     family.check_arity(args.len());
     let _guard = EvaluationGuard::enter();

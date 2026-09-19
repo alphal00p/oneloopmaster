@@ -1,5 +1,5 @@
 //! Regression diagnostic of native/JIT one-mass triangle sheet intermediates.
-use symbolica::evaluate::JITCompiledEvaluator;
+use symbolica::evaluate::ExpressionEvaluator;
 use symbolica::prelude::*;
 
 fn call(name: &str, args: &[Atom]) -> Atom {
@@ -189,14 +189,12 @@ fn run() {
     let mut native = exact
         .clone()
         .map_coeff(&|c| Complex::new(c.re.to_f64(), c.im.to_f64()));
-    let mut jit = exact
-        .jit_compile::<Complex<f64>>(oneloop::jit_settings())
-        .unwrap();
-    let mut restored = JITCompiledEvaluator::<Complex<f64>>::import_portable(
-        &jit.export_portable().unwrap(),
-        oneloop::jit_settings(),
-    )
-    .unwrap();
+    let mut jit = native.jit_compile(oneloop::jit_settings()).unwrap();
+    let bytes = bincode::encode_to_vec(&native, bincode::config::standard()).unwrap();
+    let (source, consumed): (ExpressionEvaluator<Complex<f64>>, usize) =
+        bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+    assert_eq!(consumed, bytes.len());
+    let mut restored = source.jit_compile(oneloop::jit_settings()).unwrap();
     let mut failures = 0;
     for (line, values) in [
         (

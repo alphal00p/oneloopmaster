@@ -1,0 +1,89 @@
+diff --git a/src/evaluate/backend.rs b/src/evaluate/backend.rs
+--- a/src/evaluate/backend.rs
++++ b/src/evaluate/backend.rs
+@@ -1035,7 +1035,9 @@
+         let mut defuns = Defuns::new();
+         for f in external_functions {
+             if f.constant_index.is_some()
+-                || f.symbol.is_builtin() && f.symbol.get_evaluation_info().is_none()
++                || f.sub_evaluator.is_none()
++                    && f.symbol.is_builtin()
++                    && f.symbol.get_evaluation_info().is_none()
+             {
+                 continue;
+             }
+@@ -1221,7 +1223,9 @@
+ 
+         for f in external_functions {
+             if f.constant_index.is_some()
+-                || f.symbol.is_builtin() && f.symbol.get_evaluation_info().is_none()
++                || f.sub_evaluator.is_none()
++                    && f.symbol.is_builtin()
++                    && f.symbol.get_evaluation_info().is_none()
+             {
+                 continue;
+             }
+@@ -1368,7 +1372,9 @@
+ 
+         for f in external_functions {
+             if f.constant_index.is_some()
+-                || f.symbol.is_builtin() && f.symbol.get_evaluation_info().is_none()
++                || f.sub_evaluator.is_none()
++                    && f.symbol.is_builtin()
++                    && f.symbol.get_evaluation_info().is_none()
+             {
+                 continue;
+             }
+diff --git a/tests/jit_namespace.rs b/tests/jit_namespace.rs
+new file mode 100644
+--- /dev/null
++++ b/tests/jit_namespace.rs
+@@ -0,0 +1,48 @@
++#![cfg(feature = "native_code_generation")]
++
++use symbolica::{
++    atom::AtomCore,
++    domains::float::Complex,
++    evaluate::{FunctionMap, FunctionRegistrationOptions, InliningPolicy, JITCompilationSettings},
++    symbol,
++};
++
++#[test]
++fn jit_registers_user_helpers_in_symbolica_namespace() {
++    let x = symbol!("symbolica::jit_namespace_x");
++    let f = symbol!("symbolica::jit_namespace_f");
++    let g = symbol!("symbolica::jit_namespace_g");
++    assert!(f.is_builtin());
++    let mut functions = FunctionMap::new();
++    let options = FunctionRegistrationOptions::new().inlining(InliningPolicy::Never);
++    functions
++        .add_function_with_options(f, vec![x], x.to_atom() + 1, options.clone())
++        .unwrap();
++    functions
++        .add_function_with_options(g, vec![x], f.call((x,)) + 2, options)
++        .unwrap();
++    let exact = g
++        .call((x,))
++        .evaluator(&[x.to_atom()])
++        .function_map(functions)
++        .build()
++        .unwrap();
++    for direct in [false, true] {
++        let settings = JITCompilationSettings::new()
++            .direct_translation(direct)
++            .with_option("use_threads", "false");
++        let mut real = exact.jit_compile::<f64>(settings.clone()).unwrap();
++        let mut output = [0.];
++        real.evaluate(&[4.], &mut output);
++        assert_eq!(output, [7.]);
++        let mut complex = exact.jit_compile::<Complex<f64>>(settings.clone()).unwrap();
++        let mut output = [Complex::new(0., 0.)];
++        complex.evaluate(&[Complex::new(4., 2.)], &mut output);
++        assert_eq!(output, [Complex::new(7., 2.)]);
++        let mut vector = exact.jit_compile::<wide::f64x4>(settings).unwrap();
++        let input = wide::f64x4::new([1., 2., 3., 4.]);
++        let mut output = [wide::f64x4::ZERO];
++        vector.evaluate(&[input], &mut output);
++        assert_eq!(output, [input + wide::f64x4::splat(3.)]);
++    }
++}

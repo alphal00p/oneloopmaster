@@ -83,7 +83,7 @@ fn integer_powers_preserve_real_axis_signed_lips() {
                     assert!(actual.im.is_fully_zero());
                     let expected_negative = imaginary_negative ^ (real < 0 && exponent % 2 == 0);
                     assert_eq!(
-                        actual.im.is_negative(),
+                        actual.im.is_sign_negative(),
                         expected_negative,
                         "base={real}, exponent={exponent}, imaginary_negative={imaginary_negative}"
                     );
@@ -117,7 +117,7 @@ fn phase_preserves_axis_and_signed_zero_conventions() {
                     "atan2({imaginary}, {real})"
                 );
                 if actual.is_fully_zero() {
-                    assert_eq!(actual.is_negative(), y.is_negative());
+                    assert_eq!(actual.is_sign_negative(), y.is_sign_negative());
                 }
             }
         }
@@ -188,8 +188,8 @@ fn half_powers_use_the_precision_safe_square_root() {
                     // few final rounding bits; the branch lips must agree.
                     assert!((actual.re.clone() - expected.re.clone()).norm() < n(tolerance));
                     assert!((actual.im.clone() - expected.im.clone()).norm() < n(tolerance));
-                    assert_eq!(actual.re.is_negative(), expected.re.is_negative());
-                    assert_eq!(actual.im.is_negative(), expected.im.is_negative());
+                    assert_eq!(actual.re.is_sign_negative(), expected.re.is_sign_negative());
+                    assert_eq!(actual.im.is_sign_negative(), expected.im.is_sign_negative());
                 }
             }
         }

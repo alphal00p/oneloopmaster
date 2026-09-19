@@ -721,7 +721,7 @@ fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("DEFAULT_BACKEND", backend_name(oneloop::DEFAULT_BACKEND))?;
     module.add(
         "SYMBOLICA_REVISION",
-        "fb845d34bda8ccf1fedef6544d3aa46dc24944e3",
+        "821b02451256a92039a0665006628bd5d91470cc",
     )?;
     module.add("EXPRESSION_INTEROP", cfg!(feature = "community"))?;
     #[cfg(feature = "community")]

@@ -1,0 +1,233 @@
+diff --git a/src/evaluate.rs b/src/evaluate.rs
+index 7707763..950ad7e 100644
+--- a/src/evaluate.rs
++++ b/src/evaluate.rs
+@@ -47,8 +47,8 @@ pub use export::*;
+ pub use external::*;
+ pub use function_map::*;
+ pub use instruction::{
+-    ComplexPhase, ExportedInstructions, ExportedSubEvaluator, Instruction, InstructionList, Label,
+-    Slot, VectorInstruction,
++    ComplexPhase, ExportedConstantFunction, ExportedInstructions, ExportedSubEvaluator,
++    Instruction, InstructionList, Label, Slot, VectorInstruction,
+ };
+ pub use optimize::*;
+ pub use tree::*;
+diff --git a/src/evaluate/instruction.rs b/src/evaluate/instruction.rs
+index b39e570..13d1147 100644
+--- a/src/evaluate/instruction.rs
++++ b/src/evaluate/instruction.rs
+@@ -150,8 +150,16 @@ pub struct ExportedInstructions<T> {
+     pub instructions: Vec<Instruction>,
+     /// The number of temporary storage slots required to execute `instructions`.
+     pub temporary_count: usize,
+-    /// Constant values referenced by [`Slot::Const`].
++    /// Constant values referenced by [`Slot::Const`]. Slots listed in
++    /// [`Self::constant_functions`] may contain rational placeholders in an exact
++    /// evaluator; resolve their definitions at the target precision before use.
+     pub constants: Vec<T>,
++    /// Symbolic definitions of constant slots evaluated by registered functions.
++    ///
++    /// In exact evaluators these slots can contain rational placeholders, not
++    /// the value of the registered constant. A consumer must resolve these
++    /// definitions at its target precision before using the constant slots.
++    pub constant_functions: Vec<ExportedConstantFunction>,
+     /// Locally defined evaluators called by [`Instruction::Fun`] instructions in this stream.
+     ///
+     /// A call resolves to a sub-evaluator when its symbol and tags match the corresponding fields
+@@ -160,6 +168,19 @@ pub struct ExportedInstructions<T> {
+     pub sub_evaluators: Vec<ExportedSubEvaluator<T>>,
+ }
+ 
++/// An exact registered constant or fixed-argument function in a constant slot.
++#[derive(Debug, Clone)]
++pub struct ExportedConstantFunction {
++    /// Index in [`ExportedInstructions::constants`], not in temporary storage.
++    pub index: usize,
++    /// Registered function or constant symbol.
++    pub symbol: Symbol,
++    /// Canonical function tags, in their original order.
++    pub tags: Vec<String>,
++    /// Exact numerical arguments; empty for a registered constant such as pi.
++    pub fixed_args: Vec<Complex<Rational>>,
++}
++
+ /// A non-inlined function body exported alongside an instruction stream.
+ ///
+ /// The `symbol` and `tags` fields form the call signature and match the corresponding values in an
+@@ -189,6 +210,8 @@ impl<T: Clone> ExpressionEvaluator<T> {
+     /// - [`ExportedInstructions::instructions`] is the linear instruction list.
+     /// - [`ExportedInstructions::temporary_count`] is the number of temporary slots required.
+     /// - [`ExportedInstructions::constants`] contains the values addressed by [`Slot::Const`].
++    /// - [`ExportedInstructions::constant_functions`] identifies registered constants and
++    ///   fixed-argument functions whose slots must be resolved at the target precision.
+     /// - [`ExportedInstructions::sub_evaluators`] contains bodies for non-inlined functions. A
+     ///   function instruction without a matching sub-evaluator is an ordinary external call.
+     ///
+@@ -196,6 +219,24 @@ impl<T: Clone> ExpressionEvaluator<T> {
+     pub fn export_instructions(&self) -> ExportedInstructions<T> {
+         let mut instr = vec![];
+         let constants: Vec<_> = self.stack[self.param_count..self.reserved_indices].to_vec();
++        let constant_functions = self
++            .external_fns
++            .iter()
++            .filter_map(|external| {
++                external
++                    .constant_index
++                    .map(|index| ExportedConstantFunction {
++                        index,
++                        symbol: external.symbol,
++                        tags: external
++                            .tags
++                            .iter()
++                            .map(|tag| tag.to_canonical_string())
++                            .collect(),
++                        fixed_args: external.fixed_args.clone(),
++                    })
++            })
++            .collect();
+         let sub_evaluators = self
+             .external_fns
+             .iter()
+@@ -331,6 +372,7 @@ impl<T: Clone> ExpressionEvaluator<T> {
+             instructions: instr,
+             temporary_count: self.stack.len() - self.reserved_indices,
+             constants,
++            constant_functions,
+             sub_evaluators,
+         }
+     }
+diff --git a/tests/exported_constants.rs b/tests/exported_constants.rs
+new file mode 100644
+index 0000000..f6df243
+--- /dev/null
++++ b/tests/exported_constants.rs
+@@ -0,0 +1,128 @@
++use symbolica::{
++    atom::{Atom, AtomCore, EvaluationInfo, Symbol},
++    domains::float::{Complex, Float},
++    evaluate::{ExpressionEvaluator, FunctionMap, FunctionRegistrationOptions, InliningPolicy},
++    parse, symbol,
++};
++
++fn check_constants(exact: &ExpressionEvaluator<Complex<symbolica::domains::rational::Rational>>) {
++    let exported = exact.export_instructions();
++    assert!(!exported.constant_functions.is_empty());
++    for bits in [53, 128, 512] {
++        let convert = |c: &Complex<symbolica::domains::rational::Rational>| {
++            Complex::new(
++                c.re.to_multi_prec_float(bits),
++                c.im.to_multi_prec_float(bits),
++            )
++        };
++        let numeric = exact
++            .clone()
++            .map_coeff_with_prec(&convert, bits)
++            .export_instructions();
++        let mut reconstructed: Vec<_> = exported.constants.iter().map(convert).collect();
++        let mut indices = std::collections::HashSet::new();
++        for constant in &exported.constant_functions {
++            assert!(indices.insert(constant.index));
++            assert!(constant.index < reconstructed.len());
++            let tags = constant
++                .tags
++                .iter()
++                .map(|tag| parse!(tag))
++                .collect::<Vec<_>>();
++            let tags = tags.iter().map(Atom::as_view).collect::<Vec<_>>();
++            let info = constant.symbol.get_evaluation_info().unwrap();
++            let value = if info.has_constant_evaluator() {
++                assert!(constant.fixed_args.is_empty());
++                info.evaluate_constant(&tags, bits).unwrap()
++            } else {
++                let callback = info.get_evaluator::<Complex<Float>>(&tags).unwrap();
++                callback(&constant.fixed_args.iter().map(convert).collect::<Vec<_>>())
++            };
++            reconstructed[constant.index] = value;
++        }
++        assert_eq!(reconstructed, numeric.constants);
++        // Exporting after coefficient conversion must retain the same definitions.
++        assert_eq!(
++            exported.constant_functions.len(),
++            numeric.constant_functions.len()
++        );
++        for (a, b) in exported
++            .constant_functions
++            .iter()
++            .zip(&numeric.constant_functions)
++        {
++            assert_eq!(
++                (a.index, a.symbol, &a.tags, &a.fixed_args),
++                (b.index, b.symbol, &b.tags, &b.fixed_args)
++            );
++        }
++    }
++}
++
++#[test]
++fn exact_exports_retain_registered_constants_tags_and_fixed_arguments() {
++    let tagged = symbol!(
++        "symbolica::exported_constants::tagged",
++        eval = EvaluationInfo::constant(|tags, bits| {
++            Ok(Float::with_val(bits, if tags[0] == 3 { 11 } else { 17 }).into())
++        })
++        .with_tags(1)
++    );
++    let expression = parse!("pi + polylog(2,1/4)") + tagged.call((3,)) + tagged.call((5,));
++    let exact = expression.evaluator(&[] as &[Atom]).build().unwrap();
++    check_constants(&exact);
++    let exported = exact.export_instructions();
++    assert!(
++        exported
++            .constant_functions
++            .iter()
++            .any(|c| c.symbol == Symbol::PI)
++    );
++    let polylog = exported
++        .constant_functions
++        .iter()
++        .find(|c| c.symbol == symbolica::transcendental::polylog())
++        .unwrap();
++    assert_eq!(polylog.tags, ["2"]);
++    assert_eq!(polylog.fixed_args, [Complex::new((1, 4).into(), 0.into())]);
++    let mut tags = exported
++        .constant_functions
++        .iter()
++        .filter(|c| c.symbol == tagged)
++        .map(|c| c.tags.clone())
++        .collect::<Vec<_>>();
++    tags.sort();
++    assert_eq!(tags, [vec!["3".to_owned()], vec!["5".to_owned()]]);
++
++    #[cfg(feature = "bincode")]
++    {
++        let bytes = bincode::encode_to_vec(&exact, bincode::config::standard()).unwrap();
++        let (restored, consumed) =
++            bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
++        assert_eq!(consumed, bytes.len());
++        check_constants(&restored);
++    }
++}
++
++#[test]
++fn nested_exports_keep_lifted_constant_definitions() {
++    let x = symbol!("symbolica::exported_constants::x");
++    let f = symbol!("symbolica::exported_constants::f");
++    let mut map = FunctionMap::new();
++    let options = FunctionRegistrationOptions::new().inlining(InliningPolicy::Never);
++    map.add_function_with_options(
++        f,
++        vec![x],
++        parse!("pi + polylog(2,1/4)") + x,
++        options.clone(),
++    )
++    .unwrap();
++    let exact = f
++        .call((x,))
++        .evaluator(&[x.to_atom()])
++        .function_map(map)
++        .build()
++        .unwrap();
++    check_constants(&exact);
++    assert!(!exact.export_instructions().sub_evaluators.is_empty());
++}

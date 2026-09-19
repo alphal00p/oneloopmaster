@@ -13,7 +13,7 @@ fn evaluate_series<const N: usize>(
     let mut map = FunctionMap::new();
     sheet_exact::register(&mut map);
     let evaluator = Atom::evaluator_multiple(&views, parameters)
-        .function_map(map)
+        .function_map(map.into())
         .build()
         .unwrap();
     let mut evaluator = evaluator
@@ -901,7 +901,7 @@ fn triangle_single_width_regression() {
         sheet_exact::register(&mut map);
         let mut evaluator = expression
             .evaluator(&args)
-            .function_map(map)
+            .function_map(map.into())
             .direct_translation(true)
             .build()
             .unwrap()
