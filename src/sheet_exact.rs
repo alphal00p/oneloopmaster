@@ -97,8 +97,21 @@ fn dilog_symbol() -> Symbol {
 }
 
 pub(crate) fn register(function_map: &mut FunctionMap) {
+    register_impl(function_map, false);
+}
+
+pub(crate) fn register_for_inspection(function_map: &mut FunctionMap) {
+    register_impl(function_map, true);
+}
+
+fn register_impl(function_map: &mut FunctionMap, grouped_predicates: bool) {
     let sign_arg = symbolica::symbol!("__olo_sign_argument");
     let x = sign_arg.to_atom();
+    let component = if grouped_predicates {
+        super::grouped(&x)
+    } else {
+        x.clone()
+    };
     function_map
         .add_function_with_options(
             symbolica::symbol!("__olo_sqrt_lower"),
@@ -111,21 +124,33 @@ pub(crate) fn register(function_map: &mut FunctionMap) {
         .add_function(
             symbolica::symbol!("__olo_real_part"),
             vec![sign_arg],
-            (&x + x.conj()) / 2,
+            (&component + component.conj()) / 2,
         )
         .unwrap();
     function_map
         .add_function(
             symbolica::symbol!("__olo_imaginary_part"),
             vec![sign_arg],
-            (&x - x.conj()) / (Atom::num(2) * i()),
+            (&component - component.conj()) / (Atom::num(2) * i()),
         )
         .unwrap();
+    // In a FunctionMap, x is a bound parameter evaluated once. In an inlined
+    // expression, preserve that arithmetic grouping so x-|x| cannot acquire a
+    // nonzero rounding residue from differently flattened copies of x.
+    let sign_value = if grouped_predicates {
+        super::grouped(&x)
+    } else {
+        x.clone()
+    };
     function_map
         .add_function(
             symbolica::symbol!("__olo_sign_nonnegative"),
             vec![sign_arg],
-            choose(&(&x - Symbol::ABS.call((&x,))), Atom::num(-1), Atom::num(1)),
+            choose(
+                &(&sign_value - Symbol::ABS.call((&sign_value,))),
+                Atom::num(-1),
+                Atom::num(1),
+            ),
         )
         .unwrap();
     let args = [

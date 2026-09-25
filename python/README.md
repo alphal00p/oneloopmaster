@@ -320,23 +320,35 @@ parametric expression valid in the selected analytic region, not a global
 replacement for the original expression across branch boundaries.
 See the [inspection guide](../EXPRESSION_INSPECTION.md) for expansion budgets.
 
-For a large C0/D0 expression, provide `branch_rules` directly to `get_expression`
-so unused branches are pruned **before** expansion:
+For a large generic C0/D0 expression, use `shared=True` to store every branch
+with native Symbolica common-subexpression bindings, then call `select_branch`.
+The case `C0(0,-a,a,a,a,b,mu2)` also works as an ordinary complete expression:
 
 ```python
 mass2, mass2B, mu2 = S("mass2", "mass2B", "mu2")
 master = S("oneloopmaster::C0")(0, -mass2, mass2, mass2, mass2, mass2B, mu2)
 probes = [Replacement(mass2, N(2)), Replacement(mass2B, N(1)),
           Replacement(mu2, N(1))]
-selected = olo.get_expression(master, branch_rules=probes, max_nodes=100_000_000)
+complete = olo.get_expression(master)
+selected = olo.select_branch(complete, probes)
 assert olo.select_branch(selected, probes) == selected
 ```
 
-The original nested call without `branch_rules` first constructs all branches
-and can exceed the node budget before `select_branch` runs. The new keyword uses
-the same condition-only semantics, retains symbolic masses in the result, and
-does not change the default all-branches API. It also accepts `coefficient=` and
-the usual expansion limits.
+For a fully generic master, `complete = olo.get_expression(master, shared=True)`
+returns three `SharedExpression` objects. Each exposes a native Expression
+`.root`, a list of `(alias, defining Expression)` pairs in `.definitions`, and
+cheap `.num_definitions` metadata. Every branch is stored, without opaque
+OneLOop helpers. `select_branch(complete, probes)` returns ordinary parametric
+Expressions; `.to_expression(max_nodes=...)` explicitly unfolds all bindings
+when feasible. Do not evaluate a shared root alone without its definitions.
+The Rust representation is Symbolica's native `AliasedAtom`.
+
+`branch_rules=probes` remains available for early selection into ordinary
+Expressions; do not combine it with `shared=True`. Fully duplicated generic
+C0/D0 trees can be enormous even though the complete shared form is practical.
+Variable probes with standard matching settings are evaluated directly on the
+shared graph; compound patterns and custom matching settings use bounded
+predicate expansion to preserve native matching semantics.
 
 Return order is `(finite, simple_pole, double_pole)`; `coefficient=0`, `-1`, or
 `-2` selects one Expression. `select_branch` preserves a single Expression,

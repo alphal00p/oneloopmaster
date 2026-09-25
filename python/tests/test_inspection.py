@@ -13,7 +13,29 @@ class ExpressionInspection(unittest.TestCase):
             check(module)
         on_symbolica_thread(run)
 
-    def test_massive_triangle_selects_during_expansion_and_matches_compact_identity(self):
+    def test_generic_box_selects_after_complete_shared_expansion(self):
+        def check(module):
+            from symbolica import N, Replacement, S
+            parameters = S(*(f"shared_python_d0_{i}" for i in range(11)))
+            master = S("oneloopmaster::D0")(*parameters)
+            full = module.get_expression(master, shared=True)
+            self.assertGreater(full[0].num_definitions, 0)
+            point = [-1, -2, -3, -4, -5, -6, 7, 8, 9, 10, 11]
+            # Python defaults include a True condition and an RHS cache of 100.
+            # These must use the same fast DAG probing path as Rust defaults.
+            rules = [Replacement(p, N(v)) for p, v in zip(parameters, point)]
+            selected = module.select_branch(full, rules)
+            self.assertNotIn("if(", str(selected))
+            self.assertNotIn("__olo_", str(selected))
+            self.assertGreaterEqual(len(selected[0].get_all_symbols(False)), 10)
+            actual = selected[0].evaluate(dict(zip(parameters, point)),
+                                          decimal_digit_precision=60).to_decimal_tuple()
+            reference = module.D0(*point[:-1], mu_squared=point[-1], prec=60)[0]
+            for got, want in zip(actual, [reference.real, reference.imag]):
+                self.assertLess(abs(got - want), Decimal("1e-45"))
+        self.in_host(check)
+
+    def test_massive_triangle_selects_after_complete_expansion(self):
         def check(module):
             from symbolica import N, Replacement, S
             # Deliberately untyped: probe rules, not a separate assumption list,
@@ -21,9 +43,10 @@ class ExpressionInspection(unittest.TestCase):
             a, b, mu = S("branch_expansion_a", "branch_expansion_b", "branch_expansion_mu")
             master = S("oneloopmaster::C0")(0, -a, a, a, a, b, mu)
             rules = [Replacement(a, N(2)), Replacement(b, N(1)), Replacement(mu, N(1))]
-            result = module.get_expression(master, branch_rules=rules, max_nodes=100_000_000)
+            result = module.get_expression(master, max_nodes=100_000_000)
             selected = module.select_branch(result, rules)
-            self.assertEqual(selected, result)
+            self.assertIn("if(", str(result))
+            self.assertEqual(selected, module.get_expression(master, branch_rules=rules))
             self.assertNotIn("if(", str(selected))
             self.assertNotIn("__olo_", str(selected))
             self.assertEqual(selected[1:], (N(0), N(0)))
@@ -34,14 +57,14 @@ class ExpressionInspection(unittest.TestCase):
             r = b / a
             d, e = (r*r + 4)**(N(1)/2), (r*(r - 4))**(N(1)/2)
             li2 = lambda z: S("polylog")(2, z)
-            independent = (li2((-r+d)/2) + li2((-r-d)/2)
+            identity = (li2((-r+d)/2) + li2((-r-d)/2)
                            - li2((2-r+e)/2) - li2((2-r-e)/2)) / (2*a)
             # Check several points in the selected region, not just the probe:
             # accidental substitution of the returned body would fail here.
             for av, bv, scale in [(2, 1, 1), (2, 1, 7), (4, 2, 3), (3, 1, 1)]:
                 values = {a: av, b: bv, mu: scale}
                 actual = selected[0].evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
-                expected = independent.evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
+                expected = identity.evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
                 native = module.C0(0, -av, av, av, av, bv, mu_squared=scale, prec=60)
                 for got, want, reference in zip(actual, expected, [native[0].real, native[0].imag]):
                     self.assertLess(abs(got - want), Decimal("1e-45"))
@@ -58,12 +81,40 @@ class ExpressionInspection(unittest.TestCase):
                             is_positive=True)
             positive_master = S("oneloopmaster::C0")(0, -ap, ap, ap, ap, bp, mup)
             positive_rules = [Replacement(ap, N(2)), Replacement(bp, N(1)), Replacement(mup, N(1))]
-            positive_result = module.get_expression(positive_master, branch_rules=positive_rules,
-                                                    max_nodes=100_000_000)
+            positive_result = module.select_branch(module.get_expression(positive_master),positive_rules)
             self.assertNotIn("if(", str(positive_result))
             self.assertEqual(positive_result[1:], (N(0), N(0)))
             self.assertLess(abs(positive_result[0].evaluate({ap: 2, bp: 1, mup: 1})
                                 + 0.31341398580589156), 1e-12)
+        self.in_host(check)
+
+    def test_complete_shared_expressions_are_transparent_and_select_to_expressions(self):
+        def check(module):
+            from symbolica import Expression, N, Replacement, S
+            x = S("shared_python_s", is_real=True)
+            m = S("shared_python_m", is_positive=True)
+            master = S("oneloopmaster::B0")(x, m, m, 1)
+            full = module.get_expression(master, shared=True)
+            self.assertTrue(all(isinstance(c,module.SharedExpression) for c in full))
+            self.assertIsInstance(full[0].root,Expression)
+            self.assertGreater(len(full[0].definitions),0)
+            for alias,body in full[0].definitions:
+                self.assertIsInstance(alias,Expression)
+                self.assertIsInstance(body,Expression)
+                self.assertNotIn("__olo_",str(body))
+            for sample in [N(3),N("3.23"),N(-2),N(0),N(4),N(5)]:
+                rules = [Replacement(m,N(1)),Replacement(x,sample)]
+                selected = module.select_branch(full,rules)
+                plain = module.select_branch(module.get_expression(master),rules)
+                self.assertTrue(all(isinstance(c,Expression) for c in selected))
+                self.assertNotIn("if(",str(selected))
+                for actual,expected in zip(selected,plain):
+                    # Shared bindings can change redundant arithmetic grouping.
+                    av = actual.replace_multiple(rules).evaluate({})
+                    ev = expected.replace_multiple(rules).evaluate({})
+                    self.assertLess(abs(av-ev),1e-12)
+            with self.assertRaises(ValueError):
+                module.get_expression(master,shared=True,branch_rules=[])
         self.in_host(check)
 
     def test_readme_parametric_equal_mass_bubble_expression(self):

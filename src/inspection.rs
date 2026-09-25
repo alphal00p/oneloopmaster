@@ -2,11 +2,25 @@
 use crate::definitions::FunctionMap;
 use crate::{LaurentSeries, ScalarIntegral};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol},
     id::Replacement,
     transcendental::TranscendentalFunctions,
 };
+
+#[path = "inspection_graph.rs"]
+mod graph;
+pub use graph::{
+    SharedLaurentSeries, get_expression_shared, get_expression_shared_with_options,
+    select_branch_shared,
+};
+
+pub(crate) fn prepare_symbols() {
+    let _ = crate::inspection_formulas::definitions();
+    let _ = graph::alias_symbols();
+    let _ = symbolica::symbol!("oneloopmaster::__olo_expression_thunk");
+}
 
 /// Resource limits for fully substituting the transparent native definitions.
 ///
@@ -14,8 +28,8 @@ use symbolica::{
 /// fail explicitly; they never return a truncated formula or opaque helper.
 #[derive(Clone, Copy, Debug)]
 pub struct ExpressionOptions {
-    /// Cumulative expression nodes visited or materialized, including memoized
-    /// result copies. This is a work bound, not just the final expression size.
+    /// Maximum nodes in a materialized expression and unique expansion work.
+    /// Reusing a cached subtree does not consume its entire size again.
     pub max_nodes: usize,
     /// Maximum recursive expression/definition depth.
     pub max_depth: usize,
@@ -24,7 +38,7 @@ pub struct ExpressionOptions {
 impl Default for ExpressionOptions {
     fn default() -> Self {
         Self {
-            max_nodes: 1_000_000,
+            max_nodes: 10_000_000,
             max_depth: 512,
         }
     }
@@ -142,6 +156,16 @@ fn expand_family(
     options: ExpressionOptions,
     branch_rules: Option<&[Replacement]>,
 ) -> Result<LaurentSeries, String> {
+    expand_family_impl(family, arguments, options, branch_rules, None).map(|(series, _)| series)
+}
+
+fn expand_family_impl(
+    family: ScalarIntegral,
+    arguments: &[Atom],
+    options: ExpressionOptions,
+    branch_rules: Option<&[Replacement]>,
+    graph: Option<graph::GraphBuilder>,
+) -> Result<(LaurentSeries, Option<graph::GraphBuilder>), String> {
     if arguments.len() != family.arity() {
         return Err(format!(
             "{} expects {} arguments including mu_squared last; received {}",
@@ -160,7 +184,8 @@ fn expand_family(
         ScalarIntegral::C0 => crate::C0(),
         ScalarIntegral::D0 => crate::D0(),
     };
-    let mut expansion = Expansion::new(crate::expressions::shared_definitions(), options);
+    let mut expansion = Expansion::new(crate::inspection_formulas::definitions(), options);
+    expansion.graph = graph;
     expansion.branch_rules = branch_rules.map(|rules| {
         rules
             .iter()
@@ -168,7 +193,7 @@ fn expand_family(
             .collect()
     });
     let specialized = if family == ScalarIntegral::C0 {
-        one_mass_one_scale_triangle(arguments)
+        opposite_invariants_triangle(arguments).or_else(|| one_mass_one_scale_triangle(arguments))
     } else {
         None
     };
@@ -180,7 +205,11 @@ fn expand_family(
             || master.call(&call),
             |series| series.coefficients()[index].clone(),
         );
-        let coefficient = expansion.expand(body.as_view(), 0, 0)?.atom;
+        let coefficient = expansion
+            .expand(body.as_view(), 0, 0)?
+            .atom
+            .as_ref()
+            .clone();
         let mut leftover = None;
         coefficient.visitor(&mut |view| {
             if let Some(symbol) = view.get_symbol()
@@ -205,10 +234,52 @@ fn expand_family(
         }
         coefficients.push(coefficient);
     }
-    Ok(LaurentSeries::new(
-        coefficients.remove(0),
-        coefficients.remove(0),
-        coefficients.remove(0),
+    Ok((
+        LaurentSeries::new(
+            coefficients.remove(0),
+            coefficients.remove(0),
+            coefficients.remove(0),
+        ),
+        expansion.graph,
+    ))
+}
+
+/// Integrate the linear Feynman parameter first for C0(0,-a,a,a,a,b).
+/// The remaining logarithm factors into two quadratics, giving four dilogs.
+/// This includes the a=0 sector and both real-axis lips; it is not a probe-
+/// selected formula. For physical masses Im(a),Im(b)<=0, b/a lies off the
+/// negative real cut unless both masses are real and have opposite signs.
+fn opposite_invariants_triangle(arguments: &[Atom]) -> Option<LaurentSeries> {
+    let a = &arguments[2];
+    let b = &arguments[5];
+    if !arguments[0].is_zero() || arguments[1] != -a || arguments[3] != a || arguments[4] != a {
+        return None;
+    }
+    let r = b / a;
+    let d = (r.pow(2) + 4).sqrt();
+    let e = (&r * (&r - 4)).sqrt();
+    // On r<0 each dilog cut argument approaches from the side opposite to r.
+    // For real physical masses that side is upper for a>0, lower for a<0.
+    let lip = crate::sheet_exact::sign_nonnegative(&crate::sheet_exact::re(a));
+    let li2 = |z: Atom| {
+        let cut =
+            Symbol::PI.to_atom().pow(2) / 6 - crate::dilog_atom(1 - &z) - z.log() * (&z - 1).log()
+                + crate::sheet_exact::i() * Symbol::PI.to_atom() * &lip * z.log();
+        let real = crate::if_nonzero_else(
+            &crate::sheet_exact::negative(&(1 - &z)),
+            cut,
+            crate::dilog_atom(&z),
+        );
+        crate::if_nonzero_else(&crate::sheet_exact::im(&z), crate::dilog_atom(&z), real)
+    };
+    let finite =
+        (li2((-&r + &d) / 2) + li2((-&r - d) / 2) - li2((2 - &r + &e) / 2) - li2((2 - &r - e) / 2))
+            / (2 * a);
+    let zero_a_finite = crate::if_nonzero(b, (1 - crate::physical_log(&(b / &arguments[6]))) / b);
+    Some(LaurentSeries::new(
+        crate::if_nonzero_else(a, finite, zero_a_finite),
+        crate::if_nonzero_else(a, Atom::num(0), crate::if_nonzero(b, Atom::num(1) / b)),
+        Atom::num(0),
     ))
 }
 
@@ -282,8 +353,7 @@ impl ScalarIntegral {
 
 #[derive(Clone, Debug)]
 struct Expanded {
-    atom: Atom,
-    nodes: usize,
+    atom: Arc<Atom>,
 }
 
 fn helper_name(symbol: Symbol) -> Option<&'static str> {
@@ -336,14 +406,24 @@ struct Expansion<'a> {
     options: ExpressionOptions,
     work: usize,
     scopes: Vec<Scope>,
-    memo: HashMap<(usize, Atom), Expanded>,
-    compact_memo: HashMap<(usize, Atom), Expanded>,
-    calls: HashMap<Atom, Expanded>,
+    memo: HashMap<(usize, usize, bool, Atom), Expanded>,
+    compact_memo: HashMap<(usize, usize, bool, Atom), Expanded>,
+    calls: HashMap<(usize, bool, Arc<Atom>), Expanded>,
     closed_definitions: HashMap<Atom, bool>,
+    used_parameters: HashMap<Atom, Vec<bool>>,
     // A fresh expansion owns its probe context. No cache is shared across calls
     // with different rules or between all-branches and branch-selected modes.
     branch_rules: Option<Vec<Replacement>>,
     condition_memo: HashMap<Atom, Option<bool>>,
+    graph: Option<graph::GraphBuilder>,
+    aliases: HashMap<Atom, Atom>,
+    active_aliases: HashSet<Atom>,
+    context: usize,
+    contexts: Vec<Option<(usize, Atom, bool)>>,
+    compact_thunks: HashMap<Atom, Atom>,
+    thunk_intern: HashMap<Atom, Atom>,
+    preserve_predicate: bool,
+    graph_probe: Option<graph::NumericProbe>,
 }
 
 impl<'a> Expansion<'a> {
@@ -361,12 +441,36 @@ impl<'a> Expansion<'a> {
             compact_memo: HashMap::new(),
             calls: HashMap::new(),
             closed_definitions: HashMap::new(),
+            used_parameters: HashMap::new(),
             branch_rules: None,
             condition_memo: HashMap::new(),
+            graph: None,
+            aliases: HashMap::new(),
+            active_aliases: HashSet::new(),
+            context: 0,
+            contexts: vec![None],
+            compact_thunks: HashMap::new(),
+            thunk_intern: HashMap::new(),
+            preserve_predicate: false,
+            graph_probe: None,
         }
     }
 
     fn condition_truth(&mut self, condition: &Atom) -> Option<bool> {
+        if self.preserve_predicate {
+            return if let AtomView::Num(number) = condition.as_view() {
+                Some(!number.is_zero())
+            } else {
+                None
+            };
+        }
+        let mut context = self.context;
+        while let Some((parent, predicate, truth)) = &self.contexts[context] {
+            if predicate == condition {
+                return Some(*truth);
+            }
+            context = *parent;
+        }
         if let Some(rules) = &self.branch_rules {
             if let Some(value) = self.condition_memo.get(condition) {
                 return *value;
@@ -382,6 +486,39 @@ impl<'a> Expansion<'a> {
         }
     }
 
+    fn expand_arm(
+        &mut self,
+        input: AtomView<'_>,
+        scope: usize,
+        depth: usize,
+        condition: &Atom,
+        truth: bool,
+    ) -> Result<Expanded, String> {
+        if self.graph.is_some() || self.preserve_predicate {
+            return self.expand(input, scope, depth);
+        }
+        let previous = self.context;
+        self.context = self.contexts.len();
+        self.contexts
+            .push(Some((previous, condition.clone(), truth)));
+        let result = self.expand(input, scope, depth);
+        self.context = previous;
+        result
+    }
+
+    fn expand_condition(
+        &mut self,
+        input: AtomView<'_>,
+        scope: usize,
+        depth: usize,
+    ) -> Result<Expanded, String> {
+        let previous = self.preserve_predicate;
+        self.preserve_predicate |= self.branch_rules.is_some();
+        let result = self.expand(input, scope, depth);
+        self.preserve_predicate = previous;
+        result
+    }
+
     fn charge(&mut self, nodes: usize) -> Result<(), String> {
         self.work = self
             .work
@@ -395,20 +532,62 @@ impl<'a> Expansion<'a> {
 
     fn budget_error(&self) -> String {
         format!(
-            "complete expression expansion exceeded max_nodes={}; supply branch_rules to Python get_expression (Rust: get_expression_on_branch), raise the explicit budget, or use compact OneLoopExpressions with its FunctionMap",
-            self.options.max_nodes
+            "complete expression expansion exceeded max_nodes={} ({} expansion visits); raise the explicit budget or select a branch during construction",
+            self.options.max_nodes, self.work
         )
     }
 
     fn finish(&mut self, atom: Atom) -> Result<Expanded, String> {
-        let mut nodes = 0usize;
-        let remaining = self.options.max_nodes.saturating_sub(self.work);
-        atom.visitor(&mut |_| {
-            nodes = nodes.saturating_add(1);
-            nodes <= remaining
-        });
-        self.charge(nodes)?;
-        Ok(Expanded { atom, nodes })
+        // Serialized bytes bound the node count from above. Only traverse a
+        // large result when the inexpensive byte bound cannot certify it.
+        // In particular, do not recount every child whenever a parent is built.
+        if atom.as_view().get_byte_size() > self.options.max_nodes {
+            let mut nodes = 0usize;
+            atom.visitor(&mut |_| {
+                nodes = nodes.saturating_add(1);
+                nodes <= self.options.max_nodes
+            });
+            if nodes > self.options.max_nodes {
+                return Err(format!(
+                    "{}; materialized subtree has at least {nodes} nodes ({} bytes)",
+                    self.budget_error(),
+                    atom.as_view().get_byte_size()
+                ));
+            }
+        }
+        Ok(Expanded {
+            atom: Arc::new(atom),
+        })
+    }
+
+    fn finish_expanded(&mut self, atom: Atom) -> Result<Expanded, String> {
+        let atom = if let Some(graph) = &mut self.graph {
+            graph.intern(atom)
+        } else {
+            atom
+        };
+        self.finish(atom)
+    }
+
+    fn finish_compact(&mut self, atom: Atom) -> Result<Expanded, String> {
+        if let Some(graph) = &self.graph
+            && !matches!(atom.as_view(), AtomView::Num(_) | AtomView::Var(_))
+            && !self.compact_thunks.contains_key(&atom)
+        {
+            if let Some(alias) = self.thunk_intern.get(&atom) {
+                return Ok(Expanded {
+                    atom: Arc::new(alias.clone()),
+                });
+            }
+            let alias = symbolica::symbol!("oneloopmaster::__olo_expression_thunk")
+                .call((graph.id, self.compact_thunks.len()));
+            self.compact_thunks.insert(alias.clone(), atom.clone());
+            self.thunk_intern.insert(atom, alias.clone());
+            return Ok(Expanded {
+                atom: Arc::new(alias),
+            });
+        }
+        self.finish(atom)
     }
 
     fn binding(&self, atom: AtomView<'_>, mut scope: usize) -> Option<(Atom, usize)> {
@@ -477,6 +656,76 @@ impl<'a> Expansion<'a> {
         closed
     }
 
+    // A sheet component often uses only two of its six formal arguments.
+    // Do not copy the other four (recursively growing sheet histories) merely
+    // to construct a memo key. This changes neither the body nor its branches.
+    fn used_parameters(
+        &mut self,
+        call: AtomView<'_>,
+        active: &mut HashSet<Atom>,
+    ) -> Option<Vec<bool>> {
+        // Open definitions may capture a caller's parameter through a callee
+        // with no explicit arguments. Keep all arguments in that case.
+        if !self.closed_definition(call, &mut HashSet::new()) {
+            return None;
+        }
+        let (tags, parameters, body) = self.map.get_definition(call)?;
+        let key = match call {
+            AtomView::Fun(f) => f.get_symbol().call(
+                &f.iter()
+                    .take(tags)
+                    .map(|a| a.to_owned())
+                    .collect::<Vec<_>>(),
+            ),
+            _ => call.to_owned(),
+        };
+        if let Some(used) = self.used_parameters.get(&key) {
+            return Some(used.clone());
+        }
+        if !active.insert(key.clone()) {
+            return Some(vec![true; parameters.len()]);
+        }
+        let parameters = parameters
+            .iter()
+            .map(|p| p.as_view().to_owned())
+            .collect::<Vec<_>>();
+        let body = body.clone();
+        let mut used = vec![false; parameters.len()];
+        let mut pending = vec![body.as_view()];
+        while let Some(view) = pending.pop() {
+            if let Some(i) = parameters.iter().position(|p| p.as_view() == view) {
+                used[i] = true;
+                continue;
+            }
+            match view {
+                AtomView::Fun(f) => {
+                    if let Some(callee_used) = self.used_parameters(view, active) {
+                        let (tags, _, _) = self.map.get_definition(view).unwrap();
+                        pending.extend(f.iter().take(tags));
+                        pending.extend(
+                            f.iter()
+                                .skip(tags)
+                                .zip(callee_used)
+                                .filter_map(|(a, used)| used.then_some(a)),
+                        );
+                    } else {
+                        pending.extend(f.iter());
+                    }
+                }
+                AtomView::Pow(p) => {
+                    let (a, b) = p.get_base_exp();
+                    pending.extend([a, b]);
+                }
+                AtomView::Mul(m) => pending.extend(m.iter()),
+                AtomView::Add(a) => pending.extend(a.iter()),
+                _ => {}
+            }
+        }
+        active.remove(&key);
+        self.used_parameters.insert(key, used.clone());
+        Some(used)
+    }
+
     // Substitute actual arguments without expanding registered definitions.
     // Equivalent calls from different lexical scopes then share one result.
     // Numeric IF conditions still prune their dead arms before substitution.
@@ -493,17 +742,23 @@ impl<'a> Expansion<'a> {
             ));
         }
         self.charge(1)?;
-        let key = (scope, input.to_owned());
+        let key = (
+            scope,
+            self.context,
+            self.preserve_predicate,
+            input.to_owned(),
+        );
         if let Some(cached) = self.compact_memo.get(&key) {
             let cached = cached.clone();
-            self.charge(cached.nodes)?;
             return Ok(cached);
         }
-        let result = if let Some((value, caller)) = self.binding(input, scope) {
+        let result = if self.compact_thunks.contains_key(&input.to_owned()) {
+            self.finish(input.to_owned())?
+        } else if let Some((value, caller)) = self.binding(input, scope) {
             self.compact(value.as_view(), caller, depth + 1)?
         } else {
             match input {
-                AtomView::Num(_) | AtomView::Var(_) => self.finish(input.to_owned())?,
+                AtomView::Num(_) | AtomView::Var(_) => self.finish_compact(input.to_owned())?,
                 AtomView::Fun(f) if f.get_symbol() == Symbol::IF && f.get_nargs() == 3 => {
                     let args = f.iter().collect::<Vec<_>>();
                     let condition = self.compact(args[0], scope, depth + 1)?;
@@ -512,36 +767,49 @@ impl<'a> Expansion<'a> {
                     } else {
                         let yes = self.compact(args[1], scope, depth + 1)?;
                         let no = self.compact(args[2], scope, depth + 1)?;
-                        self.finish(Symbol::IF.call((condition.atom, yes.atom, no.atom)))?
+                        self.finish_compact(Symbol::IF.call((
+                            condition.atom.as_ref(),
+                            yes.atom.as_ref(),
+                            no.atom.as_ref(),
+                        )))?
                     }
                 }
                 AtomView::Fun(f) => {
                     let mut arguments = Vec::with_capacity(f.get_nargs());
-                    for argument in f.iter() {
-                        arguments.push(self.compact(argument, scope, depth + 1)?.atom);
+                    let used = self.used_parameters(input, &mut HashSet::new());
+                    let tags = self.map.get_definition(input).map_or(0, |d| d.0);
+                    for (i, argument) in f.iter().enumerate() {
+                        if i >= tags && used.as_ref().is_some_and(|u| !u[i - tags]) {
+                            arguments.push(Arc::new(Atom::num(0)));
+                        } else {
+                            arguments.push(self.compact(argument, scope, depth + 1)?.atom);
+                        }
                     }
-                    let result = normalized_call(f.get_symbol(), arguments);
-                    self.finish(result)?
+                    let result = normalized_call(
+                        f.get_symbol(),
+                        arguments.iter().map(|a| a.as_ref().clone()).collect(),
+                    );
+                    self.finish_compact(result)?
                 }
                 AtomView::Pow(p) => {
                     let (base, exponent) = p.get_base_exp();
                     let base = self.compact(base, scope, depth + 1)?;
                     let exponent = self.compact(exponent, scope, depth + 1)?;
-                    self.finish(base.atom.pow(exponent.atom))?
+                    self.finish_compact(base.atom.pow(exponent.atom.as_ref()))?
                 }
                 AtomView::Mul(m) => {
                     let mut values = Vec::new();
                     for child in m.iter() {
                         values.push(self.compact(child, scope, depth + 1)?.atom);
                     }
-                    self.finish(values.into_iter().product())?
+                    self.finish_compact(values.iter().map(|a| a.as_ref()).product())?
                 }
                 AtomView::Add(a) => {
                     let mut values = Vec::new();
                     for child in a.iter() {
                         values.push(self.compact(child, scope, depth + 1)?.atom);
                     }
-                    self.finish(values.into_iter().sum())?
+                    self.finish_compact(values.iter().map(|a| a.as_ref()).sum())?
                 }
             }
         };
@@ -562,14 +830,31 @@ impl<'a> Expansion<'a> {
             ));
         }
         self.charge(1)?;
-        let key = (scope, input.to_owned());
+        let key = (
+            scope,
+            self.context,
+            self.preserve_predicate,
+            input.to_owned(),
+        );
         if let Some(cached) = self.memo.get(&key) {
             let cached = cached.clone();
-            self.charge(cached.nodes)?;
             return Ok(cached);
         }
         let result = if let Some((value, caller)) = self.binding(input, scope) {
             self.expand(value.as_view(), caller, depth + 1)?
+        } else if let Some(body) = self
+            .aliases
+            .get(&input.to_owned())
+            .or_else(|| self.compact_thunks.get(&input.to_owned()))
+            .cloned()
+        {
+            let alias = input.to_owned();
+            if !self.active_aliases.insert(alias.clone()) {
+                return Err(format!("cyclic expression alias {alias}"));
+            }
+            let result = self.expand(body.as_view(), 0, depth + 1)?;
+            self.active_aliases.remove(&alias);
+            result
         } else if let Some((tag_count, parameters, body)) = self.map.get_definition(input) {
             let symbol = input.get_symbol().expect("a definition has a head symbol");
             if self.scopes[scope].definitions.contains(&symbol) {
@@ -598,20 +883,29 @@ impl<'a> Expansion<'a> {
                 .collect();
             let closed = self.closed_definition(input, &mut HashSet::new());
             let canonical = if closed {
-                Some(self.compact(input, scope, depth + 1)?.atom)
+                let mut canonical = self.compact(input, scope, depth + 1)?.atom;
+                while let Some(body) = self.compact_thunks.get(canonical.as_ref()) {
+                    canonical = Arc::new(body.clone());
+                }
+                Some(canonical)
             } else {
                 None
             };
-            if let Some(cached) = canonical.as_ref().and_then(|key| self.calls.get(key)) {
+            if let Some(cached) = canonical.as_ref().and_then(|key| {
+                self.calls
+                    .get(&(self.context, self.preserve_predicate, key.clone()))
+            }) {
                 let cached = cached.clone();
-                self.charge(cached.nodes)?;
                 self.memo.insert(key, cached.clone());
                 return Ok(cached);
             }
             if let Some(canonical) = &canonical {
                 if canonical.as_view().get_symbol() != Some(symbol) {
                     let result = self.expand(canonical.as_view(), 0, depth + 1)?;
-                    self.calls.insert(canonical.clone(), result.clone());
+                    self.calls.insert(
+                        (self.context, self.preserve_predicate, canonical.clone()),
+                        result.clone(),
+                    );
                     self.memo.insert(key, result.clone());
                     return Ok(result);
                 }
@@ -632,26 +926,55 @@ impl<'a> Expansion<'a> {
                 bindings,
                 definitions,
             });
-            let result = self.expand(body.as_view(), child, depth + 1)?;
+            let result = self
+                .expand(body.as_view(), child, depth + 1)
+                .map_err(|error| format!("{error}\n  while expanding {symbol}"))?;
             if let Some(canonical) = canonical {
-                self.calls.insert(canonical, result.clone());
+                self.calls.insert(
+                    (self.context, self.preserve_predicate, canonical),
+                    result.clone(),
+                );
             }
             result
         } else {
             match input {
-                AtomView::Num(_) | AtomView::Var(_) => self.finish(input.to_owned())?,
+                AtomView::Num(_) | AtomView::Var(_) => self.finish_expanded(input.to_owned())?,
                 AtomView::Fun(f) if f.get_symbol() == Symbol::IF && f.get_nargs() == 3 => {
                     let arguments = f.iter().collect::<Vec<_>>();
-                    let condition = self.expand(arguments[0], scope, depth + 1)?;
+                    if !self.preserve_predicate
+                        && let Some(probe) = &mut self.graph_probe
+                        && let Some(truth) = probe.truth(
+                            arguments[0],
+                            &self.aliases,
+                            self.branch_rules.as_ref().unwrap(),
+                        )
+                    {
+                        let result =
+                            self.expand(arguments[if truth { 1 } else { 2 }], scope, depth + 1)?;
+                        self.memo.insert(key, result.clone());
+                        return Ok(result);
+                    }
+                    let condition = self.expand_condition(arguments[0], scope, depth + 1)?;
                     if let Some(nonzero) = self.condition_truth(&condition.atom) {
                         // Native IF tests exact zero. Positive attributes are NOT
                         // a nonzero proof: Symbolica's positivity includes zero.
                         let chosen = if nonzero { 1 } else { 2 };
                         self.expand(arguments[chosen], scope, depth + 1)?
                     } else {
-                        let yes = self.expand(arguments[1], scope, depth + 1)?;
-                        let no = self.expand(arguments[2], scope, depth + 1)?;
-                        self.finish(Symbol::IF.call((condition.atom, yes.atom, no.atom)))?
+                        let yes =
+                            self.expand_arm(arguments[1], scope, depth + 1, &condition.atom, true)?;
+                        let no = self.expand_arm(
+                            arguments[2],
+                            scope,
+                            depth + 1,
+                            &condition.atom,
+                            false,
+                        )?;
+                        self.finish_expanded(Symbol::IF.call((
+                            condition.atom.as_ref(),
+                            yes.atom.as_ref(),
+                            no.atom.as_ref(),
+                        )))?
                     }
                 }
                 AtomView::Fun(f) => {
@@ -665,28 +988,31 @@ impl<'a> Expansion<'a> {
                     for argument in f.iter() {
                         arguments.push(self.expand(argument, scope, depth + 1)?.atom);
                     }
-                    let result = normalized_call(f.get_symbol(), arguments);
-                    self.finish(result)?
+                    let result = normalized_call(
+                        f.get_symbol(),
+                        arguments.iter().map(|a| a.as_ref().clone()).collect(),
+                    );
+                    self.finish_expanded(result)?
                 }
                 AtomView::Pow(p) => {
                     let (base, exponent) = p.get_base_exp();
                     let base = self.expand(base, scope, depth + 1)?;
                     let exponent = self.expand(exponent, scope, depth + 1)?;
-                    self.finish(base.atom.pow(exponent.atom))?
+                    self.finish_expanded(base.atom.pow(exponent.atom.as_ref()))?
                 }
                 AtomView::Mul(m) => {
                     let mut values = Vec::new();
                     for child in m.iter() {
                         values.push(self.expand(child, scope, depth + 1)?.atom);
                     }
-                    self.finish(values.into_iter().product())?
+                    self.finish_expanded(values.iter().map(|a| a.as_ref()).product())?
                 }
                 AtomView::Add(a) => {
                     let mut values = Vec::new();
                     for child in a.iter() {
                         values.push(self.expand(child, scope, depth + 1)?.atom);
                     }
-                    self.finish(values.into_iter().sum())?
+                    self.finish_expanded(values.iter().map(|a| a.as_ref()).sum())?
                 }
             }
         };
@@ -728,7 +1054,12 @@ mod tests {
                 .collect(),
         );
         assert_eq!(
-            expansion.expand(f.call(x).as_view(), 0, 0).unwrap().atom,
+            expansion
+                .expand(f.call(x).as_view(), 0, 0)
+                .unwrap()
+                .atom
+                .as_ref()
+                .clone(),
             x.to_atom() + y
         );
         // A different probe has a distinct cache and correctly exposes a cycle.
@@ -746,7 +1077,12 @@ mod tests {
         // nested decidable IFs still disappear.
         let expression = Symbol::IF.call((x.to_atom() + y, Symbol::IF.call((x, y, 17)), x));
         assert_eq!(
-            expansion.expand(expression.as_view(), 0, 0).unwrap().atom,
+            expansion
+                .expand(expression.as_view(), 0, 0)
+                .unwrap()
+                .atom
+                .as_ref()
+                .clone(),
             Symbol::IF.call((x.to_atom() + y, 17, x))
         );
     }
@@ -765,16 +1101,32 @@ mod tests {
             expansion
                 .expand(f.call((y, x)).as_view(), 0, 0)
                 .unwrap()
-                .atom,
+                .atom
+                .as_ref()
+                .clone(),
             y.to_atom() - x
         );
         let nested = f.call((f.call((3, 1)), 1));
-        assert_eq!(expansion.expand(nested.as_view(), 0, 0).unwrap().atom, 1);
+        assert_eq!(
+            expansion
+                .expand(nested.as_view(), 0, 0)
+                .unwrap()
+                .atom
+                .as_ref(),
+            &Atom::num(1)
+        );
         let branch = Symbol::IF.call((x, cycle.call(x), 7));
         let g = symbolica::symbol!("inspection_scope_g");
         map.add_function(g, vec![x], branch).unwrap();
         let mut expansion = Expansion::new(&map, ExpressionOptions::default());
-        assert_eq!(expansion.expand(g.call(0).as_view(), 0, 0).unwrap().atom, 7);
+        assert_eq!(
+            expansion
+                .expand(g.call(0).as_view(), 0, 0)
+                .unwrap()
+                .atom
+                .as_ref(),
+            &Atom::num(7)
+        );
         assert!(
             expansion
                 .expand(g.call(1).as_view(), 0, 0)
@@ -802,7 +1154,9 @@ mod tests {
                 expansion
                     .expand(caller.call(value).as_view(), 0, 0)
                     .unwrap()
-                    .atom,
+                    .atom
+                    .as_ref()
+                    .clone(),
                 value
             );
         }

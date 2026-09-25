@@ -249,10 +249,7 @@ See the [inspection guide](EXPRESSION_INSPECTION.md) for Rust branch selection,
 assumptions, output examples and expansion limits. The standalone legacy numeric
 extension does not expose symbolic inspection: use one shared Symbolica kernel.
 
-For large masters, **pass probes into expansion** instead of expanding every
-branch first. Python evaluates the inner `get_expression` call before
-`select_branch` can run. The optional `branch_rules=` argument avoids that
-all-branches intermediate while preserving the parameters in the result:
+The massive C0 case can be generated completely **before** selecting a branch:
 
 ```python
 mass2, mass2B, mu2 = S("mass2", "mass2B", "mu2")
@@ -260,21 +257,51 @@ C0 = S("oneloopmaster::C0")
 master = C0(0, -mass2, mass2, mass2, mass2, mass2B, mu2)
 probes = [Replacement(mass2, N(2)), Replacement(mass2B, N(1)),
           Replacement(mu2, N(1))]
-selected = olo.get_expression(master, branch_rules=probes, max_nodes=100_000_000)
-# Already branch-selected; select_branch remains usable/idempotent.
-assert olo.select_branch(selected, probes) == selected
+all_branches = olo.get_expression(master)  # ordinary Symbolica Expressions, with ifs
+selected = olo.select_branch(all_branches, probes)
 print(selected[0])  # Full native Symbolica expression, masses still parametric.
 print(selected[0].evaluate({mass2: 2, mass2B: 1, mu2: 1},
                            decimal_digit_precision=60))
 ```
 
-The Rust equivalent is `get_expression_on_branch_with_options(master, &probes,
-options)`, using the same `max_nodes` budget. `get_expression_on_branch` uses
-the default resource limits, which are sufficient for smaller expressions.
-Omitting `branch_rules` preserves the original all-branches API. Partial rules
-may leave unresolved conditions and can still require a larger expansion budget.
-Run [the C0 example](examples/c0_selected_branch.py) with the shared Python host
-to inspect the actual output and compare it with the independent compact identity.
+This family uses an exact four-dilogarithm representation, including zero-mass
+branches and the prescribed real-axis lips. Run [the C0 example](examples/c0_selected_branch.py)
+to verify the actual repository output against the known value and native backend.
+
+For **fully generic C0/D0**, avoid duplicating every repeated root and branch
+subexpression: request complete shared storage, then select afterwards:
+
+```python
+p1, p2, p3, m1, m2, m3, mu2 = S("p1", "p2", "p3", "m1", "m2", "m3", "mu2")
+master = C0(p1, p2, p3, m1, m2, m3, mu2)
+complete = olo.get_expression(master, shared=True)
+print(complete[0])  # root, binding count, storage size; not a huge formula dump
+# complete[0].root and every (alias, body) in .definitions are Symbolica Expressions.
+probes = [Replacement(x, N(v)) for x, v in zip(
+    [p1, p2, p3, m1, m2, m3, mu2], [-1, -2, -3, 4, 5, 6, 7])]
+selected = olo.select_branch(complete, probes)  # plain, parametric Expressions
+```
+
+`shared=True` stores **all branches**, with every defining expression included.
+It uses Symbolica's native `AliasedAtom`, not master evaluation hooks or opaque
+OneLOop helpers. Rust exposes `get_expression_shared(master)` and
+`select_branch_shared(coefficient, &rules, options)`; each shared coefficient
+supports native `.evaluator(&parameters)`. Python exposes `SharedExpression.root`,
+`.definitions`, `.num_definitions`, `.byte_size`, and bounded `.to_expression()`.
+Do not evaluate the root alone without its bindings.
+
+Release-mode construction of the generic shared D0 takes approximately 10–13 seconds
+on the development machine; subsequent complete branch selection takes about one
+second. The ordinary C0 case above takes milliseconds. These are construction
+timings, not numerical-backend benchmarks. Unrestricted **fully duplicated**
+generic C0/D0 trees can still exceed the resource budget; the shared form is the
+scalable complete-expression API. See [the inspection guide](EXPRESSION_INSPECTION.md)
+and [measurements and validation scope](performance/2026-09-25-expressions/README.md).
+
+Early selection remains available as `get_expression(master, branch_rules=probes)`
+or Rust's `get_expression_on_branch`. Probe values never replace retained bodies.
+Partial probes may retain conditionals; flattening a large unresolved result can
+still exceed the budget.
 
 ## Compact master Symbols
 

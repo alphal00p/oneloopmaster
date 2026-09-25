@@ -12,6 +12,7 @@ mod evaluators;
 mod expressions;
 mod initialization;
 mod inspection;
+mod inspection_formulas;
 mod native;
 mod precision;
 mod sheet_exact;
@@ -25,9 +26,11 @@ pub use evaluators::{JitEvaluator, ScalarEvaluator, jit_settings, rebuild_cached
 pub use expressions::OneLoopExpressions;
 pub use initialization::{initialize, is_initialized};
 pub use inspection::{
-    ExpressionOptions, get_expression, get_expression_for_family,
+    ExpressionOptions, SharedLaurentSeries, get_expression, get_expression_for_family,
     get_expression_for_family_with_options, get_expression_on_branch,
-    get_expression_on_branch_with_options, get_expression_with_options, master_arguments,
+    get_expression_on_branch_with_options, get_expression_shared,
+    get_expression_shared_with_options, get_expression_with_options, master_arguments,
+    select_branch_shared,
 };
 pub use native::{NativeEvaluator, NativeFloat};
 pub use precision::PrecisionEvaluator;

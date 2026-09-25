@@ -3,8 +3,9 @@
 `get_expression(master)` returns the actual three Laurent coefficient bodies,
 in `[epsilon^0, epsilon^-1, epsilon^-2]` order. It recursively substitutes the
 transparent FunctionMap definitions, including every sheet, triangle and box
-helper. A bounded one-mass triangle sector also uses its analytically integrated
-compact identity, described below. The input is a Symbolica master call with the
+helper, using the equivalent continued-logarithm sheet form described below.
+Two triangle families also use analytically integrated compact identities.
+The input is a Symbolica master call with the
 squared scale last and **no leading Laurent tag**; the result contains all three
 coefficients, not compact evaluatable master calls or evaluator IR.
 
@@ -39,8 +40,9 @@ print(finite)  # A genuine Symbolica Expression.
 pole_only = olo.get_expression(master, coefficient=-1)
 ```
 
-All symbolic arguments and results are actual Symbolica expressions. Arbitrary
-composite arguments are supported, not just variables. Use Symbolica's `S` or
+All symbolic arguments and ordinary (`shared=False`) results are actual Symbolica
+expressions. Shared storage, described below, wraps a native `AliasedAtom` instead.
+Arbitrary composite arguments are supported, not just variables. Use Symbolica's `S` or
 `E` to construct them; OneLOop never parses string arguments, retags variables,
 or maintains a separate assumption system. For example:
 
@@ -96,8 +98,9 @@ Inactive branches are skipped. Unknown or undefined predicates remain `if`s;
 their original parametric conditions are retained, with nested selections only.
 Rules use native matching, namespaces, ordering and restrictions. Misspelled or
 wrongly namespaced variables do not match; partial rules may leave conditions.
-Nested conditions are selected first; each resulting condition is then sampled
-with one simultaneous native replacement pass.
+The original condition is sampled first, preserving arithmetic grouping. If it
+cannot be decided, nested conditions are selected and the resulting condition
+is sampled again. Each sample uses one simultaneous native replacement pass.
 
 Integer, fraction, floating-point and complex numeric atoms are supported, with
 no conversion to binary64 or zero tolerance for decisions. Finite floats are
@@ -112,40 +115,28 @@ ill-conditioned boundaries. The selected formula is valid only in the selected
 analytic region (or on a boundary if the probe lies there), not globally. There
 is no implicit algebraic rewrite to a particular textbook form.
 
-## Selecting before expansion (large C0/D0 expressions)
+## Complete expressions, then branch selection
 
-`select_branch(get_expression(master), rules)` must finish expanding all branches
-before selection starts. For large masters this can exhaust `max_nodes` even
-when the selected expression is small. Pass the rules into the expansion instead:
+The reported massive C0 now supports the original call order, without early
+branch probes. Its complete formula includes all cuts and zero-mass branches:
 
 ```python
 mass2, mass2B, mu2 = S("mass2", "mass2B", "mu2")
 master = S("oneloopmaster::C0")(0, -mass2, mass2, mass2, mass2, mass2B, mu2)
 rules = [Replacement(mass2, N(2)), Replacement(mass2B, N(1)),
          Replacement(mu2, N(1))]
-selected = olo.get_expression(master, branch_rules=rules, max_nodes=100_000_000)
-assert olo.select_branch(selected, rules) == selected
+complete = olo.get_expression(master, max_nodes=100_000_000)
+selected = olo.select_branch(complete, rules)
 value = selected[0].evaluate({mass2: 2, mass2B: 1, mu2: 1},
                              decimal_digit_precision=60)
 ```
 
-The Rust entry points are `get_expression_on_branch(master, &rules)` and
-`get_expression_on_branch_with_options(master, &rules, options)`. They return
-the same `LaurentSeries` type as the all-branches entry points.
-
-This uses the existing transparent FunctionMap definitions, not a separate
-numerical backend or a hard-coded formula for the probe. Each expanded condition
-is sampled using the same protected native replacements as `select_branch`;
-only the chosen arm is expanded if decidable. Nested selections happen inside
-conditions as well as function arguments and returned bodies. Undecidable
-conditions keep their parametric form and both arms are expanded. All caches
-are local to one expansion and its fixed rules; no result is reused across
-different probes. Expansion work and recursion limits still apply.
-
-This massive C0 still exceeds the default one-million-node **cumulative work**
-budget. With branch probes, the original 100-million-node budget is sufficient;
-without probes it is not. The returned generic expression is not automatically
-rewritten to the compact four-dilogarithm identity.
+For this kinematic family the implementation integrates a linear Feynman
+parameter first and factors the remaining two quadratics. This yields four
+dilogarithms, with explicit native conditions for cut lips and `mass2=0`.
+It is an exact parametric specialization, not a formula valid only at the probe.
+The full expression has about 1,800 nodes; late selection leaves four parametric
+dilogarithms at the positive probe. The numerical backends are unchanged.
 
 At `(mass2, mass2B, mu2) = (2, 1, 1)`, the expression obtained through these
 repo APIs gives
@@ -158,19 +149,66 @@ double pole = 0
 
 Run `python examples/c0_selected_branch.py --full` in the shared Python host to
 print the actual if-free parametric expression and verify its value. The
-independently derived four-dilogarithm identity is only a numerical check in
-that script, never the source of the returned expression. The Python regression
-also compares the same selected formula at `(2,1,7)`, `(4,2,3)` and `(3,1,1)`
-with that identity and the native backend, and checks positive-tagged inputs.
+script compares the result with the known value and the native backend. The
+four-dilogarithm identity is now the implementation of this specialization,
+so comparing it with itself is not an independent numerical check. The Python
+regression checks `(2,1,7)`, `(4,2,3)` and `(3,1,1)` against the native backend
+and checks positive-tagged inputs. Rust also checks late selection on other
+sign regions, zero-mass branches and the discriminant-zero boundary.
 These checks establish this case and nearby selected-region behavior, not
 global correctness of every possible branch probe.
+
+### Fully generic masters: complete shared storage
+
+Use `olo.get_expression(master, shared=True)` or Rust's
+`get_expression_shared(master)` for a generic C0/D0. All three coefficients
+contain every branch, using native Symbolica `AliasedAtom` bindings to store
+repeated expressions once. Every binding is included and consists of native
+operations and references to other included bindings. There are no leftover
+OneLOop master calls, opaque helpers, numerical callbacks, or external maps.
+
+Python `SharedExpression.root` and `.definitions` expose the complete data as
+Expressions; `.num_definitions` and `.byte_size` provide size metadata without
+printing it. Definition-list order is not a topological ordering; dependencies
+are given by the aliases themselves. `.to_expression(max_nodes=...)` requests a bounded, fully duplicated
+Atom. Rust coefficients are native `AliasedAtom`s: use their `.evaluator()` for
+compilation, not `.evaluate_with_prec()` on the root alone.
+
+`select_branch(shared_coefficients, probes)` returns plain Python Expressions.
+Rust uses `select_branch_shared(&coefficient, &probes, options)`. Sampling is
+lazy through the DAG, uses Symbolica arbitrary-precision arithmetic, and
+restarts its numeric cache if a supplied coefficient requires higher precision.
+It never substitutes the probes into retained formulas. Native compound patterns
+and nonstandard matching settings fall back to bounded predicate expansion;
+the fast path is for literal variable probes with standard settings.
+
+In release-mode checks on the development machine, generic shared C0 constructs
+in about 0.2 seconds, generic shared D0 in about 10–13 seconds; D0's finite coefficient
+has roughly 860,000 bindings / 49 MB of serialized Atom storage. Late selection
+takes about a second for D0 and returns a plain parametric expression. These are
+not a promise that its **fully duplicated tree** can be produced in that time.
+The shared form is the scalable complete representation. Debug builds are slower.
+See the [measurement report](performance/2026-09-25-expressions/README.md) for
+reproduction commands and validation scope.
+
+Inspection uses an algebraically equivalent continued-logarithm sheet form:
+products and quotients add/subtract the continued logs, eliminating repeated
+parity trees. Sector/root/dispatch source is shared with the numerical formulas.
+Predicates preserve argument grouping, and the selector probes the original
+condition before simplifying its nested guards. Otherwise `x-|x|` could acquire
+a spurious rounding residual after inlining and select the wrong sign.
+
+Early selection is still available through `branch_rules=` and Rust's
+`get_expression_on_branch[_with_options]`. Partial probes retain undecidable
+conditions; requesting a plain Atom for a large unresolved result can still hit
+the resource limit. Caches are local to each expansion and probe set.
 
 Focused regression commands (from the repository root, with the shared Python
 host installed) are:
 
 ```sh
-RUST_MIN_STACK=134217728 cargo test --release --lib inspection::tests -- --test-threads=1
-cargo test --release --test branch_expansion --test branch_selection --test inspection --test inspection_complex --test inspection_master -- --test-threads=1
+RUST_MIN_STACK=134217728 cargo test --release --lib inspection -- --test-threads=1
+cargo test --release --test full_expansion --test branch_expansion --test branch_selection --test inspection --test inspection_complex --test inspection_master -- --test-threads=1
 PYTHONPATH=python/tests ONELOOP_PYTHON_MODULE=symbolica.community.oneloop python -m unittest test_inspection test_precision -v
 ```
 
@@ -261,8 +299,10 @@ domain requirements.
 Full inlining duplicates shared subexpressions and generic boxes can become very
 large. Rust `get_expression_with_options(..., ExpressionOptions { max_nodes,
 max_depth })` and Python's corresponding keywords control the expansion budget.
-Defaults are 1,000,000 cumulative visited/materialized nodes and depth 512.
-Memoized copies count toward work; this is not a final-output-only node limit.
+Defaults are 10,000,000 expansion visits / nodes per materialized subtree and
+depth 512. Reusing cached subtrees no longer charges their entire size again.
+Shared construction also interns argument substitutions, not just final bodies;
+otherwise generic D0 can overflow before sharing the completed subexpressions.
 If a limit or definition cycle is encountered, the call fails explicitly. It
 never silently returns an incomplete expression with opaque OneLOop helpers.
 Supplying actual kinematic relations or attributed inputs can prune branches

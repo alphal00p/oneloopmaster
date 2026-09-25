@@ -40,9 +40,11 @@ pub fn select_branch(expression: impl AtomCore, replacement_rules: &[Replacement
         .iter()
         .map(exact_replacement)
         .collect::<Vec<_>>();
-    select_branch_with(expression, |condition| {
-        Ok::<_, Infallible>(condition.replace_multiple(&rules))
-    })
+    select_branch_impl(
+        expression,
+        |condition| Ok::<_, Infallible>(condition.replace_multiple(&rules)),
+        true,
+    )
     .unwrap_or_else(|never| match never {})
 }
 
@@ -124,39 +126,89 @@ fn exact_pattern_values(pattern: &mut Pattern) {
 /// right-hand sides: the callback must itself avoid premature sample rounding.
 pub fn select_branch_with<E>(
     expression: impl AtomCore,
+    replace_condition: impl FnMut(AtomView<'_>) -> Result<Atom, E>,
+) -> Result<Atom, E> {
+    select_branch_impl(expression, replace_condition, false)
+}
+
+fn select_branch_impl<E>(
+    expression: impl AtomCore,
     mut replace_condition: impl FnMut(AtomView<'_>) -> Result<Atom, E>,
+    cache: bool,
 ) -> Result<Atom, E> {
     // An explicit work stack avoids a helper-imposed recursion limit, and lets
     // us decide each IF before entering either arm (native IF is lazy).
     let mut work = vec![Work::Visit(expression.as_atom_view())];
     let mut values = Vec::new();
+    let mut memo = std::collections::HashMap::new();
+    let mut predicates = std::collections::HashMap::new();
     while let Some(next) = work.pop() {
         match next {
-            Work::Visit(view) => match view {
-                AtomView::Num(_) | AtomView::Var(_) => values.push(view.to_owned()),
-                AtomView::Fun(fun) if fun.get_symbol() == Symbol::IF && fun.get_nargs() == 3 => {
-                    let mut arguments = fun.iter();
-                    let condition = arguments.next().unwrap();
-                    work.push(Work::Condition {
-                        yes: arguments.next().unwrap(),
-                        no: arguments.next().unwrap(),
-                    });
-                    work.push(Work::Visit(condition));
+            Work::Visit(view) => {
+                if cache && !matches!(view, AtomView::Num(_) | AtomView::Var(_)) {
+                    if let Some(value) = memo.get(&view) {
+                        values.push(Atom::clone(value));
+                        continue;
+                    }
+                    work.push(Work::Save(view));
                 }
-                AtomView::Fun(fun) => {
-                    schedule(&mut work, Build::Function(fun.get_symbol()), fun.iter());
+                match view {
+                    AtomView::Num(_) | AtomView::Var(_) => values.push(view.to_owned()),
+                    AtomView::Fun(fun)
+                        if fun.get_symbol() == Symbol::IF && fun.get_nargs() == 3 =>
+                    {
+                        let mut arguments = fun.iter();
+                        let condition = arguments.next().unwrap();
+                        let yes = arguments.next().unwrap();
+                        let no = arguments.next().unwrap();
+                        // Probe the original predicate before stripping grouping
+                        // IFs inside it. Rebuilding x-|x| after removing if(x,x,0)
+                        // can change floating-point evaluation order at exact zero.
+                        if cache {
+                            let key = condition.to_owned();
+                            let truth = if let Some(truth) = predicates.get(&key) {
+                                *truth
+                            } else {
+                                let sample = replace_condition(condition)?;
+                                let truth = numeric_truth(sample.as_view());
+                                predicates.insert(key, truth);
+                                truth
+                            };
+                            if let Some(truth) = truth {
+                                work.push(Work::Visit(if truth { yes } else { no }));
+                                continue;
+                            }
+                        }
+                        work.push(Work::Condition { yes, no });
+                        work.push(Work::Visit(condition));
+                    }
+                    AtomView::Fun(fun) => {
+                        schedule(&mut work, Build::Function(fun.get_symbol()), fun.iter());
+                    }
+                    AtomView::Pow(power) => {
+                        let (base, exponent) = power.get_base_exp();
+                        schedule(&mut work, Build::Power, [base, exponent].into_iter());
+                    }
+                    AtomView::Mul(product) => schedule(&mut work, Build::Product, product.iter()),
+                    AtomView::Add(sum) => schedule(&mut work, Build::Sum, sum.iter()),
                 }
-                AtomView::Pow(power) => {
-                    let (base, exponent) = power.get_base_exp();
-                    schedule(&mut work, Build::Power, [base, exponent].into_iter());
-                }
-                AtomView::Mul(product) => schedule(&mut work, Build::Product, product.iter()),
-                AtomView::Add(sum) => schedule(&mut work, Build::Sum, sum.iter()),
-            },
+            }
+            Work::Save(view) => {
+                memo.insert(view, values.last().unwrap().clone());
+            }
             Work::Condition { yes, no } => {
                 let condition = values.pop().unwrap();
-                let sample = replace_condition(condition.as_view())?;
-                match numeric_truth(sample.as_view()) {
+                let truth = if let Some(truth) = predicates.get(&condition) {
+                    *truth
+                } else {
+                    let sample = replace_condition(condition.as_view())?;
+                    let truth = numeric_truth(sample.as_view());
+                    if cache {
+                        predicates.insert(condition.clone(), truth);
+                    }
+                    truth
+                };
+                match truth {
                     Some(true) => work.push(Work::Visit(yes)),
                     Some(false) => work.push(Work::Visit(no)),
                     None => {
@@ -188,6 +240,7 @@ pub fn select_branch_with<E>(
 
 enum Work<'a> {
     Visit(AtomView<'a>),
+    Save(AtomView<'a>),
     Condition { yes: AtomView<'a>, no: AtomView<'a> },
     Build(Build, usize),
 }
@@ -222,6 +275,14 @@ pub(crate) fn numeric_truth(condition: AtomView<'_>) -> Option<bool> {
         };
     }
 
+    let bits = numeric_precision(condition)?;
+    let value: Complex<Float> = condition
+        .evaluate_with_prec::<Atom, _>(&std::collections::HashMap::new(), bits)
+        .ok()?;
+    value.is_finite().then(|| !value.is_zero())
+}
+
+pub(crate) fn numeric_precision(condition: AtomView<'_>) -> Option<u32> {
     // Keep all supplied coefficient precision. Extra working bits reduce
     // cancellation in numerical predicates; they do not constitute a proof at
     // a singular boundary, nor recover digits absent from an input float.
@@ -256,8 +317,5 @@ pub(crate) fn numeric_truth(condition: AtomView<'_>) -> Option<bool> {
             AtomView::Var(_) => {}
         }
     }
-    let value: Complex<Float> = condition
-        .evaluate_with_prec::<Atom, _>(&std::collections::HashMap::new(), bits)
-        .ok()?;
-    value.is_finite().then(|| !value.is_zero())
+    Some(bits)
 }
