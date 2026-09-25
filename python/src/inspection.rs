@@ -11,6 +11,7 @@ use pyo3::{
 #[cfg(feature = "community")]
 use symbolica::{
     api::python::{PythonExpression, PythonReplacement, PythonTransformer},
+    id::Replacement,
     transformer::Transformer,
 };
 
@@ -30,23 +31,32 @@ fn selected(coefficient: Option<i32>) -> PyResult<Option<usize>> {
 /// The input is a Symbolica Expression such as B0(psq,m2,m2,mu_squared),
 /// with physical arguments only. Attributes belong to the input's Symbolica
 /// symbols; this function never parses strings or declares assumptions.
+/// Optional branch_rules select conditions during expansion, before discarded
+/// branches are built. Probe values are never substituted into returned bodies.
 #[cfg(feature = "community")]
-#[pyfunction(signature = (master, *, coefficient=None, max_nodes=1_000_000, max_depth=512))]
+#[pyfunction(signature = (master, *, coefficient=None, max_nodes=1_000_000, max_depth=512, branch_rules=None))]
 fn get_expression(
     py: Python<'_>,
     master: PythonExpression,
     coefficient: Option<i32>,
     max_nodes: usize,
     max_depth: usize,
+    branch_rules: Option<Vec<PythonReplacement>>,
 ) -> PyResult<Py<PyAny>> {
     let coefficient = selected(coefficient)?;
-    let series = oneloop::get_expression_with_options(
-        master.expr.as_view(),
-        oneloop::ExpressionOptions {
-            max_nodes,
-            max_depth,
-        },
-    )
+    let options = oneloop::ExpressionOptions {
+        max_nodes,
+        max_depth,
+    };
+    let series = if let Some(rules) = branch_rules {
+        oneloop::get_expression_on_branch_with_options(
+            master.expr.as_view(),
+            &native_rules(rules)?,
+            options,
+        )
+    } else {
+        oneloop::get_expression_with_options(master.expr.as_view(), options)
+    }
     .map_err(PyValueError::new_err)?;
     let expressions = series
         .into_coefficients()
@@ -72,17 +82,7 @@ fn select_branch(
     replacement_rules: Vec<PythonReplacement>,
 ) -> PyResult<Py<PyAny>> {
     let py = expression.py();
-    // PythonReplacement's field is private. Symbolica's public Transformer
-    // bridge exposes the native rules without reimplementing matching or
-    // discarding rule conditions, callbacks, or settings.
-    let mut transformer =
-        PythonTransformer::new().replace_multiple(replacement_rules, false, false, false)?;
-    let Some(Transformer::ReplaceAllMultiple(replacement_rules, _)) = transformer.chain.pop()
-    else {
-        return Err(PyValueError::new_err(
-            "Symbolica did not construct a replacement transformer",
-        ));
-    };
+    let replacement_rules = native_rules(replacement_rules)?;
     let select_one = |value: &Bound<'_, PyAny>| -> PyResult<Py<PythonExpression>> {
         let value = value.extract::<PythonExpression>()?;
         let selected = oneloop::select_branch(value.expr.as_view(), &replacement_rules);
@@ -103,6 +103,22 @@ fn select_branch(
     } else {
         Ok(select_one(expression)?.into_any())
     }
+}
+
+#[cfg(feature = "community")]
+fn native_rules(replacement_rules: Vec<PythonReplacement>) -> PyResult<Vec<Replacement>> {
+    // PythonReplacement's field is private. Symbolica's public Transformer
+    // bridge exposes the native rules without reimplementing matching or
+    // discarding rule conditions, callbacks, or settings.
+    let mut transformer =
+        PythonTransformer::new().replace_multiple(replacement_rules, false, false, false)?;
+    let Some(Transformer::ReplaceAllMultiple(replacement_rules, _)) = transformer.chain.pop()
+    else {
+        return Err(PyValueError::new_err(
+            "Symbolica did not construct a replacement transformer",
+        ));
+    };
+    Ok(replacement_rules)
 }
 
 pub(super) fn register(module: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> {

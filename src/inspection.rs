@@ -4,6 +4,7 @@ use crate::{LaurentSeries, ScalarIntegral};
 use std::collections::{HashMap, HashSet};
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol},
+    id::Replacement,
     transcendental::TranscendentalFunctions,
 };
 
@@ -59,6 +60,28 @@ pub fn get_expression_with_options(
     get_expression_for_family_with_options(family, &arguments, options)
 }
 
+/// Expand a master only on the region selected by condition-only probe rules.
+///
+/// Unlike selecting after [`get_expression`], discarded branches are never
+/// inlined. The rules have the same semantics as [`crate::select_branch`]: the
+/// returned bodies remain parametric and undecidable conditions remain `if`s.
+pub fn get_expression_on_branch(
+    master: impl AtomCore,
+    branch_rules: &[Replacement],
+) -> Result<LaurentSeries, String> {
+    get_expression_on_branch_with_options(master, branch_rules, ExpressionOptions::default())
+}
+
+/// Version of [`get_expression_on_branch`] with explicit expansion limits.
+pub fn get_expression_on_branch_with_options(
+    master: impl AtomCore,
+    branch_rules: &[Replacement],
+    options: ExpressionOptions,
+) -> Result<LaurentSeries, String> {
+    let (family, arguments) = master_arguments(master)?;
+    expand_family(family, &arguments, options, Some(branch_rules))
+}
+
 /// Decode an inspection call such as `oneloopmaster::B0(s, m0, m1, mu_squared)`.
 ///
 /// Arguments may be arbitrary Symbolica expressions. Inspection calls omit the
@@ -110,6 +133,15 @@ pub fn get_expression_for_family_with_options(
     arguments: &[Atom],
     options: ExpressionOptions,
 ) -> Result<LaurentSeries, String> {
+    expand_family(family, arguments, options, None)
+}
+
+fn expand_family(
+    family: ScalarIntegral,
+    arguments: &[Atom],
+    options: ExpressionOptions,
+    branch_rules: Option<&[Replacement]>,
+) -> Result<LaurentSeries, String> {
     if arguments.len() != family.arity() {
         return Err(format!(
             "{} expects {} arguments including mu_squared last; received {}",
@@ -129,6 +161,12 @@ pub fn get_expression_for_family_with_options(
         ScalarIntegral::D0 => crate::D0(),
     };
     let mut expansion = Expansion::new(crate::expressions::shared_definitions(), options);
+    expansion.branch_rules = branch_rules.map(|rules| {
+        rules
+            .iter()
+            .map(crate::branch_selection::exact_replacement)
+            .collect()
+    });
     let specialized = if family == ScalarIntegral::C0 {
         one_mass_one_scale_triangle(arguments)
     } else {
@@ -302,6 +340,10 @@ struct Expansion<'a> {
     compact_memo: HashMap<(usize, Atom), Expanded>,
     calls: HashMap<Atom, Expanded>,
     closed_definitions: HashMap<Atom, bool>,
+    // A fresh expansion owns its probe context. No cache is shared across calls
+    // with different rules or between all-branches and branch-selected modes.
+    branch_rules: Option<Vec<Replacement>>,
+    condition_memo: HashMap<Atom, Option<bool>>,
 }
 
 impl<'a> Expansion<'a> {
@@ -319,6 +361,24 @@ impl<'a> Expansion<'a> {
             compact_memo: HashMap::new(),
             calls: HashMap::new(),
             closed_definitions: HashMap::new(),
+            branch_rules: None,
+            condition_memo: HashMap::new(),
+        }
+    }
+
+    fn condition_truth(&mut self, condition: &Atom) -> Option<bool> {
+        if let Some(rules) = &self.branch_rules {
+            if let Some(value) = self.condition_memo.get(condition) {
+                return *value;
+            }
+            let sample = condition.replace_multiple(rules);
+            let value = crate::branch_selection::numeric_truth(sample.as_view());
+            self.condition_memo.insert(condition.clone(), value);
+            value
+        } else if let AtomView::Num(number) = condition.as_view() {
+            Some(!number.is_zero())
+        } else {
+            None
         }
     }
 
@@ -335,7 +395,7 @@ impl<'a> Expansion<'a> {
 
     fn budget_error(&self) -> String {
         format!(
-            "complete expression expansion exceeded max_nodes={}; raise the explicit budget or use compact OneLoopExpressions with its FunctionMap",
+            "complete expression expansion exceeded max_nodes={}; supply branch_rules to Python get_expression (Rust: get_expression_on_branch), raise the explicit budget, or use compact OneLoopExpressions with its FunctionMap",
             self.options.max_nodes
         )
     }
@@ -447,8 +507,8 @@ impl<'a> Expansion<'a> {
                 AtomView::Fun(f) if f.get_symbol() == Symbol::IF && f.get_nargs() == 3 => {
                     let args = f.iter().collect::<Vec<_>>();
                     let condition = self.compact(args[0], scope, depth + 1)?;
-                    if let AtomView::Num(number) = condition.atom.as_view() {
-                        self.compact(args[if number.is_zero() { 2 } else { 1 }], scope, depth + 1)?
+                    if let Some(nonzero) = self.condition_truth(&condition.atom) {
+                        self.compact(args[if nonzero { 1 } else { 2 }], scope, depth + 1)?
                     } else {
                         let yes = self.compact(args[1], scope, depth + 1)?;
                         let no = self.compact(args[2], scope, depth + 1)?;
@@ -583,10 +643,10 @@ impl<'a> Expansion<'a> {
                 AtomView::Fun(f) if f.get_symbol() == Symbol::IF && f.get_nargs() == 3 => {
                     let arguments = f.iter().collect::<Vec<_>>();
                     let condition = self.expand(arguments[0], scope, depth + 1)?;
-                    if let AtomView::Num(number) = condition.atom.as_view() {
+                    if let Some(nonzero) = self.condition_truth(&condition.atom) {
                         // Native IF tests exact zero. Positive attributes are NOT
                         // a nonzero proof: Symbolica's positivity includes zero.
-                        let chosen = if number.is_zero() { 2 } else { 1 };
+                        let chosen = if nonzero { 1 } else { 2 };
                         self.expand(arguments[chosen], scope, depth + 1)?
                     } else {
                         let yes = self.expand(arguments[1], scope, depth + 1)?;
@@ -638,6 +698,58 @@ impl<'a> Expansion<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_rules_prune_dead_definitions_and_never_substitute_bodies() {
+        let x = symbolica::symbol!("inspection_probe_x");
+        let y = symbolica::symbol!("inspection_probe_y");
+        let f = symbolica::symbol!("inspection_probe_f");
+        let cycle = symbolica::symbol!("inspection_probe_cycle");
+        let mut map = FunctionMap::new();
+        map.add_function(cycle, vec![x], cycle.call(x)).unwrap();
+        let nested = Symbol::IF.call((y, x.to_atom() + y, x));
+        map.add_function(f, vec![x], Symbol::IF.call((x, nested, cycle.call(x))))
+            .unwrap();
+        let rules = [
+            Replacement::new(x.to_atom(), 2),
+            Replacement::new(y.to_atom(), 3),
+        ];
+        let mut expansion = Expansion::new(
+            &map,
+            ExpressionOptions {
+                max_nodes: 1_000,
+                max_depth: 20,
+            },
+        );
+        expansion.branch_rules = Some(
+            rules
+                .iter()
+                .map(crate::branch_selection::exact_replacement)
+                .collect(),
+        );
+        assert_eq!(
+            expansion.expand(f.call(x).as_view(), 0, 0).unwrap().atom,
+            x.to_atom() + y
+        );
+        // A different probe has a distinct cache and correctly exposes a cycle.
+        let mut expansion = Expansion::new(&map, ExpressionOptions::default());
+        expansion.branch_rules = Some(vec![crate::branch_selection::exact_replacement(
+            &Replacement::new(x.to_atom(), 0),
+        )]);
+        assert!(
+            expansion
+                .expand(f.call(x).as_view(), 0, 0)
+                .unwrap_err()
+                .contains("cyclic")
+        );
+        // Unresolved conditions keep the original symbolic expression, while
+        // nested decidable IFs still disappear.
+        let expression = Symbol::IF.call((x.to_atom() + y, Symbol::IF.call((x, y, 17)), x));
+        assert_eq!(
+            expansion.expand(expression.as_view(), 0, 0).unwrap().atom,
+            Symbol::IF.call((x.to_atom() + y, 17, x))
+        );
+    }
 
     #[test]
     fn substitution_is_scoped_and_dead_branches_are_not_expanded() {

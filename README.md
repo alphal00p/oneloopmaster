@@ -249,6 +249,33 @@ See the [inspection guide](EXPRESSION_INSPECTION.md) for Rust branch selection,
 assumptions, output examples and expansion limits. The standalone legacy numeric
 extension does not expose symbolic inspection: use one shared Symbolica kernel.
 
+For large masters, **pass probes into expansion** instead of expanding every
+branch first. Python evaluates the inner `get_expression` call before
+`select_branch` can run. The optional `branch_rules=` argument avoids that
+all-branches intermediate while preserving the parameters in the result:
+
+```python
+mass2, mass2B, mu2 = S("mass2", "mass2B", "mu2")
+C0 = S("oneloopmaster::C0")
+master = C0(0, -mass2, mass2, mass2, mass2, mass2B, mu2)
+probes = [Replacement(mass2, N(2)), Replacement(mass2B, N(1)),
+          Replacement(mu2, N(1))]
+selected = olo.get_expression(master, branch_rules=probes, max_nodes=100_000_000)
+# Already branch-selected; select_branch remains usable/idempotent.
+assert olo.select_branch(selected, probes) == selected
+print(selected[0])  # Full native Symbolica expression, masses still parametric.
+print(selected[0].evaluate({mass2: 2, mass2B: 1, mu2: 1},
+                           decimal_digit_precision=60))
+```
+
+The Rust equivalent is `get_expression_on_branch_with_options(master, &probes,
+options)`, using the same `max_nodes` budget. `get_expression_on_branch` uses
+the default resource limits, which are sufficient for smaller expressions.
+Omitting `branch_rules` preserves the original all-branches API. Partial rules
+may leave unresolved conditions and can still require a larger expansion budget.
+Run [the C0 example](examples/c0_selected_branch.py) with the shared Python host
+to inspect the actual output and compare it with the independent compact identity.
+
 ## Compact master Symbols
 
 `oneloop::{A0(), B0(), dB0(), C0(), D0()}` return the Symbolica

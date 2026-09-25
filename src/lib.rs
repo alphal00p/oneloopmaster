@@ -26,7 +26,8 @@ pub use expressions::OneLoopExpressions;
 pub use initialization::{initialize, is_initialized};
 pub use inspection::{
     ExpressionOptions, get_expression, get_expression_for_family,
-    get_expression_for_family_with_options, get_expression_with_options, master_arguments,
+    get_expression_for_family_with_options, get_expression_on_branch,
+    get_expression_on_branch_with_options, get_expression_with_options, master_arguments,
 };
 pub use native::{NativeEvaluator, NativeFloat};
 pub use precision::PrecisionEvaluator;

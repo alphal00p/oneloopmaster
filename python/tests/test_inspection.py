@@ -13,6 +13,59 @@ class ExpressionInspection(unittest.TestCase):
             check(module)
         on_symbolica_thread(run)
 
+    def test_massive_triangle_selects_during_expansion_and_matches_compact_identity(self):
+        def check(module):
+            from symbolica import N, Replacement, S
+            # Deliberately untyped: probe rules, not a separate assumption list,
+            # must decide the continuation and zero-mass dispatch conditions.
+            a, b, mu = S("branch_expansion_a", "branch_expansion_b", "branch_expansion_mu")
+            master = S("oneloopmaster::C0")(0, -a, a, a, a, b, mu)
+            rules = [Replacement(a, N(2)), Replacement(b, N(1)), Replacement(mu, N(1))]
+            result = module.get_expression(master, branch_rules=rules, max_nodes=100_000_000)
+            selected = module.select_branch(result, rules)
+            self.assertEqual(selected, result)
+            self.assertNotIn("if(", str(selected))
+            self.assertNotIn("__olo_", str(selected))
+            self.assertEqual(selected[1:], (N(0), N(0)))
+            self.assertIn(a, selected[0].get_all_symbols(False))
+            self.assertIn(b, selected[0].get_all_symbols(False))
+            self.assertEqual(module.get_expression(master, coefficient=0, branch_rules=rules,
+                                                   max_nodes=100_000_000), selected[0])
+            r = b / a
+            d, e = (r*r + 4)**(N(1)/2), (r*(r - 4))**(N(1)/2)
+            li2 = lambda z: S("polylog")(2, z)
+            independent = (li2((-r+d)/2) + li2((-r-d)/2)
+                           - li2((2-r+e)/2) - li2((2-r-e)/2)) / (2*a)
+            # Check several points in the selected region, not just the probe:
+            # accidental substitution of the returned body would fail here.
+            for av, bv, scale in [(2, 1, 1), (2, 1, 7), (4, 2, 3), (3, 1, 1)]:
+                values = {a: av, b: bv, mu: scale}
+                actual = selected[0].evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
+                expected = independent.evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
+                native = module.C0(0, -av, av, av, av, bv, mu_squared=scale, prec=60)
+                for got, want, reference in zip(actual, expected, [native[0].real, native[0].imag]):
+                    self.assertLess(abs(got - want), Decimal("1e-45"))
+                    self.assertLess(abs(got - reference), Decimal("1e-35"))
+                if (av, bv, scale) == (2, 1, 1):
+                    self.assertLess(abs(actual[0] - Decimal(
+                        "-0.313413985805891556410851729326115326931925200907803748216227"
+                    )), Decimal("1e-45"))
+            with self.assertRaises(ValueError):
+                module.get_expression(master, branch_rules=rules, max_nodes=10)
+            with self.assertRaises(TypeError):
+                module.get_expression(master, branch_rules=[(a, N(2))])
+            ap, bp, mup = S("branch_positive_a", "branch_positive_b", "branch_positive_mu",
+                            is_positive=True)
+            positive_master = S("oneloopmaster::C0")(0, -ap, ap, ap, ap, bp, mup)
+            positive_rules = [Replacement(ap, N(2)), Replacement(bp, N(1)), Replacement(mup, N(1))]
+            positive_result = module.get_expression(positive_master, branch_rules=positive_rules,
+                                                    max_nodes=100_000_000)
+            self.assertNotIn("if(", str(positive_result))
+            self.assertEqual(positive_result[1:], (N(0), N(0)))
+            self.assertLess(abs(positive_result[0].evaluate({ap: 2, bp: 1, mup: 1})
+                                + 0.31341398580589156), 1e-12)
+        self.in_host(check)
+
     def test_readme_parametric_equal_mass_bubble_expression(self):
         def check(module):
             from symbolica import E, Expression, N, Replacement, S
@@ -32,6 +85,7 @@ class ExpressionInspection(unittest.TestCase):
                 with self.subTest(sample=str(sample)):
                     rules = [Replacement(mass, N(1)), Replacement(psq, sample)]
                     selected = module.select_branch(result, rules)
+                    self.assertEqual(module.get_expression(master, branch_rules=rules), selected)
                     self.assertIsInstance(selected, tuple)
                     self.assertNotIn("if(", str(selected))
                     self.assertEqual(selected[1:], (N(1), N(0)))

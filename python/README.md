@@ -320,6 +320,24 @@ parametric expression valid in the selected analytic region, not a global
 replacement for the original expression across branch boundaries.
 See the [inspection guide](../EXPRESSION_INSPECTION.md) for expansion budgets.
 
+For a large C0/D0 expression, provide `branch_rules` directly to `get_expression`
+so unused branches are pruned **before** expansion:
+
+```python
+mass2, mass2B, mu2 = S("mass2", "mass2B", "mu2")
+master = S("oneloopmaster::C0")(0, -mass2, mass2, mass2, mass2, mass2B, mu2)
+probes = [Replacement(mass2, N(2)), Replacement(mass2B, N(1)),
+          Replacement(mu2, N(1))]
+selected = olo.get_expression(master, branch_rules=probes, max_nodes=100_000_000)
+assert olo.select_branch(selected, probes) == selected
+```
+
+The original nested call without `branch_rules` first constructs all branches
+and can exceed the node budget before `select_branch` runs. The new keyword uses
+the same condition-only semantics, retains symbolic masses in the result, and
+does not change the default all-branches API. It also accepts `coefficient=` and
+the usual expansion limits.
+
 Return order is `(finite, simple_pole, double_pole)`; `coefficient=0`, `-1`, or
 `-2` selects one Expression. `select_branch` preserves a single Expression,
 tuple, or list as the same kind of result. It visits nested native `if`s at any

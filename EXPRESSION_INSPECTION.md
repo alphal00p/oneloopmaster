@@ -112,6 +112,82 @@ ill-conditioned boundaries. The selected formula is valid only in the selected
 analytic region (or on a boundary if the probe lies there), not globally. There
 is no implicit algebraic rewrite to a particular textbook form.
 
+## Selecting before expansion (large C0/D0 expressions)
+
+`select_branch(get_expression(master), rules)` must finish expanding all branches
+before selection starts. For large masters this can exhaust `max_nodes` even
+when the selected expression is small. Pass the rules into the expansion instead:
+
+```python
+mass2, mass2B, mu2 = S("mass2", "mass2B", "mu2")
+master = S("oneloopmaster::C0")(0, -mass2, mass2, mass2, mass2, mass2B, mu2)
+rules = [Replacement(mass2, N(2)), Replacement(mass2B, N(1)),
+         Replacement(mu2, N(1))]
+selected = olo.get_expression(master, branch_rules=rules, max_nodes=100_000_000)
+assert olo.select_branch(selected, rules) == selected
+value = selected[0].evaluate({mass2: 2, mass2B: 1, mu2: 1},
+                             decimal_digit_precision=60)
+```
+
+The Rust entry points are `get_expression_on_branch(master, &rules)` and
+`get_expression_on_branch_with_options(master, &rules, options)`. They return
+the same `LaurentSeries` type as the all-branches entry points.
+
+This uses the existing transparent FunctionMap definitions, not a separate
+numerical backend or a hard-coded formula for the probe. Each expanded condition
+is sampled using the same protected native replacements as `select_branch`;
+only the chosen arm is expanded if decidable. Nested selections happen inside
+conditions as well as function arguments and returned bodies. Undecidable
+conditions keep their parametric form and both arms are expanded. All caches
+are local to one expansion and its fixed rules; no result is reused across
+different probes. Expansion work and recursion limits still apply.
+
+This massive C0 still exceeds the default one-million-node **cumulative work**
+budget. With branch probes, the original 100-million-node budget is sufficient;
+without probes it is not. The returned generic expression is not automatically
+rewritten to the compact four-dilogarithm identity.
+
+At `(mass2, mass2B, mu2) = (2, 1, 1)`, the expression obtained through these
+repo APIs gives
+
+```text
+finite      = -0.313413985805891556410851729326115326931925200907803748216227
+simple pole = 0
+double pole = 0
+```
+
+Run `python examples/c0_selected_branch.py --full` in the shared Python host to
+print the actual if-free parametric expression and verify its value. The
+independently derived four-dilogarithm identity is only a numerical check in
+that script, never the source of the returned expression. The Python regression
+also compares the same selected formula at `(2,1,7)`, `(4,2,3)` and `(3,1,1)`
+with that identity and the native backend, and checks positive-tagged inputs.
+These checks establish this case and nearby selected-region behavior, not
+global correctness of every possible branch probe.
+
+Focused regression commands (from the repository root, with the shared Python
+host installed) are:
+
+```sh
+RUST_MIN_STACK=134217728 cargo test --release --lib inspection::tests -- --test-threads=1
+cargo test --release --test branch_expansion --test branch_selection --test inspection --test inspection_complex --test inspection_master -- --test-threads=1
+PYTHONPATH=python/tests ONELOOP_PYTHON_MODULE=symbolica.community.oneloop python -m unittest test_inspection test_precision -v
+```
+
+The explicit Rust harness stack makes isolated initializer tests independent of
+which test first initializes Symbolica. This is not a request to change the
+library's runtime threading. The wider, untargeted library suite was not completed
+in this fix's validation. Rust 1.98 Clippy also reports pre-existing
+`chunks_exact_to_as_chunks` suggestions in the unchanged backend, native and
+precision batching code; the scoped lint check allows that lint only.
+
+`branch_rules=None` (the default) retains the original all-branches behavior;
+an explicit list enables branch-aware expansion. `coefficient=` can be combined
+with `branch_rules`. Parameters are never replaced in the returned arithmetic.
+Rules must be native `Replacement` objects, not strings or pairs. As with
+`select_branch`, a chosen formula is only valid in the sampled region, and
+partial or non-finite probes may leave undecidable conditions.
+
 ## Assumptions, limits and numerical use
 
 The complete one-scale triangle is compact for a proven-real invariant `s` and a

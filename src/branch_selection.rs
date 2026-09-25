@@ -72,7 +72,7 @@ fn protected_rhs(expression: AtomView<'_>) -> Atom {
     Symbol::IF.call((Symbol::PI, &exact, &exact))
 }
 
-fn exact_replacement(replacement: &Replacement) -> Replacement {
+pub(crate) fn exact_replacement(replacement: &Replacement) -> Replacement {
     let mut replacement = replacement.clone();
     replacement.rhs = match replacement.rhs {
         ReplaceWith::Pattern(pattern) => {
@@ -209,7 +209,7 @@ fn schedule<'a>(
     work.extend(children.into_iter().rev().map(Work::Visit));
 }
 
-fn numeric_truth(condition: AtomView<'_>) -> Option<bool> {
+pub(crate) fn numeric_truth(condition: AtomView<'_>) -> Option<bool> {
     if let AtomView::Num(number) = condition {
         return match number.get_coeff_view() {
             CoefficientView::Natural(..) | CoefficientView::Large(..) => Some(!number.is_zero()),
