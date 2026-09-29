@@ -36,6 +36,7 @@ use symbolica::{
 /// assert_eq!(select_branch(&expression, &[Replacement::new(x.clone(), 2)]), x + 1);
 /// ```
 pub fn select_branch(expression: impl AtomCore, replacement_rules: &[Replacement]) -> Atom {
+    crate::record_usage();
     let rules = replacement_rules
         .iter()
         .map(exact_replacement)

@@ -101,7 +101,7 @@ impl PrecisionEvaluator {
                     .into(),
             );
         }
-        crate::initialize()?;
+        crate::initialization::ensure_symbolica_state();
         let converter = Float::new(bits);
         let evaluator = if backend == EvaluationBackend::Native {
             PreparedPrecision::Native(NativeEvaluator::with_binary_precision(family, bits)?)
@@ -161,6 +161,7 @@ impl PrecisionEvaluator {
     /// Validation failures leave the caller's output unchanged. Singular
     /// kinematics may still produce nonfinite coefficients.
     pub fn evaluate(&mut self, arguments: &[C], output: &mut [C]) -> Result<(), String> {
+        crate::record_usage();
         self.validate(arguments.len(), output.len(), 1)?;
         self.validate_point(arguments)?;
         self.evaluate_row(arguments, output);
@@ -176,6 +177,7 @@ impl PrecisionEvaluator {
         output: &mut [C],
         rows: usize,
     ) -> Result<(), String> {
+        crate::record_usage();
         self.validate(arguments.len(), output.len(), rows)?;
         // Validate the entire batch before evaluating any row, and before
         // rounding inputs to the chosen working precision.

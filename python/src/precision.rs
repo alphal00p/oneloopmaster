@@ -43,12 +43,23 @@ fn decimal_component(value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     Ok(decimal.unbind())
 }
 
-/// A complex number whose real and imaginary components are exact Python Decimals.
-/// Construction and returned components do not round through the ambient context.
-/// Converting with complex(value) is an explicit, lossy binary64 operation.
+/// A complex number with Python Decimal components.
+///
+/// Use decimal strings or Decimal inputs to preserve digits beyond binary64.
+/// The constructor retains the supplied components without rounding to the
+/// ambient Decimal context. ``complex(z)`` explicitly converts to binary64 and
+/// can lose precision. Nonfinite components and booleans are rejected.
+///
+/// Examples
+/// --------
+/// >>> from decimal import Decimal
+/// >>> from symbolica.community.hep import oneloop
+/// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
+/// >>> assert z.real == Decimal("1.25")
+/// >>> assert z.imag == Decimal("-0.5")
 #[cfg_attr(
     feature = "community",
-    pyclass(frozen, module = "symbolica.community.oneloop")
+    pyclass(frozen, module = "symbolica.community.hep.oneloop")
 )]
 #[cfg_attr(not(feature = "community"), pyclass(frozen, module = "oneloop_native"))]
 pub(crate) struct DecimalComplex {
@@ -58,9 +69,26 @@ pub(crate) struct DecimalComplex {
 
 #[pymethods]
 impl DecimalComplex {
+    /// Construct finite real and imaginary Decimal components; omitted imaginary part is zero.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from decimal import Decimal
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
+    /// >>> assert complex(z) == 1.25 - 0.5j
+    ///
+    /// Parameters
+    /// ----------
+    /// real : int, float, str or Decimal
+    ///     Real component. A float preserves its binary approximation; use a
+    ///     string for an exact decimal input.
+    /// imag : int, float, str, Decimal or None, optional
+    ///     Imaginary component; None means zero.
     #[new]
     #[pyo3(signature = (real, imag=None))]
     fn new(real: &Bound<'_, PyAny>, imag: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        oneloop::record_usage();
         let py = real.py();
         Ok(Self {
             real: decimal_component(real)?,
@@ -72,16 +100,40 @@ impl DecimalComplex {
         })
     }
 
+    /// Real component as a Decimal, without conversion to a Python float.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from decimal import Decimal
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
+    /// >>> assert z.real == Decimal("1.25")
     #[getter]
     fn real(&self, py: Python<'_>) -> Py<PyAny> {
         self.real.clone_ref(py)
     }
 
+    /// Imaginary component as a Decimal, without conversion to a Python float.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from decimal import Decimal
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
+    /// >>> assert z.imag == Decimal("-0.5")
     #[getter]
     fn imag(&self, py: Python<'_>) -> Py<PyAny> {
         self.imag.clone_ref(py)
     }
 
+    /// Convert both components to a built-in complex number; precision beyond binary64 is lost.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from decimal import Decimal
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
+    /// >>> assert complex(z) == complex(1.25, -0.5)
     fn __complex__(&self, py: Python<'_>) -> PyResult<Py<PyComplex>> {
         Ok(PyComplex::from_doubles(
             py,
@@ -91,6 +143,14 @@ impl DecimalComplex {
         .unbind())
     }
 
+    /// Show both Decimal components for inspection.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from decimal import Decimal
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
+    /// >>> text = repr(z)
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
         Ok(format!(
             "DecimalComplex({}, {})",

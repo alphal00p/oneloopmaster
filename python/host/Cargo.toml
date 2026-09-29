@@ -12,9 +12,4 @@ crate-type = ["cdylib"]
 [dependencies]
 oneloop-python = { path = "..", default-features = false, features = ["community"] }
 pyo3 = { version = "0.28", features = ["extension-module", "abi3-py39"] }
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "821b02451256a92039a0665006628bd5d91470cc", default-features = false, features = ["python_export", "tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
-
-# Use the upstream Numerica fixes from the same Symbolica revision.
-# Dependency-level overrides do not propagate to these build roots.
-[patch.crates-io]
-numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "821b02451256a92039a0665006628bd5d91470cc" }
+symbolica = { version = "3.0.1", default-features = false, features = ["python_export", "tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }

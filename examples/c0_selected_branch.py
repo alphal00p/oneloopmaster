@@ -34,7 +34,7 @@ print("Repo expression evaluated at the probe:", evaluated.to_decimal_tuple(60))
 print("Pole coefficients:", selected[1:])
 
 expected = (Decimal("-0.313413985805891556410851729326115326931925200907803748216227"),Decimal(0))
-native = oneloop.C0(0, -2, 2, 2, 2, 1, mu_squared=1, prec=60)[0]
+native = oneloop.c0(0, -2, 2, 2, 2, 1, mu_squared=1, prec=60)[0]
 for got, want, reference in zip(actual, expected, [native.real, native.imag]):
     assert abs(got - want) < Decimal("1e-45")
     assert abs(got - reference) < Decimal("1e-45")

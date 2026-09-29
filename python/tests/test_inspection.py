@@ -1,5 +1,5 @@
 """Expression-native inspection and condition-only branch selection."""
-from decimal import Decimal
+from decimal import Decimal, localcontext
 import unittest
 
 from test_api import on_symbolica_thread, tearDownModule  # noqa: F401
@@ -12,6 +12,77 @@ class ExpressionInspection(unittest.TestCase):
                 self.skipTest("symbolic APIs require the shared-kernel Python host")
             check(module)
         on_symbolica_thread(run)
+
+    def test_tagged_floating_calls_fold_and_symbolic_calls_remain_masters(self):
+        def check(module):
+            from symbolica import AtomType, Float, S
+
+            self.assertFalse(module.is_initialized())
+            scale = Float("1", decimal_digits=40)
+            for name, arguments in [
+                ("A0", [2]),
+                ("B0", [-3, 2, 2]),
+                ("dB0", [-3, 2, 2]),
+                ("C0", [-1, -2, -3, 2, 2, 2]),
+                ("D0", [-1, -2, -3, -4, -5, -6, 2, 2, 2, 2]),
+            ]:
+                primitive = getattr(module, name)
+                reference = getattr(module, name.lower())(*arguments, 1, backend="native")
+                for tag, expected in zip((0, -1, -2), reference):
+                    with self.subTest(family=name, tag=tag):
+                        # A floating scale suffices even when every other
+                        # argument is an exact integer.
+                        folded = primitive(tag, *arguments, scale)
+                        self.assertEqual(folded.get_type(), AtomType.Num)
+                        self.assertLessEqual(abs(folded.evaluate({}) - expected), 1e-11 * max(1, abs(expected)))
+
+            mass = S("floating_constructor::mass_squared")
+            for symbolic in [
+                module.A0(2, 1),
+                module.A0(Float("2", decimal_digits=40), 1),
+                module.A0(0, 2, 1),
+                module.A0(0, mass, scale),
+                module.A0(2, Float("2"), 1),  # Invalid Laurent tag.
+                module.A0(0, Float("2"), 0),  # Invalid squared scale.
+            ]:
+                self.assertEqual(symbolic.get_type(), AtomType.Fn)
+            template = module.A0(0, mass, 1)
+            self.assertEqual(template.replace(mass, 2).get_type(), AtomType.Fn)
+            substituted = template.replace(mass, Float("2", decimal_digits=40))
+            self.assertEqual(substituted.get_type(), AtomType.Num)
+            self.assertLess(abs(substituted.evaluate({}) - module.a0(2, 1)[0]), 1e-12)
+            ordinary_float = module.A0(0, 2.0, 1)
+            self.assertEqual(ordinary_float.get_type(), AtomType.Num)
+            self.assertLess(abs(ordinary_float.evaluate({}) - module.a0(2, 1)[0]), 1e-12)
+            self.assertFalse(module.is_initialized())
+        self.in_host(check)
+
+    def test_mixed_float_and_complex_float_folding_preserves_precision(self):
+        def check(module):
+            from symbolica import AtomType, ComplexFloat, E, Float
+
+            scale = Float("1", decimal_digits=70)
+            # The exact rational must be converted at the floating input's
+            # precision, rather than first passing through binary64.
+            rational_pole = module.A0(-1, E("1/3"), scale)
+            self.assertEqual(rational_pole.get_type(), AtomType.Num)
+            value = rational_pole.evaluate({}, decimal_digit_precision=80)
+            with localcontext() as context:
+                context.prec = 85
+                self.assertLess(abs(value.real.to_decimal() - Decimal(1) / 3), Decimal("1e-65"))
+
+            mass = ComplexFloat(
+                Float("1.2345678901234567890123456789012345678901234567890123456789", decimal_digits=70),
+                Float("-0.125", decimal_digits=40),
+            )
+            complex_pole = module.A0(-1, mass, 1)
+            self.assertEqual(complex_pole.get_type(), AtomType.Num)
+            actual = complex_pole.evaluate({}, decimal_digit_precision=80)
+            with localcontext() as context:
+                context.prec = 85
+                self.assertLess(abs(actual.real.to_decimal() - mass.real.to_decimal()), Decimal("1e-65"))
+                self.assertEqual(actual.imag.to_decimal(), Decimal("-0.125"))
+        self.in_host(check)
 
     def test_generic_box_selects_after_complete_shared_expansion(self):
         def check(module):
@@ -30,7 +101,7 @@ class ExpressionInspection(unittest.TestCase):
             self.assertGreaterEqual(len(selected[0].get_all_symbols(False)), 10)
             actual = selected[0].evaluate(dict(zip(parameters, point)),
                                           decimal_digit_precision=60).to_decimal_tuple()
-            reference = module.D0(*point[:-1], mu_squared=point[-1], prec=60)[0]
+            reference = module.d0(*point[:-1], mu_squared=point[-1], prec=60)[0]
             for got, want in zip(actual, [reference.real, reference.imag]):
                 self.assertLess(abs(got - want), Decimal("1e-45"))
         self.in_host(check)
@@ -65,7 +136,7 @@ class ExpressionInspection(unittest.TestCase):
                 values = {a: av, b: bv, mu: scale}
                 actual = selected[0].evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
                 expected = identity.evaluate(values, decimal_digit_precision=60).to_decimal_tuple()
-                native = module.C0(0, -av, av, av, av, bv, mu_squared=scale, prec=60)
+                native = module.c0(0, -av, av, av, av, bv, mu_squared=scale, prec=60)
                 for got, want, reference in zip(actual, expected, [native[0].real, native[0].imag]):
                     self.assertLess(abs(got - want), Decimal("1e-45"))
                     self.assertLess(abs(got - reference), Decimal("1e-35"))
@@ -122,7 +193,7 @@ class ExpressionInspection(unittest.TestCase):
             from symbolica import E, Expression, N, Replacement, S
             psq = S("inspection_readme_psq", is_real=True)
             mass = S("inspection_readme_m2", is_positive=True)
-            master = S("oneloopmaster::B0")(psq, mass, mass, 1)
+            master = module.B0(psq, mass, mass, 1)
             result = module.get_expression(master)
             self.assertEqual(module.get_expression(master, coefficient=0), result[0])
             self.assertTrue(all(isinstance(c, Expression) for c in result))
@@ -145,7 +216,7 @@ class ExpressionInspection(unittest.TestCase):
                     if numeric != 0:
                         self.assertIn(psq, symbols)
                     value = selected[0].replace_multiple(rules).evaluate({})
-                    reference = module.B0(numeric, 1, 1, mu_squared=1)[0]
+                    reference = module.b0(numeric, 1, 1, mu_squared=1)[0]
                     self.assertLess(abs(value - reference), 2e-12)
                     self.assertEqual(module.select_branch(result[0], rules), selected[0])
                     self.assertEqual(module.select_branch(list(result), rules), list(selected))
@@ -226,13 +297,13 @@ class ExpressionInspection(unittest.TestCase):
                 ("dB0", 1, 2, E("1/6")), ("C0", 3, 3, E("-1/2")),
                 ("D0", 6, 4, E("1/6")),
             ]:
-                master = S("oneloopmaster::" + name)(*([0] * momenta + [1] * (masses + 1)))
+                master = getattr(module, name)(*([0] * momenta + [1] * (masses + 1)))
                 result = module.get_expression(master)
                 self.assertEqual(result[0], expected)
                 self.assertNotIn("__olo_", str(result))
             mass = S("inspection_compound_mass", is_positive=True)
             scale = S("inspection_compound_scale", is_positive=True)
-            master = S("oneloopmaster::A0")(mass + 4, scale ** 2)
+            master = module.A0(mass + 4, scale ** 2)
             result = module.get_expression(master)
             self.assertEqual(result[1], mass + 4)
             self.assertEqual(module.get_expression(master, coefficient=-1), result[1])
@@ -240,7 +311,7 @@ class ExpressionInspection(unittest.TestCase):
             for options in [{"coefficient": 2}, {"max_nodes": 1}, {"max_depth": 1}, {"max_nodes": 0}]:
                 with self.assertRaises(ValueError):
                     module.get_expression(master, **options)
-            for invalid in [mass, master + 1, S("other::A0")(mass, 1), S("oneloopmaster::B0")(mass, 1)]:
+            for invalid in [mass, master + 1, S("other::A0")(mass, 1), module.B0(mass, 1)]:
                 with self.assertRaises(ValueError):
                     module.get_expression(invalid)
             for operation in [
@@ -264,13 +335,13 @@ class ExpressionInspection(unittest.TestCase):
             invariant = S("inspection_c0_s", is_real=True)
             mass = S("inspection_c0_m")
             scale = S("inspection_c0_mu", is_positive=True)
-            master = S("oneloopmaster::C0")(0, 0, invariant, 0, mass, 0, scale)
+            master = module.C0(0, 0, invariant, 0, mass, 0, scale)
             result = module.get_expression(master)
             self.assertIn("if(", str(result[0]))
             self.assertNotIn("__olo_", str(result))
             self.assertLess(len(str(result[0])), 40_000)
-            # A variable Expression is accepted where Symbol is required.
-            evaluator = module.Evaluator(E("oneloopmaster::A0"), prec=64)
+            # The exported primitive is also the numerical family selector.
+            evaluator = module.Evaluator(module.A0, prec=64)
             actual = evaluator.evaluate([E("1/3"), N(1)])[1]
             self.assertIsInstance(actual.real, Decimal)
             self.assertLess(abs(actual.real - Decimal("0." + "3" * 64)), Decimal("1e-63"))

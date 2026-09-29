@@ -4,6 +4,15 @@ use symbolica::{
     parse,
 };
 
+#[test]
+fn removable_log_and_dilog_limits_are_finite() {
+    let one = Atom::num(1);
+    assert_eq!(log_over_one_minus(&one), Atom::num(-1));
+    assert_eq!(dilog_divided_difference(&one, &one), Atom::num(-1));
+    let two = Atom::num(2);
+    assert_eq!(dilog_divided_difference(&two, &two), -physical_log(&two));
+}
+
 fn evaluate_series<const N: usize>(
     expressions: &[Atom; 3],
     parameters: &[Atom],

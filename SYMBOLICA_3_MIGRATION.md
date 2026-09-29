@@ -1,3 +1,67 @@
+# Latest Symbolica main and HEP integration (2026-09-21)
+
+All three build roots select unmodified Symbolica/Numerica main
+`a19c760dd567c239f30d87e4e924ca2f8b8457ab` after the force push, with released
+SymJIT 2.26.0. No dependency source patches are applied. The initial missing
+`transcendental::numeric` module in the superseded main was resolved by that
+force push.
+
+Versioned library dependencies plus root-level Symbolica/Numerica overrides
+allow a consuming community host to select one kernel. The supplied host
+metadata resolves exactly one Symbolica, one Numerica and one SymJIT package.
+The Python adapter provides `register_hep_module` and the development host now
+exposes `symbolica.community.hep.oneloop`, preserving the old import's class
+identities. [HEP_INTEGRATION.md](HEP_INTEGRATION.md) records the inspected upstream
+Feynkit/community revisions, reusable types and the full-host registration steps.
+The full Feynkit/community distribution is not modified or built in this update.
+
+Symbolica's shared non-inlined bodies let OneLOop remove explicit-pi forwarding,
+padded argument slots and helper aliases. Original function signatures and
+symbol ordering are retained. Function bodies now intentionally see global
+inputs and their own parameters; the registration regression checks that new
+upstream contract. Caller-local expansion uses upstream `add_aliases`.
+The native generator accepts shared exported bodies and consumes upstream
+registered-constant metadata directly, removing synthetic constant arguments.
+
+All five evaluator assets were regenerated and restored against the 324 fixture
+rows. C0 shrank from 590,631 to 171,361 bytes, and D0 from 13,160,627 to 4,333,475
+bytes. The cache discriminator, Python metadata and
+[asset checksums](assets/evaluators/README.md) match the new pin. These are cache
+size measurements, not an application performance benchmark.
+
+Validation on Linux x86-64, Rust 1.98.1 and CPython 3.12:
+
+- Complete release unit/integration/doc suite: **124 passed, six ignored**.
+- Eight native generator tests passed. All five native families exported to a
+  temporary directory; repository native formula files were not regenerated.
+- Root/power and complex-triangle probes passed, including portable restoration.
+- Ten standalone Symbolica evaluator/startup regressions passed. The ignored
+  startup helper also passed in three fresh subprocesses.
+- Shared-host Python: **28 passed, two standalone-only checks skipped**,
+  including HEP/legacy class identity, shared expression evaluation, benchmark
+  fixtures, arbitrary precision and all families at 1000 decimal digits.
+- Core all-target, standalone adapter and shared-host Cargo checks passed.
+- Formatting and `git diff --check` passed. Clippy 1.98.1 passed with warnings
+  denied except the new `chunks_exact_to_as_chunks` style lint (three existing
+  core loops). Command: `cargo clippy --all-targets -- -D warnings
+  -A clippy::chunks_exact_to_as_chunks`. No lint suppression was added to sources.
+- All twelve former SymJIT 2.25.6 reproducer/control cases passed on 2.26.0.
+
+The broader SIMD diagnostic still reports **603 mismatches**. Standalone
+SymJIT-only reproducers isolate incorrect scalar-complex callback packing and
+lost nested conditional fallback; both have passing scalar controls. Additional
+probes find complex square-root and reciprocal overflow/underflow at finite
+scales with representable results. Production retains scalar batches and the
+root callback; a new callback test passes extreme root scales. Reciprocal
+scaling remains a limitation of the optional JIT backend.
+See the [upstream audit](patches/upstream-status-2026-09-21.md) for sources,
+commands, observed values and limitations. No new Symbolica correctness defect
+was established by the focused checks after the force push.
+
+The sections below are historical validation records.
+
+---
+
 # Upstream evaluator fixes (2026-09-19)
 
 All three build roots select unmodified Symbolica and bundled Numerica at

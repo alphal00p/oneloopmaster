@@ -1,4 +1,6 @@
-//! Public numeric callbacks for operations the upstream JIT lowers incorrectly.
+//! Numeric JIT callbacks for stable complex roots and exact predicates.
+//! SymJIT 2.26.0 fixes root lips and complex truth, but its unscaled root norm
+//! still overflows/underflows for finite inputs with representable roots.
 use std::sync::OnceLock;
 use symbolica::{
     atom::{Atom, AtomView, EvaluationInfo, Symbol},

@@ -375,6 +375,11 @@ fn triangle_finite_three_masses_ordered(momenta: [&Atom; 3], masses: [&Atom; 3])
     let discriminant = physical_sqrt(&(lambda / (masses[0] * masses[1] * masses[2])));
     let root_1 = (&b + &discriminant) / (Atom::num(2) * &a);
     let root_2 = (&b - discriminant) / (Atom::num(2) * &a);
+    // The logarithmic root term assumes that an exactly zero root is second,
+    // as in OneLOop's solabc. The direct quadratic formula reverses that order
+    // for timelike equal-mass triangles with two on-shell external legs.
+    let c = (&sqrt_1 / &sqrt_3 - Atom::num(1) / &r13) / (&sqrt_1 * &sqrt_2);
+    let (root_1, root_2) = (if_nonzero_else(&c, root_1, &b / &a), if_nonzero(&c, root_2));
 
     use sheet_exact::{SheetAtom as Q, divided_difference as dd};
     let qx1 = Q::upper(root_1.clone());

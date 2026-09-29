@@ -369,3 +369,134 @@ fn complex_triangle_and_box_are_stable_from_1000_to_1120_digits() {
         }
     });
 }
+
+#[test]
+fn equal_mass_triangle_zero_root_has_physical_lips_at_machine_and_110_digits() {
+    on_stack(|| {
+        use oneloop::EvaluationBackend::{Expression, Native, SymJit};
+        use symbolica::domains::float::RealLike;
+
+        let family = ScalarIntegral::C0;
+        let bits = 512;
+        let reference_bits = 768;
+        let n = |value| Float::with_val(reference_bits, value);
+        let pi = Float::with_val(reference_bits, Constant::Pi);
+        let pi_squared = pi.clone() * pi.clone();
+        let spacelike_log = (n(1) + n(2).sqrt()).log();
+        let above_log = ((n(3) + n(5).sqrt()) / n(2)).log();
+        let high_log = (n(7) + n(4) * n(3).sqrt()).log();
+        // Independently integrated Feynman parameters give
+        // C0(0,0,s;m²,m²,m²) = -2 asin²(sqrt(s)/(2m))/s below threshold,
+        // and [log((1+beta)/(1-beta))-i*pi]²/(2s) above it.
+        // These exact elementary values are evaluated at 768 bits; they are
+        // neither promoted binary64 fixtures nor another backend's outputs.
+        let references = [
+            (
+                -4,
+                C::new(-(spacelike_log.clone() * spacelike_log) / n(2), n(0)),
+            ),
+            (1, C::new(-pi_squared.clone() / n(18), n(0))),
+            (4, C::new(-pi_squared.clone() / n(8), n(0))),
+            (
+                5,
+                C::new(
+                    (above_log.clone() * above_log.clone() - pi_squared.clone()) / n(10),
+                    -pi.clone() * above_log / n(5),
+                ),
+            ),
+            (
+                16,
+                C::new(
+                    (high_log.clone() * high_log.clone() - pi_squared) / n(32),
+                    -pi * high_log / n(16),
+                ),
+            ),
+        ];
+        let mut precise = [Native, Expression].map(|backend| {
+            (
+                backend,
+                PrecisionEvaluator::with_binary_precision_and_backend(family, bits, backend)
+                    .unwrap(),
+            )
+        });
+        // No FunctionMap: this is the public C0 coefficient callback path.
+        let mut hook = bare_hook(family, bits);
+        for (ratio, finite) in references {
+            // Separate scale and mass changes prove both mu independence and
+            // C0(lambda*s;lambda*m²) = C0(s;m²)/lambda. All inputs are exact.
+            for (mass_squared, scale_squared) in [(1, 1), (1, 7), (4, 1)] {
+                let expected = [
+                    C::new(
+                        finite.re.clone() / n(mass_squared),
+                        finite.im.clone() / n(mass_squared),
+                    ),
+                    real(0, reference_bits),
+                    real(0, reference_bits),
+                ];
+                for position in 0..3 {
+                    let mut arguments = [
+                        0,
+                        0,
+                        0,
+                        mass_squared,
+                        mass_squared,
+                        mass_squared,
+                        scale_squared,
+                    ];
+                    arguments[position] = ratio * mass_squared;
+                    let label = format!(
+                        "s/m²={ratio}, m²={mass_squared}, mu²={scale_squared}, momentum slot={position}"
+                    );
+                    let machine_input = arguments.map(|value| Complex::new(f64::from(value), 0.));
+                    for backend in [Native, Expression, SymJit] {
+                        let mut actual = [Complex::new(0., 0.); 3];
+                        oneloop::evaluate_with_backend(
+                            family,
+                            &machine_input,
+                            &mut actual,
+                            backend,
+                        )
+                        .unwrap();
+                        for coefficient in 0..3 {
+                            let reference = Complex::new(
+                                expected[coefficient].re.to_f64(),
+                                expected[coefficient].im.to_f64(),
+                            );
+                            let error = (actual[coefficient].re - reference.re)
+                                .hypot(actual[coefficient].im - reference.im);
+                            assert!(
+                                error.is_finite()
+                                    && error < 2e-12 * reference.re.hypot(reference.im).max(1.),
+                                "{label}, {backend:?}, coefficient {coefficient}: {:?}, expected {reference:?}",
+                                actual[coefficient]
+                            );
+                        }
+                    }
+                    let precise_input = arguments.map(|value| real(value, bits));
+                    for (backend, evaluator) in &mut precise {
+                        let mut actual = zeros(bits);
+                        evaluator.evaluate(&precise_input, &mut actual).unwrap();
+                        for coefficient in 0..3 {
+                            assert_close(
+                                &actual[coefficient],
+                                &expected[coefficient],
+                                110,
+                                &format!("{label}, {backend:?}, coefficient {coefficient}"),
+                            );
+                        }
+                    }
+                    let mut actual = zeros(bits);
+                    hook.evaluate(&precise_input, &mut actual);
+                    for coefficient in 0..3 {
+                        assert_close(
+                            &actual[coefficient],
+                            &expected[coefficient],
+                            110,
+                            &format!("{label}, master callback, coefficient {coefficient}"),
+                        );
+                    }
+                }
+            }
+        }
+    });
+}

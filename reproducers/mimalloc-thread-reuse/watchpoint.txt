@@ -1,0 +1,42 @@
+Function "mi_process_init" not defined.
+Breakpoint 1 (mi_process_init) pending.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/nix/store/lm3pknxi0ipypy3lxh1wmm8wvvavdwrn-glibc-2.42-84/lib/libthread_db.so.1".
+[New Thread 0x7ffff7da46c0 (LWP 1295666)]
+[Switching to Thread 0x7ffff7da46c0 (LWP 1295666)]
+
+Thread 2 "driver" hit Breakpoint 1, mi_process_init () at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:1143
+1143	  mi_atomic_do_once {
+Hardware watchpoint 2: theap_main.tld
+thread 140737351665344: OK
+
+Thread 2 "driver" hit Hardware watchpoint 2: theap_main.tld
+
+Old value = (mi_tld_t *) 0x7ffff7599c00 <tld_main>
+New value = (mi_tld_t *) 0x0
+_mi_theap_free (theap=0x7ffff7599c80 <theap_main>, acquire_heap_theaps_lock=true, acquire_tld_theaps_lock=false) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/theap.c:329
+329	    _mi_theap_decref(theap);
+#0  _mi_theap_free (theap=0x7ffff7599c80 <theap_main>, acquire_heap_theaps_lock=true, acquire_tld_theaps_lock=false) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/theap.c:329
+#1  0x00007ffff75793a2 in mi_thread_theaps_done (tld=0x7ffff7599c00 <tld_main>) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:660
+#2  0x00007ffff7579596 in _mi_thread_done (_theap_main=0x7ffff7599c80 <theap_main>) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:759
+#3  0x00007ffff758799b in mi_pthread_done (value=0x7ffff7599c80 <theap_main>) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/prim/unix/prim.c:952
+#4  0x00007ffff7e40f70 in __nptl_deallocate_tsd () from /nix/store/0d8g8n0a11v6f5m2h416ajyxmnkwc3md-glibc-2.42-67/lib/libc.so.6
+#5  0x00007ffff7e43cf8 in start_thread () from /nix/store/0d8g8n0a11v6f5m2h416ajyxmnkwc3md-glibc-2.42-67/lib/libc.so.6
+#6  0x00007ffff7ecb07c in __clone3 () from /nix/store/0d8g8n0a11v6f5m2h416ajyxmnkwc3md-glibc-2.42-67/lib/libc.so.6
+$1 = (mi_tld_t *) 0x0
+[Thread 0x7ffff7da46c0 (LWP 1295666) exited]
+[New Thread 0x7ffff7da46c0 (LWP 1295670)]
+
+Thread 3 "driver" received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0x7ffff7da46c0 (LWP 1295670)]
+_mi_subproc () at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:435
+435	    return theap->tld->subproc;  // avoid using thread local storage (`thread_tld`)
+#0  _mi_subproc () at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:435
+#1  0x00007ffff7578bfe in mi_heap_main () at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:452
+#2  0x00007ffff75794bd in mi_thread_init () at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/init.c:722
+#3  0x00007ffff7580520 in _mi_malloc_generic (theap=0x7ffff7593e00 <_mi_theap_empty>, size=64, zero_huge_alignment=0, usable=0x0) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/page.c:987
+#4  0x00007ffff7569bfc in mi_page_malloc_zero (theap=0x7ffff7593e00 <_mi_theap_empty>, page=0x7ffff7588800 <_mi_page_empty>, size=64, zero=false, usable=0x0) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/alloc.c:43
+#5  mi_theap_malloc_small_zero_nonnull (theap=0x7ffff7593e00 <_mi_theap_empty>, size=64, zero=false, usable=0x0) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/alloc.c:149
+#6  _mi_theap_malloc_zero_ex (theap=0x7ffff7593e00 <_mi_theap_empty>, size=64, zero=false, huge_alignment=0, usable=0x0) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/alloc.c:236
+#7  _mi_theap_malloc_zero (theap=0x7ffff7593e00 <_mi_theap_empty>, size=64, zero=false, usable=0x0) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/alloc.c:244
+#8  0x00007ffff756be08 in mi_theap_malloc_zero_no_guarded (theap=0x7ffff7593e00 <_mi_theap_empty>, size=64, zero=false, usable=0x0) at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libmimalloc-sys-0.1.49/c_src/mimalloc/v3/src/alloc-aligned.c:64

@@ -1,0 +1,9 @@
+SIMD requested=true, compiled=true
+actual=[Complex { re: -251.0, im: 38.0 }, Complex { re: -321.0, im: 48.0 }, Complex { re: -265.0, im: 40.0 }, Complex { re: -335.0, im: 50.0 }]
+expected=[Complex { re: -287.0, im: 11.0 }, Complex { re: -294.0, im: 12.0 }, Complex { re: -301.0, im: 13.0 }, Complex { re: -308.0, im: 14.0 }]
+
+thread 'main' (3403131) panicked at src/bin/complex_simd_callback.rs:51:5:
+assertion `left == right` failed: scalar complex callback lanes were repacked incorrectly
+  left: [Complex { re: -251.0, im: 38.0 }, Complex { re: -321.0, im: 48.0 }, Complex { re: -265.0, im: 40.0 }, Complex { re: -335.0, im: 50.0 }]
+ right: [Complex { re: -287.0, im: 11.0 }, Complex { re: -294.0, im: 12.0 }, Complex { re: -301.0, im: 13.0 }, Complex { re: -308.0, im: 14.0 }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

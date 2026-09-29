@@ -1,4 +1,4 @@
-"""Standalone diagnostic: use eager caches after their initializing thread exits.
+"""Standalone diagnostic: use lazy caches after their initializing thread exits.
 
 Run separately from the test suite, with the native extension on PYTHONPATH.
 Both workers have explicit 128 MiB stacks and never overlap.
@@ -40,5 +40,5 @@ def clone_all(module):
 
 if __name__ == "__main__":
     threading.stack_size(128 * 1024 * 1024)
-    run("first", lambda module: print(module.A0(2), flush=True))
+    run("first", lambda module: print(module.a0(2), flush=True))
     run("second", clone_all)

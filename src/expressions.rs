@@ -87,7 +87,6 @@ pub(crate) fn shared_definitions() -> &'static FunctionMap {
         register_triangles(&mut map);
         register_boxes(&mut map);
         register_masters(&mut map);
-        map.prepare_symbols();
         map
     })
 }

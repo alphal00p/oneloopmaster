@@ -3,8 +3,10 @@
 //! Standalone wheels expose numbers only. Expression interop is enabled only
 //! through the `community` feature, linked into one Symbolica community kernel.
 //! Identical revisions in separate extension binaries do not imply shared state.
-//! Import initializes the core symbols and scalar caches eagerly on the calling
-//! thread. Community hosts defer this work to their module initialize hook.
+//! Import registers the Python API only. Symbol hooks are registered with
+//! Symbolica state; formulas and numerical backends are prepared on demand.
+//! Community uppercase exports are lazily resolved primitive Expressions;
+//! lowercase functions evaluate numerical coefficient triples in both builds.
 //! Construction/evaluation remains on the calling thread; no hidden worker or
 //! automatic precision escalation is introduced here.
 
@@ -92,6 +94,7 @@ enum MachineEvaluator {
 
 impl MachineEvaluator {
     fn new(family: ScalarIntegral, backend: EvaluationBackend, rebuild: bool) -> PyResult<Self> {
+        oneloop::record_usage();
         match backend {
             EvaluationBackend::Native => NativeEvaluator::new(family)
                 .map(Self::Native)
@@ -386,20 +389,49 @@ fn single(
     Ok(coefficients(py, &output))
 }
 
-/// Return whether eager core startup finished successfully; never initialize it.
+/// Report whether the native one-loop module has initialized its evaluation support.
+///
+/// Examples
+/// --------
+/// >>> from symbolica import S, E
+/// >>> from symbolica.community import hep
+/// >>> from symbolica.community.hep import oneloop
+/// >>> initialized = oneloop.is_initialized()
 #[pyfunction]
 fn is_initialized() -> bool {
     oneloop::is_initialized()
 }
 
-/// Reusable numeric evaluator. prec counts decimal digits; Decimal inputs select
-/// arbitrary precision even at the default prec=16. Ordinary default inputs use
-/// the default binary64 backend unless explicitly selected. Arguments follow the Rust scalar API,
-/// with mu_squared last. Outputs are (finite, simple_pole, double_pole).
-/// Use the creating thread; respect Symbolica's license and stack requirements.
+/// Reuse a numerical evaluator for one scalar one-loop master family.
+///
+/// Pass a bare primitive symbol: ``oneloop.A0``, ``B0``, ``dB0``, ``C0`` or
+/// ``D0``. Every evaluation takes physical arguments in that primitive's order,
+/// with the squared renormalization scale last. Unlike the lowercase convenience
+/// functions, ``evaluate`` requires the scale explicitly.
+///
+/// Results are ordered ``(finite, 1/eps, 1/eps**2)``. ``prec`` counts decimal
+/// significant digits. Binary64 evaluation returns Python complex values;
+/// arbitrary-precision evaluation returns DecimalComplex components. Use decimal
+/// strings through Decimal to avoid rounding your inputs before evaluation.
+/// Per-call precision/backend overrides do not change the stored defaults.
+///
+/// Examples
+/// --------
+/// >>> from symbolica import S, E
+/// >>> from symbolica.community import hep
+/// >>> from symbolica.community.hep import oneloop
+/// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+/// >>> finite, pole, double_pole = evaluator.evaluate([1.0, 1.0])
+/// >>> assert pole == 1+0j and double_pole == 0j
+/// >>> rows = evaluator.evaluate_batch([[1.0, 1.0], [2.0, 1.0]])
+/// >>> assert len(rows) == 2
 #[cfg_attr(
     feature = "community",
-    pyclass(name = "Evaluator", unsendable, module = "symbolica.community.oneloop")
+    pyclass(
+        name = "Evaluator",
+        unsendable,
+        module = "symbolica.community.hep.oneloop"
+    )
 )]
 #[cfg_attr(
     not(feature = "community"),
@@ -445,6 +477,31 @@ impl Evaluator {
 
 #[pymethods]
 impl Evaluator {
+    /// Prepare an evaluator and retain default precision and backend choices.
+    ///
+    /// ``auto`` selects a supported backend for the requested precision. ``native``
+    /// uses native numerical evaluation; ``symjit`` supports binary64 only.
+    /// ``expression`` (also named ``symbolica``) evaluates Symbolica formulas.
+    /// Unsupported backend/precision combinations raise an error.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> assert evaluator.family == "A0" and evaluator.arity == 2
+    ///
+    /// Parameters
+    /// ----------
+    /// family : Expression
+    ///     Bare primitive symbol such as oneloop.B0, not a B0(...) call.
+    /// rebuild : bool, optional
+    ///     Recreate the evaluator's workspace; default False.
+    /// prec : int, optional
+    ///     Positive number of decimal significant digits; default 16.
+    /// backend : str, optional
+    ///     "auto", "native", "symjit", "expression" or "symbolica"; default "auto".
     #[new]
     #[pyo3(signature = (family, rebuild=false, *, prec=16, backend="auto"))]
     fn new(
@@ -453,6 +510,7 @@ impl Evaluator {
         #[pyo3(from_py_with = precision::parse_precision)] prec: u32,
         backend: &str,
     ) -> PyResult<Self> {
+        oneloop::record_usage();
         #[cfg(feature = "community")]
         let family = symbolic_family(family)?;
         #[cfg(not(feature = "community"))]
@@ -480,27 +538,89 @@ impl Evaluator {
         })
     }
 
+    /// Primitive family name, such as "A0" or "B0".
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> assert evaluator.family == "A0"
     #[getter]
     fn family(&self) -> &'static str {
         self.family.name()
     }
 
+    /// Number of physical arguments including the final squared scale.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> assert evaluator.arity == 2
+    /// >>> assert oneloop.Evaluator(oneloop.B0).arity == 4
     #[getter]
     fn arity(&self) -> usize {
         self.family.arity()
     }
 
+    /// Default decimal significant-digit count; per-call overrides leave it unchanged.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> assert evaluator.prec == 16
     #[getter]
     fn prec(&self) -> u32 {
         self.prec
     }
 
-    /// Constructor's requested backend. Per-call overrides do not change it.
+    /// Requested default backend name; "auto" remains "auto" after backend selection.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> assert evaluator.backend == "auto"
     #[getter]
     fn backend(&self) -> &'static str {
         self.backend.name()
     }
 
+    /// Evaluate one kinematic point and return (finite, simple pole, double pole).
+    ///
+    /// Supply exactly ``arity`` numeric arguments including the squared scale.
+    /// Inputs must satisfy the selected primitive's kinematic domain. A per-call
+    /// ``prec`` or ``backend`` override changes only this evaluation.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> finite, pole, double_pole = evaluator.evaluate([1.0, 1.0])
+    /// >>> assert pole == 1+0j
+    /// >>> from decimal import Decimal
+    /// >>> high_precision = evaluator.evaluate([Decimal("1"), Decimal("1")], prec=40)
+    /// >>> assert high_precision[1].real == Decimal("1")
+    ///
+    /// Parameters
+    /// ----------
+    /// arguments : sequence[Number]
+    ///     Ordered invariants, squared masses and squared scale for the primitive.
+    /// prec : int or None, optional
+    ///     Decimal significant digits; None uses the constructor default.
+    /// backend : str or None, optional
+    ///     Backend override; None uses the constructor default.
     #[pyo3(signature = (arguments, *, prec=None, backend=None))]
     fn evaluate(
         &mut self,
@@ -530,8 +650,29 @@ impl Evaluator {
         Ok(coefficients(py, &output))
     }
 
-    /// Evaluate rows of ordered arguments; return one coefficient tuple per row.
-    /// Empty input returns an empty list. No NumPy dependency is required.
+    /// Evaluate a sequence of kinematic rows, returning one coefficient tuple per row.
+    ///
+    /// All rows have ``arity`` entries and use the same precision/backend choice.
+    /// An empty batch returns an empty list. No NumPy array is required.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> rows = evaluator.evaluate_batch([[1.0, 1.0], [2.0, 1.0]])
+    /// >>> assert rows[0] == evaluator.evaluate([1.0, 1.0])
+    /// >>> assert evaluator.evaluate_batch([]) == []
+    ///
+    /// Parameters
+    /// ----------
+    /// rows : sequence[sequence[Number]]
+    ///     Ordered physical arguments, including the squared scale, for each point.
+    /// prec : int or None, optional
+    ///     Decimal significant digits; None uses the constructor default.
+    /// backend : str or None, optional
+    ///     Backend override; None uses the constructor default.
     #[pyo3(signature = (rows, *, prec=None, backend=None))]
     fn evaluate_batch(
         &mut self,
@@ -601,8 +742,20 @@ impl Evaluator {
             .collect())
     }
 
-    /// Rebuild current workspaces transactionally. Native rebuild prepares fresh
-    /// constants/workspace only; SymJIT rebuild recompiles its evaluator.
+    /// Recreate cached evaluator workspaces while preserving the configured family and defaults.
+    ///
+    /// Native evaluation refreshes constants/workspaces; a SymJIT evaluator is
+    /// recompiled. This is usually unnecessary between evaluations at new points.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
+    /// >>> before = evaluator.evaluate([1.0, 1.0])
+    /// >>> evaluator.rebuild()
+    /// >>> assert evaluator.evaluate([1.0, 1.0]) == before
     fn rebuild(&mut self) -> PyResult<()> {
         let evaluator = self
             .evaluator
@@ -625,6 +778,12 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Summarize the selected family, precision and requested backend.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> summary = repr(oneloop.Evaluator(oneloop.A0))
     fn __repr__(&self) -> String {
         format!(
             "Evaluator('{}', arity={}, prec={}, backend='{}', coefficient_order=(0,-1,-2))",
@@ -637,9 +796,9 @@ impl Evaluator {
 }
 
 macro_rules! scalar {
-    ($rust:ident, $python:literal, $kind:ident, [$($argument:ident),+]) => {
+    ($rust:ident, $python:literal, $kind:ident, [$($argument:ident),+], $documentation:literal) => {
         #[pyfunction(name=$python, signature=($($argument,)+ mu_squared=None, *, rebuild=false, prec=16, backend="auto"))]
-        #[doc = "Return (finite, simple_pole, double_pole). prec counts decimal digits; omitted mu_squared is exactly 1. Decimal inputs/results preserve arbitrary precision. backend is auto, native, symjit (binary64 only), or expression."]
+        #[doc = $documentation]
         // Preserve the conventional ordered scalar-integral Python signature.
         #[allow(clippy::too_many_arguments)]
         fn $rust(py: Python<'_>, $($argument: &Bound<'_, PyAny>,)+ mu_squared: Option<&Bound<'_, PyAny>>, rebuild: bool, #[pyo3(from_py_with = precision::parse_precision)] prec: u32, backend: &str) -> PyResult<Coefficients> {
@@ -651,18 +810,120 @@ macro_rules! scalar {
     };
 }
 
-scalar!(a0, "A0", A0, [mass_squared]);
+scalar!(
+    a0,
+    "A0",
+    A0,
+    [mass_squared],
+    r#"Evaluate a scalar tadpole A0(mass_squared, mu_squared).
+
+Results are ordered (finite, 1/eps, 1/eps**2). Invariants and masses are
+squared quantities; omitted mu_squared is exactly one. ``prec`` is the
+positive decimal significant-digit count (default 16). Decimal inputs or
+higher precision produce DecimalComplex values. ``backend`` selects "auto",
+"native", "symjit" (binary64 only), "expression", or "symbolica".
+``rebuild=True`` refreshes the evaluator workspace.
+
+Examples
+--------
+>>> from symbolica import S, E
+>>> from symbolica.community import hep
+>>> from symbolica.community.hep import oneloop
+>>> finite, pole, double_pole = oneloop.a0(1.0, 1.0)
+
+Parameters
+----------
+mass_squared : Number
+    Squared mass of the tadpole propagator.
+mu_squared : Number or None, optional
+    Squared renormalization scale; None uses exactly one.
+rebuild : bool, optional
+    Refresh the evaluator workspace before evaluation; default False.
+prec : int, optional
+    Positive number of decimal significant digits; default 16. Use Decimal
+    inputs to retain input digits beyond binary64 precision.
+backend : {"auto", "native", "symjit", "expression", "symbolica"}, optional
+    Evaluation backend; default "auto" selects a supported backend for the
+    requested precision. "symjit" supports binary64 only; "symbolica" is
+    an alias for "expression"."#
+);
 scalar!(
     b0,
     "B0",
     B0,
-    [momentum_squared, mass_0_squared, mass_1_squared]
+    [momentum_squared, mass_0_squared, mass_1_squared],
+    r#"Evaluate a scalar bubble B0(momentum_squared, mass_0_squared, mass_1_squared, mu_squared).
+
+Results are ordered (finite, 1/eps, 1/eps**2). Invariants and masses are
+squared quantities; omitted mu_squared is exactly one. ``prec`` is the
+positive decimal significant-digit count (default 16). Decimal inputs or
+higher precision produce DecimalComplex values. ``backend`` selects "auto",
+"native", "symjit" (binary64 only), "expression", or "symbolica".
+``rebuild=True`` refreshes the evaluator workspace.
+
+Examples
+--------
+>>> from symbolica import S, E
+>>> from symbolica.community import hep
+>>> from symbolica.community.hep import oneloop
+>>> finite, pole, double_pole = oneloop.b0(-1.0, 1.0, 1.0, 1.0)
+
+Parameters
+----------
+momentum_squared : Number
+    External momentum squared; negative values describe spacelike momentum.
+mass_0_squared, mass_1_squared : Number
+    Squared masses of the two propagators, in B0 argument order.
+mu_squared : Number or None, optional
+    Squared renormalization scale; None uses exactly one.
+rebuild : bool, optional
+    Refresh the evaluator workspace before evaluation; default False.
+prec : int, optional
+    Positive number of decimal significant digits; default 16. Use Decimal
+    inputs to retain input digits beyond binary64 precision.
+backend : {"auto", "native", "symjit", "expression", "symbolica"}, optional
+    Evaluation backend; default "auto" selects a supported backend for the
+    requested precision. "symjit" supports binary64 only; "symbolica" is
+    an alias for "expression"."#
 );
 scalar!(
     db0,
     "dB0",
     DB0,
-    [momentum_squared, mass_0_squared, mass_1_squared]
+    [momentum_squared, mass_0_squared, mass_1_squared],
+    r#"Evaluate the derivative of B0 with respect to its external momentum squared.
+
+Results are ordered (finite, 1/eps, 1/eps**2). Invariants and masses are
+squared quantities; omitted mu_squared is exactly one. ``prec`` is the
+positive decimal significant-digit count (default 16). Decimal inputs or
+higher precision produce DecimalComplex values. ``backend`` selects "auto",
+"native", "symjit" (binary64 only), "expression", or "symbolica".
+``rebuild=True`` refreshes the evaluator workspace.
+
+Examples
+--------
+>>> from symbolica import S, E
+>>> from symbolica.community import hep
+>>> from symbolica.community.hep import oneloop
+>>> finite, pole, double_pole = oneloop.db0(-1.0, 1.0, 1.0, 1.0)
+
+Parameters
+----------
+momentum_squared : Number
+    External momentum squared at which the derivative of B0 is evaluated.
+mass_0_squared, mass_1_squared : Number
+    Squared masses held fixed while differentiating B0.
+mu_squared : Number or None, optional
+    Squared renormalization scale; None uses exactly one.
+rebuild : bool, optional
+    Refresh the evaluator workspace before evaluation; default False.
+prec : int, optional
+    Positive number of decimal significant digits; default 16. Use Decimal
+    inputs to retain input digits beyond binary64 precision.
+backend : {"auto", "native", "symjit", "expression", "symbolica"}, optional
+    Evaluation backend; default "auto" selects a supported backend for the
+    requested precision. "symjit" supports binary64 only; "symbolica" is
+    an alias for "expression"."#
 );
 scalar!(
     c0,
@@ -675,7 +936,40 @@ scalar!(
         mass_0_squared,
         mass_1_squared,
         mass_2_squared
-    ]
+    ],
+    r#"Evaluate C0(p1_squared, p2_squared, p3_squared, mass_0_squared, mass_1_squared, mass_2_squared, mu_squared).
+
+Results are ordered (finite, 1/eps, 1/eps**2). Invariants and masses are
+squared quantities; omitted mu_squared is exactly one. ``prec`` is the
+positive decimal significant-digit count (default 16). Decimal inputs or
+higher precision produce DecimalComplex values. ``backend`` selects "auto",
+"native", "symjit" (binary64 only), "expression", or "symbolica".
+``rebuild=True`` refreshes the evaluator workspace.
+
+Examples
+--------
+>>> from symbolica import S, E
+>>> from symbolica.community import hep
+>>> from symbolica.community.hep import oneloop
+>>> finite, pole, double_pole = oneloop.c0(-1.0, -2.0, -3.0, 1.0, 1.0, 1.0, 1.0)
+
+Parameters
+----------
+p1_squared, p2_squared, p3_squared : Number
+    Three external momentum invariants, in C0 argument order.
+mass_0_squared, mass_1_squared, mass_2_squared : Number
+    Squared masses of the three propagators, in C0 argument order.
+mu_squared : Number or None, optional
+    Squared renormalization scale; None uses exactly one.
+rebuild : bool, optional
+    Refresh the evaluator workspace before evaluation; default False.
+prec : int, optional
+    Positive number of decimal significant digits; default 16. Use Decimal
+    inputs to retain input digits beyond binary64 precision.
+backend : {"auto", "native", "symjit", "expression", "symbolica"}, optional
+    Evaluation backend; default "auto" selects a supported backend for the
+    requested precision. "symjit" supports binary64 only; "symbolica" is
+    an alias for "expression"."#
 );
 scalar!(
     d0,
@@ -692,7 +986,44 @@ scalar!(
         mass_1_squared,
         mass_2_squared,
         mass_3_squared
-    ]
+    ],
+    r#"Evaluate D0 with four external squared momenta, s12, s23, four squared masses, and the squared scale.
+
+Results are ordered (finite, 1/eps, 1/eps**2). Invariants and masses are
+squared quantities; omitted mu_squared is exactly one. ``prec`` is the
+positive decimal significant-digit count (default 16). Decimal inputs or
+higher precision produce DecimalComplex values. ``backend`` selects "auto",
+"native", "symjit" (binary64 only), "expression", or "symbolica".
+``rebuild=True`` refreshes the evaluator workspace.
+
+Examples
+--------
+>>> from symbolica import S, E
+>>> from symbolica.community import hep
+>>> from symbolica.community.hep import oneloop
+>>> finite, pole, double_pole = oneloop.d0(-1.0, -1.0, -1.0, -1.0, -3.0, -4.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+
+Parameters
+----------
+p1_squared, p2_squared, p3_squared, p4_squared : Number
+    Four external momenta squared, in D0 argument order.
+s12 : Number
+    Channel invariant (p1 + p2)**2.
+s23 : Number
+    Channel invariant (p2 + p3)**2.
+mass_0_squared, mass_1_squared, mass_2_squared, mass_3_squared : Number
+    Squared masses of the four propagators, in D0 argument order.
+mu_squared : Number or None, optional
+    Squared renormalization scale; None uses exactly one.
+rebuild : bool, optional
+    Refresh the evaluator workspace before evaluation; default False.
+prec : int, optional
+    Positive number of decimal significant digits; default 16. Use Decimal
+    inputs to retain input digits beyond binary64 precision.
+backend : {"auto", "native", "symjit", "expression", "symbolica"}, optional
+    Evaluation backend; default "auto" selects a supported backend for the
+    requested precision. "symjit" supports binary64 only; "symbolica" is
+    an alias for "expression"."#
 );
 
 mod inspection;
@@ -721,7 +1052,7 @@ fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("DEFAULT_BACKEND", backend_name(oneloop::DEFAULT_BACKEND))?;
     module.add(
         "SYMBOLICA_REVISION",
-        "821b02451256a92039a0665006628bd5d91470cc",
+        "a19c760dd567c239f30d87e4e924ca2f8b8457ab",
     )?;
     module.add("EXPRESSION_INTEROP", cfg!(feature = "community"))?;
     #[cfg(feature = "community")]
@@ -732,7 +1063,6 @@ fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(all(feature = "extension-module", not(feature = "community")))]
 #[pymodule]
 fn oneloop_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    oneloop::initialize().map_err(PyRuntimeError::new_err)?;
     register(module)
 }
 
@@ -741,7 +1071,7 @@ mod community {
     use super::*;
     use symbolica::{
         api::python::{
-            ConvertibleToExpression, PythonExpression, PythonExpressionEvaluator,
+            Citation, ConvertibleToExpression, PythonExpression, PythonExpressionEvaluator,
             SymbolicaCommunityModule,
         },
         atom::Atom,
@@ -750,6 +1080,59 @@ mod community {
     pub struct CommunityModule;
 
     impl SymbolicaCommunityModule for CommunityModule {
+        fn get_citations() -> Vec<Citation> {
+            if !oneloop::was_used() {
+                return Vec::new();
+            }
+            vec![
+Citation {
+                id: "https://github.com/alphal00p/oneloopmaster".into(),
+                reference: "OneLoopMaster contributors. OneLoopMaster (2026).".into(),
+                bibtex: r#"@software{oneloopmaster,
+  author = {{OneLoopMaster contributors}},
+  title = {{OneLoopMaster}},
+  year = {2026},
+  url = {https://github.com/alphal00p/oneloopmaster}
+}"#.into(),
+                reasons: vec!["Rust and Symbolica implementation of the scalar master integrals.".into()],
+                description: String::new(),
+                relevance: None,
+            },
+Citation {
+                id: "arXiv:1007.4716".into(),
+                reference: "A. van Hameren. OneLOop: for the evaluation of one-loop scalar functions. Computer Physics Communications 182 (2011) 2427–2438.".into(),
+                bibtex: r#"@article{vanHameren2011OneLOop,
+  author = {van Hameren, Andreas},
+  title = {{OneLOop: for the evaluation of one-loop scalar functions}},
+  year = {2011},
+  url = {https://arxiv.org/abs/1007.4716},
+  doi = {10.1016/j.cpc.2011.06.011},
+  eprint = {1007.4716},
+  archivePrefix = {arXiv}
+}"#.into(),
+                reasons: vec!["Original OneLOop algorithms; requested in the OneLoopMaster README.".into()],
+                description: String::new(),
+                relevance: None,
+            },
+Citation {
+                id: "arXiv:0903.4665".into(),
+                reference: "A. van Hameren, C. G. Papadopoulos and R. Pittau. Automated one-loop calculations: a proof of concept. JHEP 09 (2009) 106.".into(),
+                bibtex: r#"@article{vanHameren2009Automated,
+  author = {van Hameren, Andreas and Papadopoulos, Costas G. and Pittau, Roberto},
+  title = {{Automated one-loop calculations: a proof of concept}},
+  year = {2009},
+  url = {https://arxiv.org/abs/0903.4665},
+  doi = {10.1088/1126-6708/2009/09/106},
+  eprint = {0903.4665},
+  archivePrefix = {arXiv}
+}"#.into(),
+                reasons: vec!["Original OneLOop work; requested in the OneLoopMaster README.".into()],
+                description: String::new(),
+                relevance: None,
+            }
+            ]
+        }
+
         fn get_name() -> String {
             "oneloop".to_owned()
         }
@@ -757,12 +1140,29 @@ mod community {
             super::register(module)
         }
         fn initialize(_py: Python<'_>) -> PyResult<()> {
-            oneloop::initialize().map_err(PyRuntimeError::new_err)
+            Ok(())
         }
     }
 
-    /// Return compact master expressions sharing this community kernel's state.
-    /// Keep native definitions by compiling combinations with compile_native.
+    /// Return the three Laurent coefficients of a complete primitive master call.
+    ///
+    /// The input includes physical arguments and squared scale, without a Laurent
+    /// tag. The returned symbolic expressions carry tags 0, -1 and -2 for finite,
+    /// simple-pole and double-pole coefficients and retain native evaluation hooks.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> s = S("s")
+    /// >>> coefficients = oneloop.master_coefficients(oneloop.B0(s, 0, 0, 1))
+    /// >>> assert len(coefficients) == 3
+    ///
+    /// Parameters
+    /// ----------
+    /// master : Expression
+    ///     Complete untagged A0/B0/dB0/C0/D0 call, including squared scale.
     #[pyfunction]
     fn master_coefficients(master: PythonExpression) -> PyResult<Vec<PythonExpression>> {
         let (family, input) =
@@ -785,13 +1185,79 @@ mod community {
             .collect())
     }
 
-    /// Compile mixed Symbolica expressions with all transparent OneLOop definitions.
-    /// Returns the host Symbolica Evaluator; use its complex-valued evaluation API.
+    const MASTER_NAMES: [&str; 5] = ["A0", "B0", "dB0", "C0", "D0"];
+
+    /// Resolve and cache the core's primitive master Symbol on first access.
+    ///
+    /// Symbolica's community registration phase must not initialize symbols.
+    /// Module attribute lookup defers this lightweight registration to use;
+    /// it never builds formulas, numerical evaluators, or warmup caches.
+    #[pyfunction(pass_module, name = "__getattr__")]
+    fn primitive_symbol(module: &Bound<'_, PyModule>, name: &str) -> PyResult<Py<PyAny>> {
+        if name == "__all__" {
+            // Hosts can attach reduction types/functions after registration.
+            // Discover their exports when star import actually asks for them.
+            let names = module_dir(module)?
+                .into_iter()
+                .filter(|name| !name.starts_with('_'))
+                .collect::<Vec<_>>();
+            return Ok(names.into_pyobject(module.py())?.into_any().unbind());
+        }
+        let symbol = match name {
+            "A0" => oneloop::A0(),
+            "B0" => oneloop::B0(),
+            "dB0" => oneloop::dB0(),
+            "C0" => oneloop::C0(),
+            "D0" => oneloop::D0(),
+            _ => {
+                return Err(pyo3::exceptions::PyAttributeError::new_err(format!(
+                    "module '{}' has no attribute '{name}'",
+                    module.name()?
+                )));
+            }
+        };
+        let expression = Py::new(module.py(), PythonExpression::from(Atom::var(symbol)))?;
+        module.add(name, expression.clone_ref(module.py()))?;
+        Ok(expression.into_any())
+    }
+
+    #[pyfunction(pass_module, name = "__dir__")]
+    fn module_dir(module: &Bound<'_, PyModule>) -> PyResult<Vec<String>> {
+        let mut names = module.dict().keys().extract::<Vec<String>>()?;
+        names.extend(MASTER_NAMES.map(str::to_owned));
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
+    /// Compile symbolic combinations of master coefficients for repeated evaluation.
+    ///
+    /// Returns a Symbolica evaluator retaining the primitive master definitions.
+    /// Use its complex evaluation method and pass parameter values in the supplied
+    /// order. This operation builds an evaluator; it does not evaluate a point.
+    ///
+    /// Examples
+    /// --------
+    /// >>> from symbolica import S, E
+    /// >>> from symbolica.community import hep
+    /// >>> from symbolica.community.hep import oneloop
+    /// >>> m2 = S("m2")
+    /// >>> coefficients = oneloop.master_coefficients(oneloop.A0(m2, 1))
+    /// >>> compiled = oneloop.compile_native(coefficients, [m2])
+    /// >>> values = compiled.evaluate_complex([1+0j])
+    ///
+    /// Parameters
+    /// ----------
+    /// expressions : sequence[Expression | int | float | complex]
+    ///     Outputs to compile, usually master or reduction coefficients.
+    /// parameters : sequence[Expression]
+    ///     Ordered independent symbols receiving numerical values.
     #[pyfunction]
     fn compile_native(
         expressions: Vec<ConvertibleToExpression>,
         parameters: Vec<PythonExpression>,
     ) -> PyResult<PythonExpressionEvaluator> {
+        oneloop::record_usage();
         let expressions = expressions
             .into_iter()
             .map(|e| e.to_expression().expr)
@@ -818,9 +1284,31 @@ mod community {
     pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.add_function(wrap_pyfunction!(master_coefficients, module)?)?;
         module.add_function(wrap_pyfunction!(compile_native, module)?)?;
+        // super::register has already retained the numeric wrappers under
+        // lowercase names. Uppercase names now resolve to the core Symbols.
+        for name in MASTER_NAMES {
+            module.delattr(name)?;
+        }
+        module.add_function(wrap_pyfunction!(primitive_symbol, module)?)?;
+        module.add_function(wrap_pyfunction!(module_dir, module)?)?;
         Ok(())
     }
 }
 
 #[cfg(feature = "community")]
 pub use community::CommunityModule;
+
+/// Attach OneLOop to an existing community HEP module in the same extension.
+/// The host initializes Symbolica as usual. OneLOop evaluator construction
+/// remains lazy; the community initialize hook performs no numerical work.
+#[cfg(feature = "community")]
+pub fn register_hep_module(hep: &Bound<'_, PyModule>) -> PyResult<()> {
+    let module = PyModule::new(hep.py(), "symbolica.community.hep.oneloop")?;
+    register(&module)?;
+    hep.add("oneloop", &module)?;
+    hep.py()
+        .import("sys")?
+        .getattr("modules")?
+        .set_item("symbolica.community.hep.oneloop", &module)?;
+    Ok(())
+}

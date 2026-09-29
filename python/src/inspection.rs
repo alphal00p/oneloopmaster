@@ -89,7 +89,31 @@ fn selected(coefficient: Option<i32>) -> PyResult<Option<usize>> {
     }
 }
 
-/// Expand a complete master call to its three Laurent coefficients.
+/// Expand a complete master call into symbolic Laurent-coefficient formulas.
+///
+/// Without ``coefficient`` return (finite, simple_pole, double_pole). With tag
+/// 0, -1 or -2 return that coefficient only. Piecewise branches remain explicit
+/// until their conditions can be decided. ``max_nodes`` and ``max_depth`` bound
+/// formula expansion and raise an error when exceeded.
+///
+/// Examples
+/// --------
+/// >>> from symbolica import S, E
+/// >>> from symbolica.community import hep
+/// >>> from symbolica.community.hep import oneloop
+/// >>> m2 = S("m2")
+/// >>> pole = oneloop.get_expression(oneloop.A0(m2, 1), coefficient=-1)
+///
+/// Parameters
+/// ----------
+/// master : Expression
+///     Untagged primitive master call with physical arguments and squared scale.
+/// coefficient : {0, -1, -2} or None, optional
+///     Laurent power to select; None returns all three coefficients.
+/// max_nodes : int, optional
+///     Expression expansion budget; default 10_000_000.
+/// max_depth : int, optional
+///     Expansion nesting limit; default 512.
 ///
 /// The input is a Symbolica Expression such as B0(psq,m2,m2,mu_squared),
 /// with physical arguments only. Attributes belong to the input's Symbolica
@@ -153,11 +177,29 @@ fn get_expression(
     }
 }
 
-/// Select native if branches using replacements exclusively in conditions.
+/// Resolve piecewise conditions using replacements, preserving symbolic branch values.
 ///
-/// Accept one Expression or a tuple/list of Expressions. Return the same
-/// container shape. Kept branches remain parametric; unresolved predicates
-/// retain their original symbolic form. Every nested if is visited.
+/// Replacements act only in conditions, not in the selected result expressions.
+/// Unresolved predicates remain symbolic. Input may be one expression or a list
+/// or tuple; the returned container has the same shape.
+///
+/// Examples
+/// --------
+/// >>> from symbolica import S, E
+/// >>> from symbolica.community import hep
+/// >>> from symbolica.community.hep import oneloop
+/// >>> from symbolica import Replacement
+/// >>> m2 = S("m2")
+/// >>> expressions = oneloop.get_expression(oneloop.A0(m2, 1))
+/// >>> selected = oneloop.select_branch(expressions, [Replacement(m2, E("1"))])
+/// >>> assert len(selected) == 3
+///
+/// Parameters
+/// ----------
+/// expression : Expression, list[Expression] or tuple[Expression, ...]
+///     Piecewise formula or collection to inspect.
+/// replacement_rules : sequence[Replacement]
+///     Kinematic assumptions used only to decide branch conditions.
 #[cfg(feature = "community")]
 #[pyfunction(signature = (expression, replacement_rules, *, max_nodes=100_000_000, max_depth=4096))]
 fn select_branch(

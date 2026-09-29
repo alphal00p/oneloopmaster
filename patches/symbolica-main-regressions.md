@@ -1,8 +1,9 @@
 # Upstream status
 
 All seven fixes below are upstream in Symbolica main
-`821b02451256a92039a0665006628bd5d91470cc`, selected by OneLOop and both Python
-build roots. The patch files and tarball are historical artifacts against
+`821b02451256a92039a0665006628bd5d91470cc`. OneLOop now selects the later main
+`a19c760dd567c239f30d87e4e924ca2f8b8457ab`; see the
+[current audit](upstream-status-2026-09-21.md). The patch files and tarball are historical artifacts against
 `08defb39`; do not apply them to current main.
 
 | Fix | Upstream commit |

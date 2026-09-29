@@ -3,7 +3,7 @@
 Build/install the local adapter first. Set ONELOOP_PYTHON_MODULE to the actual
 shared-kernel module for community integration tests. ONELOOP_PYTHON_REBUILD=1
 passes explicit rebuild=True, backend="symjit" to numeric calls without disabling
-eager startup. Native workspace rebuilding is tested independently as well.
+lazy startup. Native workspace rebuilding is tested independently as well.
 Cold-start subprocess tests run first, sequentially on their main threads with
 at most an 8 MiB stack on POSIX. Remaining Symbolica work runs on one explicitly
 created, persistent 128 MiB test thread. Never run this suite concurrently with
@@ -52,8 +52,7 @@ def read_fixture_groups():
 def family_selector(module, family):
     """The shared-kernel API accepts a master Symbol, never its name string."""
     if module.EXPRESSION_INTEROP:
-        from symbolica import S
-        return S("oneloopmaster::" + family)
+        return getattr(module, family)
     return family
 
 
@@ -68,7 +67,7 @@ def scalar(module, name, *arguments, **options):
     options.setdefault("rebuild", REBUILD)
     if REBUILD:
         options.setdefault("backend", "symjit")
-    return getattr(module, name)(*arguments, **options)
+    return getattr(module, name.lower())(*arguments, **options)
 
 
 def on_fresh_symbolica_thread(action):
@@ -96,7 +95,7 @@ def on_fresh_symbolica_thread(action):
 
 
 class SymbolicaTestWorker:
-    """Keep eager initialization and all subsequent test work on the same thread."""
+    """Keep Symbolica initialization and subsequent test work on the same thread."""
 
     def __init__(self):
         self.requests = queue.Queue()
@@ -190,12 +189,59 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(len(records), 1, completed.stdout)
         return json.loads(records[0])
 
+    def test_hep_namespace_shares_types_and_expressions(self):
+        def check(module):
+            if not module.EXPRESSION_INTEROP:
+                self.skipTest("community host only")
+            from symbolica import S
+            from symbolica.community.hep import oneloop as hep
+            self.assertIs(hep.Evaluator, module.Evaluator)
+            self.assertIs(hep.DecimalComplex, module.DecimalComplex)
+            self.assertEqual(hep.Evaluator.__module__, "symbolica.community.hep.oneloop")
+            x = S("hep_oneloop_shared_argument")
+            master = module.A0(x, 1)
+            coefficients = hep.master_coefficients(master)
+            evaluator = hep.compile_native([coefficients[0] + coefficients[1]], [x])
+            result = complex(evaluator.evaluate_complex([2 + 0j]).reshape(-1)[0])
+            self.assertLess(abs(result - (2 * (1 - math.log(2)) + 2)), 1e-12)
+        on_symbolica_thread(check)
+
+    def test_exported_master_primitives_and_numeric_aliases(self):
+        def check(module):
+            self.assertFalse(module.is_initialized())
+            for kind, name in FAMILIES.items():
+                with self.subTest(family=name):
+                    primitive = getattr(module, name)
+                    numeric = getattr(module, name.lower())
+                    row = read_fixture_groups()[kind][0][1]
+                    reference = numeric(*row, backend="native")
+                    if not module.EXPRESSION_INTEROP:
+                        # The separate extension retains its original numeric
+                        # uppercase calls, as well as the lowercase aliases.
+                        self.assertEqual(primitive(*row, backend="native"), reference)
+                        continue
+                    from symbolica import E, Expression, S
+                    self.assertTrue(callable(primitive))
+                    # Intentional parser compatibility assertion: constructed
+                    # calls must use the existing registered native heads.
+                    parameters = [S(f"primitive_exports::{name}_arg_{i}") for i in range(len(row))]
+                    arguments = [parameters[0] + 1, *parameters[1:]]
+                    values = dict(zip(parameters, [row[0] - 1, *row[1:]]))
+                    master = primitive(*arguments)
+                    self.assertIsInstance(master, Expression)
+                    self.assertEqual(master, E("oneloopmaster::" + name)(*arguments))
+                    coefficients = module.master_coefficients(master)
+                    self.assertEqual(coefficients, [primitive(tag, *arguments) for tag in (0, -1, -2)])
+                    for actual, expected in zip((c.evaluate(values) for c in coefficients), reference):
+                        self.assertLessEqual(abs(actual - expected), 1e-11 * max(1, abs(expected)))
+            self.assertFalse(module.is_initialized())
+        on_symbolica_thread(check)
+
     @unittest.skipIf(REBUILD, "cold prebuilt loading requires embedded evaluator assets")
     @unittest.skipUnless(MODULE == "oneloop_native", "standalone extension cold-load test")
     def test_00_main_thread_cold_start(self):
         # Run before this process imports the extension in any worker test.
-        # Eager import already loads all five families. Two fresh processes
-        # distinguish first-call entry routes without ten redundant startups.
+        # Two fresh processes distinguish lazy native and SymJIT first calls.
         for entry in ("direct", "evaluator"):
             with self.subTest(entry=entry):
                 backend = "auto" if entry == "direct" else "symjit"
@@ -207,7 +253,7 @@ class AdapterTests(unittest.TestCase):
                 self.assertEqual(record["family"], "D0")
                 self.assertEqual(record["entry"], entry)
                 self.assertTrue(record["import_completed_before_master_calls"])
-                self.assertTrue(record["initialized_before_master_calls"])
+                self.assertFalse(record["initialized_before_master_calls"])
                 self.assertEqual(record["ready_families"], list(FAMILIES.values()))
                 self.assertEqual(record["checked_rows"], 31)
                 self.assertEqual(record["batch_rows"], 45)
@@ -228,7 +274,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_elementary_calls_and_order(self):
         def check(module):
-            self.assertTrue(module.is_initialized())
+            self.assertFalse(module.is_initialized())
             self.assertEqual(module.COEFFICIENT_ORDER, (0, -1, -2))
             self.assertEqual(scalar(module, "A0", 0, mu_squared=1), (0j, 0j, 0j))
             result = scalar(module, "A0", 2, mu_squared=1)
@@ -286,7 +332,7 @@ class AdapterTests(unittest.TestCase):
                 rebuilt.rebuild()
                 for actual, expected in zip(rebuilt.evaluate(rows[0]), singles[0]):
                     self.assertLess(abs(actual - expected), 1e-12)
-                for actual, expected in zip(module.B0(-1, 1, 1, rebuild=True, backend=backend), singles[0]):
+                for actual, expected in zip(module.b0(-1, 1, 1, rebuild=True, backend=backend), singles[0]):
                     self.assertLess(abs(actual - expected), 1e-12)
         on_symbolica_thread(check)
 
@@ -332,18 +378,23 @@ class AdapterTests(unittest.TestCase):
 
     def test_invalid_inputs(self):
         def check(module):
+            if module.EXPRESSION_INTEROP:
+                from symbolica import S
+                invalid_family = S("unknown_family::not_an_integral")
+            else:
+                invalid_family = "not_an_integral"
             with self.assertRaises(ValueError):
-                module.Evaluator(family_selector(module, "not_an_integral"))
+                module.Evaluator(invalid_family)
             with self.assertRaises(ValueError):
-                module.A0(1, mu_squared=0)
+                module.a0(1, mu_squared=0)
             with self.assertRaises(ValueError):
-                module.A0(1 + 0.1j)
+                module.a0(1 + 0.1j)
             with self.assertRaises(ValueError):
-                module.B0(1 + 1j, 1, 2)
+                module.b0(1 + 1j, 1, 2)
             with self.assertRaises(ValueError):
-                module.A0(float("nan"))
+                module.a0(float("nan"))
             with self.assertRaises(TypeError):
-                module.A0("not a number")
+                module.a0("not a number")
             evaluator = new_evaluator(module, "A0")
             with self.assertRaises(ValueError):
                 evaluator.evaluate([1])
@@ -355,7 +406,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_expression_interop_only_in_shared_kernel(self):
         def check(module):
-            self.assertTrue(module.is_initialized())
+            self.assertFalse(module.is_initialized())
             if not module.EXPRESSION_INTEROP:
                 self.assertFalse(hasattr(module, "master_coefficients"))
                 self.assertFalse(hasattr(module, "compile_native"))
@@ -364,7 +415,7 @@ class AdapterTests(unittest.TestCase):
                 return
             symbolica = importlib.import_module("symbolica")
             x = symbolica.S("oneloop_python_test_x")
-            coefficients = module.master_coefficients(symbolica.S("oneloopmaster::A0")(x, 1))
+            coefficients = module.master_coefficients(module.A0(x, 1))
             self.assertEqual(len(coefficients), 3)
             evaluator = module.compile_native([coefficients[0] + coefficients[1]], [x])
             result = evaluator.evaluate_complex([2 + 0j])

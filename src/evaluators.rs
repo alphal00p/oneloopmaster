@@ -28,7 +28,7 @@ pub(crate) fn portable_environment() -> Result<(), String> {
 }
 
 // Deliberately version-bound: portable IR is not a stable cross-version ABI.
-const FORMAT: &[u8] = b"oneloop-evaluator-v2:821b02451256a92039a0665006628bd5d91470cc:symjit-2.25.6:strict-o2-complex1-simd0\0";
+const FORMAT: &[u8] = b"oneloop-evaluator-v2:a19c760dd567c239f30d87e4e924ca2f8b8457ab:symjit-2.26.0:strict-o2-complex1-simd0\0";
 
 fn cache_payload(data: &[u8]) -> Result<(&[u8], usize, usize), String> {
     let payload = data
@@ -45,10 +45,10 @@ fn cache_payload(data: &[u8]) -> Result<(&[u8], usize, usize), String> {
 }
 
 /// SymJIT O2 settings for scalar code and row-major batches.
-/// The ordinary compiler avoids missing fractional-power call targets. SIMD is
-/// disabled because upstream crashes on zero-input batches and does not reliably
-/// propagate nested branch fallback. Packed complex arithmetic avoids the
-/// generic compiler's unrequested FMA contraction; fastmath remains disabled.
+/// SIMD remains disabled: SymJIT 2.26.0 mispacks scalar complex callbacks and
+/// does not propagate nested conditional fallback. Ordinary translation and
+/// packed complex arithmetic retain the validated production policy; fastmath
+/// remains disabled. The earlier direct-power and strict-FMA defects are fixed.
 pub fn jit_settings() -> JITCompilationSettings {
     JITCompilationSettings::new()
         .optimization_level(2)
@@ -107,6 +107,7 @@ impl JitEvaluator {
 
     /// Evaluate one point, checking the exact input and output dimensions.
     pub fn evaluate(&mut self, args: &[C], output: &mut [C]) -> Result<(), String> {
+        crate::record_usage();
         self.validate(args.len(), output.len(), 1)?;
         self.inner.evaluate(args, output);
         Ok(())
@@ -120,6 +121,7 @@ impl JitEvaluator {
         output: &mut [C],
         rows: usize,
     ) -> Result<(), String> {
+        crate::record_usage();
         self.validate(args.len(), output.len(), rows)?;
         if rows != 0 {
             self.inner.batch_evaluate(args, output, rows);
@@ -160,7 +162,7 @@ impl JitEvaluator {
     /// `SYMJIT_TOML` must be unset and the working directory must not contain
     /// `symjit.toml`, since these can override the portable compiler settings.
     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
-        crate::initialize()?;
+        crate::initialization::ensure_symbolica_state();
         Self::from_bytes_raw(data)
     }
 
@@ -197,15 +199,15 @@ pub struct ScalarEvaluator {
 }
 
 impl ScalarEvaluator {
-    /// Clone the eagerly loaded embedded backend, without decoding or compiling
-    /// its intermediate code again. The returned instance has its own workspace.
+    /// Load the embedded backend on first use, then clone its compiled code.
+    /// The returned instance has its own workspace.
     pub fn prebuilt(family: ScalarIntegral) -> Result<Self, String> {
         let _ = embedded(family)?;
         Self::cached(family)
     }
 
-    /// Clone a shared backend prepared at startup. Without `prebuilt`, startup
-    /// builds all five backends from the native expressions instead.
+    /// Prepare this family on first use, then clone its shared backend.
+    /// Without `prebuilt`, build this family from native expressions.
     pub fn cached(family: ScalarIntegral) -> Result<Self, String> {
         cache(family)?
             .lock()
@@ -216,7 +218,7 @@ impl ScalarEvaluator {
     /// Rebuild O2 code from the current transparent native expressions.
     /// As with manual expression construction, use an adequately sized stack.
     pub fn rebuild(family: ScalarIntegral) -> Result<Self, String> {
-        crate::initialize()?;
+        crate::initialization::ensure_symbolica_state();
         Self::rebuild_raw(family)
     }
 
@@ -235,6 +237,7 @@ impl ScalarEvaluator {
 
     /// Evaluate a single point into `[finite, simple pole, double pole]`.
     pub fn evaluate(&mut self, args: &[C], output: &mut [C]) -> Result<(), String> {
+        crate::record_usage();
         self.evaluator.evaluate(args, output)
     }
 
@@ -245,6 +248,7 @@ impl ScalarEvaluator {
         output: &mut [C],
         rows: usize,
     ) -> Result<(), String> {
+        crate::record_usage();
         self.evaluator.evaluate_batch(args, output, rows)
     }
 
@@ -257,7 +261,7 @@ impl ScalarEvaluator {
 
     /// Load trusted bytes for a specific family; rejects mismatched metadata.
     pub fn from_bytes(family: ScalarIntegral, bytes: &[u8]) -> Result<Self, String> {
-        crate::initialize()?;
+        crate::initialization::ensure_symbolica_state();
         Self::from_bytes_raw(family, bytes)
     }
 
@@ -354,6 +358,7 @@ impl CoefficientGroups {
         tag: usize,
         evaluate: impl FnOnce(&mut [C; 3]),
     ) -> C {
+        crate::record_usage();
         for offset in 0..self.groups.len() {
             let index = (self.oldest + offset) % self.groups.len();
             let group = &mut self.groups[index];
@@ -383,11 +388,10 @@ struct PreparedBackend {
     evaluator: ScalarEvaluator,
 }
 
-type Backends = [Mutex<PreparedBackend>; 5];
-static CACHED: OnceLock<Backends> = OnceLock::new();
+static CACHED: [OnceLock<Result<Mutex<PreparedBackend>, String>>; 5] =
+    [const { OnceLock::new() }; 5];
 
 pub(crate) fn initialize_all() -> Result<(), String> {
-    let mut backends = Vec::with_capacity(5);
     for family in [
         ScalarIntegral::A0,
         ScalarIntegral::B0,
@@ -395,37 +399,38 @@ pub(crate) fn initialize_all() -> Result<(), String> {
         ScalarIntegral::C0,
         ScalarIntegral::D0,
     ] {
-        #[cfg(feature = "prebuilt")]
-        let evaluator = ScalarEvaluator::from_bytes_raw(family, embedded(family)?);
-        #[cfg(not(feature = "prebuilt"))]
-        let evaluator = ScalarEvaluator::rebuild_raw(family);
-        backends.push(Mutex::new(PreparedBackend {
-            evaluator: evaluator.map_err(|error| {
-                format!("could not initialize {} evaluator: {error}", family.name())
-            })?,
-        }));
+        let _ = cache(family)?;
     }
-    let backends = backends
-        .try_into()
-        .map_err(|_| "incorrect OneLOop backend inventory")?;
-    CACHED
-        .set(backends)
-        .map_err(|_| "OneLOop backends were already initialized".into())
+    Ok(())
 }
 
 fn cache(family: ScalarIntegral) -> Result<&'static Mutex<PreparedBackend>, String> {
-    crate::initialize()?;
-    Ok(&CACHED.get().ok_or("OneLOop backends are not initialized")?[family as usize])
+    crate::initialization::ensure_symbolica_state();
+    portable_environment()?;
+    CACHED[family as usize]
+        .get_or_init(|| {
+            #[cfg(feature = "prebuilt")]
+            let evaluator = ScalarEvaluator::from_bytes_raw(family, embedded(family)?);
+            #[cfg(not(feature = "prebuilt"))]
+            let evaluator = ScalarEvaluator::rebuild_raw(family);
+            evaluator
+                .map(|evaluator| Mutex::new(PreparedBackend { evaluator }))
+                .map_err(|error| {
+                    format!("could not initialize {} evaluator: {error}", family.name())
+                })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
-/// Evaluate flat row-major points using the already prepared shared backend.
-/// No expression construction or evaluator compilation takes place here.
+/// Evaluate flat row-major points, preparing this family on first use.
 pub fn evaluate_batch(
     family: ScalarIntegral,
     args: &[C],
     output: &mut [C],
     rows: usize,
 ) -> Result<(), String> {
+    crate::record_usage();
     let mut backend = cache(family)?
         .lock()
         .map_err(|_| "OneLOop JIT cache poisoned")?;

@@ -1,8 +1,8 @@
 """Fresh-process standalone smoke helper; never start a Symbolica worker here.
 
 Invoked by test_api.py, or directly as: python cold_start.py D0 evaluator.
-Import must eagerly initialize all scalar families before any master call.
-Only ready-workspace paths (Native or prebuilt SymJIT) are exercised. Source rebuilding
+Import must leave all scalar backends uninitialized until first use.
+Only native and prebuilt SymJIT first-use paths are exercised. Source rebuilding
 still belongs on the adequately stacked calling thread described in the README.
 """
 
@@ -68,13 +68,18 @@ def main():
             if args.entry == "guard-env" else
             "remove the working-directory symjit.toml override when building or loading portable OneLOop evaluators"
         )
+        module = importlib.import_module("oneloop_native")
+        if module.is_initialized():
+            raise AssertionError("import performed full warmup")
+        check_output(module.a0(2, mu_squared=1),
+                     (0, [], [2*(1-math.log(2)), 2, 0], 1))
         try:
-            importlib.import_module("oneloop_native")
+            module.Evaluator("A0", backend="symjit")
         except RuntimeError as error:
             if str(error) != expected:
-                raise AssertionError(f"wrong eager-startup environment error: {error}") from error
+                raise AssertionError(f"wrong first-use environment error: {error}") from error
         else:
-            raise AssertionError("eager module import accepted a portable environment override")
+            raise AssertionError("SymJIT construction accepted a portable environment override")
         record["guarded_imports"] = 1
         print("ONELOOP_COLD_JSON " + json.dumps(record))
         return
@@ -88,10 +93,10 @@ def main():
     record["backend_resolved"] = module.DEFAULT_BACKEND if args.backend == "auto" else args.backend
     # This query is read-only in the core: it cannot make this assertion pass
     # by lazily creating a master symbol, function map, or scalar cache.
-    if not module.is_initialized():
-        raise AssertionError("import returned before all symbols and five caches were ready")
+    if module.is_initialized():
+        raise AssertionError("import eagerly prepared numerical backends")
     record["import_completed_before_master_calls"] = True
-    record["initialized_before_master_calls"] = True
+    record["initialized_before_master_calls"] = False
     # Exercise the requested first entry route, then every family without
     # another expensive import. Both routes also check heterogeneous batches.
     ordered_kinds = [kind] + [other for other in FAMILIES if other != kind]
@@ -100,7 +105,7 @@ def main():
         family = FAMILIES[current_kind]
         cases = groups[current_kind]
         if args.entry == "direct":
-            function = getattr(module, family)
+            function = getattr(module, family.lower())
             for case in cases:
                 inputs = case[1]
                 check_output(function(*inputs[:-1], mu_squared=inputs[-1], backend=args.backend), case)

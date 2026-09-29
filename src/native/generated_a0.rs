@@ -7,7 +7,7 @@ use super::primitives::*;
 pub(super) fn evaluate<T: NativeFloat>(input: &[C<T>], ctx: &Context<T>) -> [C<T>; 3] {
     let a0 = &input[0];
     let a1 = &input[1];
-    let v0 = helper_0(a0, a1, ctx.constant(0), ctx.constant(1), ctx.constant(2), ctx.constant(3), ctx.constant(4), ctx);
+    let v0 = helper_0(a0, a1, ctx.constant(2), ctx.constant(1), ctx.constant(0), ctx.constant(3), ctx.constant(4), ctx);
     let v1 = helper_1(a0, a1, ctx);
     let v2 = helper_2(a0, a1, ctx.constant(2), ctx);
     [(*(&v0)).clone(), (*(&v1)).clone(), (*(&v2)).clone()]
@@ -20,7 +20,7 @@ fn helper_0<T: NativeFloat>(a0: &C<T>, a1: &C<T>, a2: &C<T>, a3: &C<T>, a4: &C<T
         let v2 = if truth(&v1) {
             (*(&v1)).clone()
         } else {
-            (*(a4)).clone()
+            (*(a2)).clone()
         };
         let v4 = conj(&v2);
         let v5 = mul(a3, &v4);
@@ -34,9 +34,9 @@ fn helper_0<T: NativeFloat>(a0: &C<T>, a1: &C<T>, a2: &C<T>, a3: &C<T>, a4: &C<T
             let v13 = mul(a3, &v10);
             let v14 = add(&v2, &v13);
             let v15 = if truth(&v14) {
-                (*(a2)).clone()
-            } else {
                 (*(a4)).clone()
+            } else {
+                (*(a2)).clone()
             };
             let v16 = mul(a5, a6);
             let v17 = mul(&v16, &v15);
@@ -44,11 +44,11 @@ fn helper_0<T: NativeFloat>(a0: &C<T>, a1: &C<T>, a2: &C<T>, a3: &C<T>, a4: &C<T
             (*(&v18)).clone()
         };
         let v20 = mul(a3, &v19);
-        let v21 = add(a2, &v20);
+        let v21 = add(a4, &v20);
         let v22 = mul(a0, &v21);
         (*(&v22)).clone()
     } else {
-        (*(a4)).clone()
+        (*(a2)).clone()
     };
     (*(&v23)).clone()
 }

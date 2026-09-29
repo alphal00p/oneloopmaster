@@ -1,0 +1,16 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running `/tmp/oneloop-latest-symjit/target/debug/complex_reciprocal_scales generic`
+fast_complex=false
+reciprocal(Complex { re: 2.0, im: 0.0 }): actual=Complex { re: 0.5, im: -0.0 }, expected=Complex { re: 0.5, im: 0.0 }
+reciprocal(Complex { re: 1e300, im: 0.0 }): actual=Complex { re: 0.0, im: -0.0 }, expected=Complex { re: 1e-300, im: 0.0 }
+reciprocal(Complex { re: 0.0, im: -1e300 }): actual=Complex { re: 0.0, im: 0.0 }, expected=Complex { re: 0.0, im: 1e-300 }
+reciprocal(Complex { re: 1e300, im: 1e300 }): actual=Complex { re: 0.0, im: -0.0 }, expected=Complex { re: 5e-301, im: -5e-301 }
+reciprocal(Complex { re: 1e-300, im: 0.0 }): actual=Complex { re: inf, im: NaN }, expected=Complex { re: 1e300, im: 0.0 }
+reciprocal(Complex { re: 0.0, im: -1e-300 }): actual=Complex { re: NaN, im: inf }, expected=Complex { re: 0.0, im: 1e300 }
+reciprocal(Complex { re: 1e-300, im: 1e-300 }): actual=Complex { re: inf, im: -inf }, expected=Complex { re: 5e299, im: -5e299 }
+
+thread 'main' (3086519) panicked at src/bin/complex_reciprocal_scales.rs:41:5:
+assertion `left == right` failed: complex reciprocal lost a representable component
+  left: 6
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

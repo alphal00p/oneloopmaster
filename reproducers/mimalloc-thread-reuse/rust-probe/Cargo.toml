@@ -1,0 +1,18 @@
+[package]
+name = "mimalloc-thread-reuse-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+v2 = ["mimalloc/v2"]
+
+[dependencies]
+mimalloc = { version = "=0.1.52", features = ["local_dynamic_tls"] }
+# Keep this regression probe on the exact bundled C version being diagnosed.
+libmimalloc-sys = "=0.1.49"
+
+[workspace]

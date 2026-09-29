@@ -82,7 +82,7 @@ class PrecisionTests(unittest.TestCase):
                     ambient.prec = 28
                     mass = Decimal("1." + "1234567890" * 110)
                     scale = Decimal("3." + "9876543210" * 110)
-                    result = module.A0(mass, mu_squared=scale, prec=digits)
+                    result = module.a0(mass, mu_squared=scale, prec=digits)
                     self.assertEqual(getcontext().prec, 28)
                     for value in result:
                         self.assert_decimal_complex(value, module)
@@ -98,24 +98,24 @@ class PrecisionTests(unittest.TestCase):
 
     def test_default_machine_path_and_decimal_selection(self):
         def check(module):
-            self.assertTrue(all(isinstance(z, complex) for z in module.A0(2)))
-            self.assertTrue(all(isinstance(z, complex) for z in module.A0(2, prec=16)))
-            self.assertTrue(all(isinstance(z, complex) for z in module.A0(2**53)))
+            self.assertTrue(all(isinstance(z, complex) for z in module.a0(2)))
+            self.assertTrue(all(isinstance(z, complex) for z in module.a0(2, prec=16)))
+            self.assertTrue(all(isinstance(z, complex) for z in module.a0(2**53)))
             for arguments in ((Decimal("2"),), (2**53 + 1,)):
-                values = module.A0(*arguments)
+                values = module.a0(*arguments)
                 self.assertTrue(all(isinstance(z, module.DecimalComplex) for z in values))
-            self.assertEqual(module.A0(2**53 + 1)[1].real, Decimal(2**53 + 1))
-            self.assertEqual(module.A0(2**100, prec=50)[1].real, Decimal(2**100))
+            self.assertEqual(module.a0(2**53 + 1)[1].real, Decimal(2**53 + 1))
+            self.assertEqual(module.a0(2**100, prec=50)[1].real, Decimal(2**100))
             # Decimal(int) avoids CPython's default int->str digit limit.
-            self.assert_relative_decimal(module.A0(2**20000, prec=32)[1].real, Decimal(2**20000), 32)
+            self.assert_relative_decimal(module.a0(2**20000, prec=32)[1].real, Decimal(2**20000), 32)
             # Raising precision preserves the supplied float's actual binary
             # value; it must not replace it with the shorter decimal str(float).
-            result = module.A0(0.1, prec=80)
+            result = module.a0(0.1, prec=80)
             self.assertEqual(result[1].real, Decimal.from_float(0.1))
-            decimal_result = module.A0(Decimal("0.1"), prec=80)
+            decimal_result = module.a0(Decimal("0.1"), prec=80)
             self.assertNotEqual(result[1].real, decimal_result[1].real)
             # Decimal scale alone selects AP, and cannot underflow through f64.
-            scaled = module.A0(1, mu_squared=Decimal("1e-1000"), prec=32)
+            scaled = module.a0(1, mu_squared=Decimal("1e-1000"), prec=32)
             with localcontext() as context:
                 context.prec = 80
                 expected = 1 - 1000 * Decimal(10).ln()
@@ -129,7 +129,7 @@ class PrecisionTests(unittest.TestCase):
                 mass = module.DecimalComplex(Decimal("2.125"), Decimal("-1e-1000"))
                 self.assertEqual(mass.real, Decimal("2.125"))
                 self.assertEqual(mass.imag, Decimal("-1e-1000"))
-                values = module.A0(mass, prec=1050)
+                values = module.a0(mass, prec=1050)
                 for value in values:
                     self.assert_decimal_complex(value, module)
                 self.assertEqual(values[1].real, mass.real)
@@ -163,7 +163,7 @@ class PrecisionTests(unittest.TestCase):
                         row = [0] * momenta + [mass] * masses + [scale]
                         rows.append(row)
                         expected.append(vacuum_coefficients(family, (real, imag), scale, digits))
-                    results = [getattr(module, family)(*row[:-1], mu_squared=row[-1], prec=digits)
+                    results = [getattr(module, family.lower())(*row[:-1], mu_squared=row[-1], prec=digits)
                                for row in rows]
                     results += [evaluator.evaluate(row) for row in rows]
                     # Five rows retain the partial-four-lane-tail API shape,
@@ -214,27 +214,27 @@ class PrecisionTests(unittest.TestCase):
         def check(module):
             for digits in (0, -1, 2**40):
                 with self.subTest(prec=digits), self.assertRaises(ValueError):
-                    module.A0(1, prec=digits)
+                    module.a0(1, prec=digits)
             for digits in (True, False, 2.5, "32", Decimal(32)):
                 with self.subTest(prec=digits), self.assertRaises(TypeError):
-                    module.A0(1, prec=digits)
+                    module.a0(1, prec=digits)
                 with self.assertRaises(TypeError):
                     module.Evaluator(family_selector(module, "A0"), prec=digits)
             for value in (Decimal("NaN"), Decimal("sNaN"), Decimal("Infinity"), Decimal("-Infinity")):
                 with self.subTest(value=str(value)), self.assertRaises(ValueError):
-                    module.A0(value)
+                    module.a0(value)
             with self.assertRaises(ValueError):
-                module.A0(module.DecimalComplex(1, Decimal("1e-10000")))
+                module.a0(module.DecimalComplex(1, Decimal("1e-10000")))
             with self.assertRaises(ValueError):
-                module.A0(module.DecimalComplex(1, Decimal("1e-1000000000000")))
+                module.a0(module.DecimalComplex(1, Decimal("1e-1000000000000")))
             with self.assertRaises(ValueError):
-                module.B0(module.DecimalComplex(-1, Decimal("1e-10000")), 1, 1)
+                module.b0(module.DecimalComplex(-1, Decimal("1e-10000")), 1, 1)
             for scale in (Decimal(0), Decimal("-1e-10000"), module.DecimalComplex(1, "1e-10000")):
                 with self.subTest(scale=str(scale)), self.assertRaises(ValueError):
-                    module.A0(1, mu_squared=scale)
+                    module.a0(1, mu_squared=scale)
             for value in (True, False):
                 with self.assertRaises(TypeError):
-                    module.A0(value)
+                    module.a0(value)
             evaluator = module.Evaluator(family_selector(module, "A0"))
             with self.assertRaises(TypeError):
                 evaluator.evaluate_batch([[Decimal(2), 1], [True, 1]])
@@ -251,7 +251,7 @@ class PrecisionTests(unittest.TestCase):
             # The fully scaleless derivative is undefined, unlike scaleless B0.
             # Preserve its numerical result rather than failing during MPFR to
             # Decimal text conversion or silently inventing a finite value.
-            result = module.dB0(Decimal(0), 0, 0, prec=32)
+            result = module.db0(Decimal(0), 0, 0, prec=32)
             self.assertTrue(all(isinstance(z, module.DecimalComplex) for z in result))
             self.assertTrue(any(not z.real.is_finite() or not z.imag.is_finite() for z in result))
         on_symbolica_thread(check)

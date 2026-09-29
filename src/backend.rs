@@ -85,6 +85,7 @@ pub fn evaluate_with_backend(
     output: &mut [C],
     backend: EvaluationBackend,
 ) -> Result<(), String> {
+    crate::record_usage();
     evaluate_batch_with_backend(family, input, output, 1, backend)
 }
 
@@ -96,6 +97,7 @@ pub fn evaluate_batch_with_backend(
     rows: usize,
     backend: EvaluationBackend,
 ) -> Result<(), String> {
+    crate::record_usage();
     if backend != EvaluationBackend::Native {
         let expected_input = rows
             .checked_mul(family.arity())
@@ -112,7 +114,7 @@ pub fn evaluate_batch_with_backend(
     }
     match backend {
         EvaluationBackend::Native => {
-            crate::initialize()?;
+            crate::initialization::ensure_symbolica_state();
             let mut value = native(family)?
                 .lock()
                 .map_err(|_| "native evaluator cache poisoned")?;

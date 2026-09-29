@@ -25,13 +25,9 @@ a Laurent expansion through the finite term, not an unexpanded function of epsil
 
 ## Development dependency
 
-The Rust library and both Python build roots pin unmodified Symbolica `main`
-`821b02451256a92039a0665006628bd5d91470cc` (2026-09-19), which includes the complex
-precision, polylogarithm, hypot and complex-logarithm repairs, plus the seven
-evaluator, JIT, startup and build-metadata fixes reported during this port. Numerica is selected
-from the same Git revision with a Cargo dependency override; this applies no
-source patch and requires no sibling checkout. Consuming build roots must repeat
-that Numerica override because dependency-level overrides do not propagate.
+The Rust library and both Python build roots use the released Symbolica 3.0.1
+and Numerica 3.0.1 crates. Versioned dependencies let a community host select
+one shared kernel without source overrides or a sibling Symbolica checkout.
 
 OneLOop uses the public registered `polylog(2,z)` callbacks for numerical
 dilogarithms, retains its own exact function definitions for inspection, and
@@ -53,7 +49,7 @@ feature graph at the consuming build root, not just this library's manifest.
 
 ## Quick start
 
-Clone this repository as `oneloopmaster`. Cargo fetches the pinned dependencies.
+Clone this repository as `oneloopmaster`. Cargo fetches the released dependencies.
 A recent Rust toolchain supporting
 edition 2024 and a working Symbolica license/setup are required (the validated
 toolchain is Rust 1.98.1). No Fortran compiler is needed for ordinary use or tests.
@@ -147,11 +143,11 @@ Use the [shared-kernel Python build](python/README.md):
 
 ```python
 from symbolica import E, S, N, Replacement
-from symbolica.community import oneloop as olo
+from symbolica.community.hep import oneloop as olo
 
 psq = S("psq", is_real=True)
 m2 = S("mz_masses::m2", is_positive=True)  # m², not m
-B0 = S("oneloopmaster::B0")
+B0 = olo.B0
 one_master = B0(psq, m2, m2, 1)  # mu²=1; no Laurent tag here
 finite, pole, double_pole = olo.get_expression(one_master)
 print(finite)       # Complete expression, including all analytic branches.
@@ -160,8 +156,9 @@ print(double_pole)  # 0
 finite_only = olo.get_expression(one_master, coefficient=0)
 assert finite_only == finite
 
-# Expressions, including composite masses, can also be constructed with E:
-other_master = E("oneloop::B0(psq,mz_masses::{real,positive}::m2+12/3,m3,mu_r)")
+# Arguments may contain composite expressions and ordinary Symbolica symbols:
+m3, mu_r = S("m3", "mu_r")
+other_master = olo.B0(psq, m2 + N(4), m3, mu_r)
 other_coefficients = olo.get_expression(other_master)
 ```
 
@@ -307,16 +304,16 @@ still exceed the budget.
 
 `oneloop::{A0(), B0(), dB0(), C0(), D0()}` return the Symbolica
 Symbols `oneloopmaster::{A0,B0,dB0,C0,D0}` with dedicated `EvaluationInfo` hooks.
-The crate registers a Symbolica `initialize!` hook, ordered after Symbolica's
-special-function initializer. At global-state startup it registers all master and
-native-helper symbols, prepares their shared definitions, and prepares **all five
-binary64 Native and all five SymJIT backends** together. Precision-specific Float
-and DoubleFloat workspaces are constructed when requested. Parsing a master does
-not require a prior accessor call.
-Rust crates have no Python-style import event: call `oneloop::initialize()?` at
-application startup to force this work and receive startup errors immediately;
-otherwise Symbolica's first state access triggers the hook. `is_initialized()` is
-a read-only readiness query. Python module import calls `initialize()` explicitly.
+The crate registers a lightweight Symbolica `initialize!` hook, ordered after
+Symbolica's special-function initializer. It attaches master and JIT callback
+symbols only; parsing a master needs no prior accessor call. Numerical backends
+are prepared per family on first use. Transparent definitions are built only
+when an expression API requests them. Importing Python does not build formulas,
+load evaluator assets, or compile SymJIT code.
+
+Call `oneloop::initialize()?` explicitly to warm up all definitions and all five
+Native and SymJIT backends. `is_initialized()` reports completion of this optional
+full warmup; it stays false during ordinary lazy use.
 
 Each master call takes a leading Laurent-power tag `0`, `-1` or `-2`, then
 the same numeric arguments as the lowercase constructor, flattened into one list.
@@ -363,8 +360,8 @@ let mut output = vec![Complex::new(0., 0.); 1024 * 3];
 evaluator.batch_evaluate(&input, &mut output, 1024);
 ```
 
-The outer evaluator is compiled here; the five native family backends are
-already ready from eager initialization. For transparent expressions, use
+The outer evaluator is compiled here; each native family backend is prepared
+on its first numerical call. For transparent expressions, use
 `OneLoopExpressions::jit_evaluator` or `MappedLaurentSeries::jit_evaluator`.
 These methods lower complex square roots and branch conditions to registered
 numeric callbacks before JIT compilation. Calling Symbolica's `jit_compile`
@@ -388,7 +385,7 @@ parameters are runtime inputs, including
 
 `NativeEvaluator` owns reusable constants and a workspace. Its arithmetic runs
 in generated Rust. Dilogarithms use Symbolica's registered polylog callback;
-first use can initialize Symbolica and OneLOop's shared backends. Rational
+first use can initialize Symbolica and the requested OneLOop backend. Rational
 constants are converted directly at construction.
 Clones have independent workspaces; batches run the generated scalar function
 for each row, without a SIMD promise or hidden worker threads. See
@@ -443,7 +440,7 @@ currently `EvaluationBackend::Native`. Select a route explicitly with
 `evaluate_with_backend(family, input, output, EvaluationBackend::Native)` or
 `evaluate_batch_with_backend(family, input, output, rows, backend)`; `Expression`
 selects Symbolica's native expression interpreter. These convenience routes
-retain eager initialization, unlike a raw `NativeEvaluator`.
+prepare only the requested backend and family.
 The historical measurements below used an older patched SIMD backend and do
 not establish performance for this revision. The selector does not control
 the native-only Symbol hooks. `ScalarEvaluator::cached(family)` clones the
@@ -455,8 +452,7 @@ function definitions**, not machine code or process pointers. Loading recompiles
 every level with the same strict JIT settings. Cache compatibility is tied to the Symbolica/SymJIT
 versions; load only trusted artifacts. Float/arbitrary-precision evaluators use
 `PrecisionEvaluator` or the original exact-expression API, not these f64 blobs.
-Those evaluators are constructed for the requested precision; eager startup
-prepares both binary64 backend sets, not every possible precision.
+Those evaluators are constructed only for the requested precision.
 Keep `SYMJIT_TOML` unset and do not place `symjit.toml` in the working directory
 when building/loading portable caches: these overrides can pin SymJIT to a
 particular machine architecture, so the portable API rejects them. Register
@@ -471,7 +467,7 @@ call `ScalarEvaluator::rebuild` or run:
 cargo run --release --no-default-features --example rebuild_evaluators -- assets/evaluators
 ```
 
-Without `prebuilt`, startup eagerly builds all five SymJIT backends from the native
+Without `prebuilt`, first use builds the requested SymJIT family from native
 expressions. An optional final family argument writes only that rebuilt asset.
 Applications can explicitly replace a shared SymJIT manual cache with
 `rebuild_cached_evaluator(ScalarIntegral::B0)`; this does not replace the direct
@@ -480,12 +476,14 @@ native Symbol-hook cache. Native Rust source is generated by
 not loaded from the portable blobs. Cache regeneration and fresh-load batch
 checks must pass for each dependency update. A batch
 method does not guarantee a speedup for divergent conditional branches.
-SymJIT is pinned to the unmodified 2.25.6 release. Ordinary compilation avoids
-the direct translator's missing fractional-power call targets. SIMD is disabled
-to avoid upstream batch crashes and nested branch fallback defects. Packed
-complex arithmetic is enabled with `fastmath=false`: the generic complex
-compiler otherwise contracts products into FMAs and can change exact-axis
-branch decisions.
+SymJIT is pinned to the unmodified 2.26.0 release. The six previously reported
+standalone defects pass their regressions in this release. Production retains
+ordinary compilation, packed complex arithmetic, `fastmath=false` and scalar
+batches while the broader backend matrix is audited. Complex square-root
+callbacks remain necessary for extreme scales. See the
+[dependency audit](patches/upstream-status-2026-09-21.md) for reproduced remaining
+limitations and the standalone cases.
+
 
 ## Python (PyO3)
 
@@ -494,7 +492,8 @@ complex-number evaluation through PyO3. It adds no Python/PyO3 dependency to the
 core Rust crate. The recommended [development host](python/host/) builds one
 `symbolica.core` containing both Symbolica and OneLOop, so all symbolic APIs use
 actual Expression and Replacement objects. It is a local host, not an upstream
-community-repository registration. Install it in an isolated environment without
+community-repository registration. The [HEP integration assessment](HEP_INTEGRATION.md)
+records Feynkit type reuse and the host registration interface. Install it in an isolated environment without
 a competing Symbolica distribution:
 
 ```sh
@@ -506,9 +505,9 @@ For example, on an adequately stacked calling thread:
 
 ```python
 from symbolica import S
-from symbolica.community import oneloop as olo
+from symbolica.community.hep import oneloop as olo
 
-bubble = olo.Evaluator(S("oneloopmaster::B0"))  # Reuses a direct Rust numeric workspace.
+bubble = olo.Evaluator(olo.B0)  # Reuses a direct Rust numeric workspace.
 values = bubble.evaluate_batch([
     [-1.0, 1.0, 1.0, 1.0],
     [3.0, 0.7 - 0.03j, 1.4 - 0.08j, 4.0],
@@ -516,12 +515,33 @@ values = bubble.evaluate_batch([
 # Each row returns (finite, simple_pole, double_pole); final input is mu_squared.
 ```
 
+In the community module, `olo.A0`, `B0`, `dB0`, `C0`, and `D0` are callable
+Symbolica Expressions exported from this crate's primitive master accessors.
+An untagged call such as `olo.A0(m2, mu2)` is suitable for `get_expression`;
+`olo.A0(0, m2, mu2).evaluate({m2: 2, mu2: 1})` evaluates its finite
+coefficient through the existing native Rust hook. Tags `-1` and `-2` select
+the simple and double poles. Supply the squared scale explicitly as the last
+argument when constructing a symbolic call. These exports resolve and cache
+on first attribute access without building formulas or numerical backends.
+
+Complete tagged calls automatically normalize to numerical Expressions when
+all kinematic arguments are numbers and at least one is floating point. For
+example, `olo.A0(0, 2.0, 1)` evaluates the finite coefficient during construction.
+Mixed exact and floating inputs use the maximum supplied floating-point
+precision, including complex components and the scale, without a binary64
+conversion of exact inputs. All-exact calls such as `olo.A0(0, 2, 1)` retain
+their symbolic meaning; request `.evaluate({})` to choose numerical evaluation.
+Untagged calls, partially symbolic calls, and invalid tags, arities, or numerical
+domains remain symbolic. Nonfinite numerical results also leave the call intact.
+
+
 The optional legacy build, `cd python && maturin develop --release`, exposes
-numeric-only `oneloop_native`; its family-name selectors remain a compatibility
+numeric-only `oneloop_native`; uppercase names remain numerical aliases there.
+Its family-name selectors remain a compatibility
 interface, but it no longer accepts or returns symbolic strings. See the
 [API audit](API_BRANCH_AUDIT.md) for this change's checks and remaining limits.
 
-Convenience functions `olo.A0/B0/dB0/C0/D0(..., mu_squared=1, prec=16)` also
+Numerical functions `olo.a0/b0/db0/c0/d0(..., mu_squared=1, prec=16)` also
 accept `rebuild=True` and `backend="auto"`. Reusable evaluators and their methods
 likewise accept a backend choice: `"native"`, `"symjit"` or `"expression"`.
 `prec` counts **decimal digits**. With `"auto"`, ordinary Python numbers at the
@@ -539,7 +559,7 @@ import oneloop_native as olo
 
 mass = olo.DecimalComplex(Decimal("2.0000000000000000000000000000001"),
                           Decimal("-0.0000000000000000000000000000003"))
-finite, pole, double_pole = olo.A0(
+finite, pole, double_pole = olo.a0(
     mass, mu_squared=Decimal("4"), prec=1000, backend="native")
 print(finite.real, finite.imag)  # Decimal components, not binary64 approximations.
 
@@ -566,7 +586,7 @@ all three outputs, and matched Rust/Fortran measurements; see the
 
 ## Stack and precision
 
-Eager startup and generic C0/D0 compilation traverse a large conditional expression graph.
+Explicit full warmup and generic C0/D0 compilation traverse a large conditional expression graph.
 The Rust regression tests run the entire Symbolica workload on a thread with a 128 MiB
 stack. For a standalone program, create that thread **before constructing any
 Symbolica values**, and run construction/evaluation inside it. A restricted
@@ -682,7 +702,7 @@ comparison performed at 256 bits.
 
 The performance survey compares the same 31 numeric fixtures, all three Laurent
 outputs, and 256 warmup calls against the unchanged original Fortran source.
-It separates eager startup from warmed evaluation, checks uniform and mixed rows,
+It separates explicit full warmup from warmed evaluation, checks uniform and mixed rows,
 and reports batches 1/4/32/256/1024 individually:
 
 ```sh
@@ -752,6 +772,14 @@ See `AUDIT.md` and `STATUS.md` for verified coverage and known incorrect or
 unsupported cases. This is a development implementation, not a claim of global
 Fortran equivalence. Cargo publishing remains disabled. See
 `COMMUNITY_INTEGRATION.md` for the inspected Spenso-style integration plan.
+
+## Citations
+
+In the shared Python host, `symbolica.get_citations()` returns the package credit
+and the two papers below after OneLoopMaster is used, alongside Symbolica’s
+own citation. Entries are Symbolica `Citation` objects. Use
+`citation.to_bibtex()` to export an entry. Reading citations does not initialize
+numerical backends.
 
 ## Credits and references
 

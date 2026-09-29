@@ -34,7 +34,7 @@ class BackendSelection(unittest.TestCase):
                     with self.subTest(family=family, row=index):
                         self.assert_machine_close(native_batch[index], jit_batch[index])
                         self.assert_machine_close(native.evaluate(arguments), jit_batch[index])
-                        self.assert_machine_close(getattr(module, family)(*arguments, backend="native"), jit_batch[index])
+                        self.assert_machine_close(getattr(module, family.lower())(*arguments, backend="native"), jit_batch[index])
                 self.assert_machine_close(expression.evaluate(inputs[0]), jit_batch[0])
                 self.assertEqual(native.backend, "native")
         on_symbolica_thread(check)
@@ -54,7 +54,7 @@ class BackendSelection(unittest.TestCase):
                                 evaluator = module.Evaluator(family_selector(module, family), prec=digits, backend=backend)
                                 self.assert_decimal_close(evaluator.evaluate(arguments), reference, digits)
                                 self.assert_decimal_close(evaluator.evaluate_batch([arguments])[0], reference, digits)
-                                self.assert_decimal_close(getattr(module, family)(*arguments, prec=digits, backend=backend), reference, digits)
+                                self.assert_decimal_close(getattr(module, family.lower())(*arguments, prec=digits, backend=backend), reference, digits)
         on_symbolica_thread(check)
 
     def test_genuinely_complex_triangle_backend_agreement(self):
@@ -64,7 +64,7 @@ class BackendSelection(unittest.TestCase):
                 module.DecimalComplex("3", "-0.3"),
             ] + [Decimal("4.75")]
             for digits in (32, 1000):
-                reference = module.C0(*arguments, prec=digits, backend="expression")
+                reference = module.c0(*arguments, prec=digits, backend="expression")
                 expected = [(z.real, z.imag) for z in reference]
                 native = module.Evaluator(family_selector(module, "C0"), prec=digits, backend="native")
                 self.assert_decimal_close(native.evaluate(arguments), expected, digits)
@@ -95,18 +95,18 @@ class BackendSelection(unittest.TestCase):
             self.assertIn(module.DEFAULT_BACKEND, ("native", "symjit", "expression"))
             evaluator = module.Evaluator(family_selector(module, "A0"), backend="native")
             for backend in ("native", "symjit", "expression", "symbolica", "auto"):
-                expected = module.A0(2.125, 4.75, backend=backend)
+                expected = module.a0(2.125, 4.75, backend=backend)
                 self.assert_machine_close(evaluator.evaluate([2.125, 4.75], backend=backend), expected)
             self.assertEqual(evaluator.backend, "native")
             self.assertEqual(module.Evaluator(family_selector(module, "A0"), backend="symbolica").backend, "expression")
             self.assertEqual(module.Evaluator(family_selector(module, "A0")).backend, "auto")
             for value in (Decimal("2"), 2**53 + 1, module.DecimalComplex("2", "-1e-1000")):
                 with self.assertRaisesRegex(ValueError, "binary64"):
-                    module.A0(value, backend="symjit")
+                    module.a0(value, backend="symjit")
                 with self.assertRaisesRegex(ValueError, "binary64"):
                     evaluator.evaluate([value, 1], backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
-                module.A0(2, mu_squared=Decimal(1), backend="symjit")
+                module.a0(2, mu_squared=Decimal(1), backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
                 module.Evaluator(family_selector(module, "A0"), prec=32, backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
@@ -122,5 +122,5 @@ class BackendSelection(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     evaluator.evaluate_batch([], backend=bad)
             with self.assertRaises(TypeError):
-                module.A0(2, backend=True)
+                module.a0(2, backend=True)
         on_symbolica_thread(check)

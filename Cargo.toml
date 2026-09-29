@@ -12,12 +12,7 @@ prebuilt = []
 
 [dependencies]
 # Do not impose Symbolica's optional global mimalloc allocator on embedding hosts.
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "821b02451256a92039a0665006628bd5d91470cc", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
+symbolica = { version = "3.0.1", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
 bincode = "2.0"
 # Evaluator cache compatibility includes the JIT backend version.
-symjit = "=2.25.6"
-
-# Use the upstream Numerica fixes from the same Symbolica revision.
-# Dependency-level overrides do not propagate to these build roots.
-[patch.crates-io]
-numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "821b02451256a92039a0665006628bd5d91470cc" }
+symjit = "=2.26.0"

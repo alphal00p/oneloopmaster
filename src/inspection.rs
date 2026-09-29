@@ -103,6 +103,7 @@ pub fn get_expression_on_branch_with_options(
 /// contains all three coefficients. The `oneloop::` namespace is accepted as an
 /// inspection shorthand; it is not a second set of numerical evaluation hooks.
 pub fn master_arguments(master: impl AtomCore) -> Result<(ScalarIntegral, Vec<Atom>), String> {
+    crate::record_usage();
     let AtomView::Fun(call) = master.as_atom_view() else {
         return Err("expected a scalar master call with its arguments, for example oneloopmaster::B0(psq,m0_squared,m1_squared,mu_squared)".into());
     };
@@ -147,6 +148,7 @@ pub fn get_expression_for_family_with_options(
     arguments: &[Atom],
     options: ExpressionOptions,
 ) -> Result<LaurentSeries, String> {
+    crate::record_usage();
     expand_family(family, arguments, options, None)
 }
 

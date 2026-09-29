@@ -1,10 +1,17 @@
-//! Fresh-process coverage for every first-entry path into eager initialization.
+//! Fresh-process coverage for lazy first-entry paths and explicit warmup.
 #[path = "support/fixtures.rs"]
 mod fixtures;
 
 #[test]
-fn every_first_entry_prepares_all_symbols_and_backends() {
-    for entry in ["symbol", "master", "context", "manual"] {
+fn first_entries_leave_full_warmup_opt_in() {
+    for entry in [
+        "symbol",
+        "master",
+        "context",
+        "manual",
+        "native",
+        "precision",
+    ] {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--ignored",
@@ -22,11 +29,16 @@ fn every_first_entry_prepares_all_symbols_and_backends() {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+        for log in [&output.stdout, &output.stderr] {
+            let log = String::from_utf8_lossy(log);
+            assert!(!log.contains("Created infinity"), "{entry}: {log}");
+            assert!(!log.contains("Created indeterminate"), "{entry}: {log}");
+        }
     }
 }
 
 #[test]
-#[ignore = "fresh-process helper invoked by every_first_entry_prepares_all_symbols_and_backends"]
+#[ignore = "fresh-process helper invoked by first_entries_leave_full_warmup_opt_in"]
 fn initialization_child() {
     let entry = std::env::var("ONELOOP_INITIALIZATION_TEST_ENTRY")
         .expect("run through the parent initialization regression");
@@ -51,10 +63,25 @@ fn initialization_child() {
                 "manual" => {
                     let _ = ScalarEvaluator::cached(ScalarIntegral::A0).unwrap();
                 }
+                "native" => {
+                    let mut output = [Complex::new(0., 0.); 3];
+                    oneloop::evaluate(
+                        ScalarIntegral::A0,
+                        &[Complex::new(2., 0.), Complex::new(1., 0.)],
+                        &mut output,
+                    )
+                    .unwrap();
+                    assert!((output[0].re - 2. * (1. - 2_f64.ln())).abs() < 1e-14);
+                }
+                "precision" => {
+                    let _ = oneloop::PrecisionEvaluator::new(ScalarIntegral::A0, 50).unwrap();
+                }
                 _ => panic!("unknown initialization entry"),
             }
+            assert!(!oneloop::is_initialized());
+            oneloop::initialize().unwrap();
             assert!(oneloop::is_initialized());
-            oneloop::initialize().unwrap(); // Idempotent, already ready.
+            oneloop::initialize().unwrap(); // Explicit warmup remains idempotent.
             let rows = fixtures::parse(include_str!("data/benchmark.txt"));
             for family in [
                 ScalarIntegral::A0,

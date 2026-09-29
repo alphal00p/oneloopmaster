@@ -10,8 +10,9 @@ host in [`host/`](host/). It offers two distinct build modes:
 
 Matching Symbolica revisions in two independently loaded extension binaries does
 **not** establish shared expression state. The standalone extension deliberately
-does not exchange Symbolica `Expression` objects. This is not a published package
-or a completed integration into the community repository.
+does not exchange Symbolica `Expression` objects. This is not a published package.
+The full local community checkout is also integrated; see
+[local host instructions](../HEP_INTEGRATION.md#local-full-community-host).
 
 
 ## Build the expression-native host (recommended)
@@ -34,11 +35,11 @@ API, even though OneLOop's manual batched evaluations accept ordinary lists.
 
 ```python
 from symbolica import E, N, Replacement, S
-from symbolica.community import oneloop as olo
+from symbolica.community.hep import oneloop as olo
 
 psq = S("psq", is_real=True)
 m2 = S("m2", is_positive=True)
-master = S("oneloopmaster::B0")(psq, m2, m2, 1)
+master = olo.B0(psq, m2, m2, 1)
 all_branches = olo.get_expression(master)
 selected = olo.select_branch(all_branches, [
     Replacement(m2, N(1)), Replacement(psq, N("3.23")),
@@ -47,7 +48,7 @@ print(selected[0])  # No ifs; still a parametric function of psq and m2.
 assert all("if(" not in str(c) for c in selected)
 
 # The manual evaluator also takes a native Symbol or variable Expression.
-evaluator = olo.Evaluator(E("oneloopmaster::B0"))
+evaluator = olo.Evaluator(olo.B0)
 values = evaluator.evaluate_batch([[3.23, 1, 1, 1]] * 1024)
 ```
 
@@ -56,6 +57,42 @@ symbolic strings. Attributes and facts about composite expressions are managed
 by Symbolica. For example, an argument `m2 + E("12/3")` is accepted directly.
 The literal `oneloop::B0(...)` spelling is also accepted by inspection; use the
 canonical `oneloopmaster::B0` for evaluatable master symbols.
+
+## Primitive master exports
+
+In the community module, `olo.A0`, `olo.B0`, `olo.dB0`, `olo.C0`, and `olo.D0`
+are callable Symbolica Expressions supplied by the corresponding Rust master
+accessors. They carry the same `oneloopmaster::` identities and native hooks
+used by reduction results. No explicit `S` or `E` construction is needed for
+these master heads.
+
+```python
+m2, mu2 = S("m2", "mu2")
+master = olo.A0(m2, mu2)  # Untagged call for exact symbolic inspection.
+finite = olo.A0(0, m2, mu2)  # Leading tag selects the finite coefficient.
+print(finite.evaluate({m2: 2, mu2: 1}))  # Existing direct native Rust hook.
+print(olo.master_coefficients(master))  # Tags 0, -1, -2, in that order.
+```
+
+The squared scale is always the last positional argument in symbolic calls.
+Use tags `0`, `-1`, and `-2` for finite, simple-pole, and double-pole numerical
+evaluation. Untagged calls go to `get_expression` or `master_coefficients`.
+Uppercase exports are resolved and cached on first attribute access; this
+registers lightweight Symbols without preparing formulas or numerical backends.
+`dir(olo)` and `from ...oneloop import A0` expose the same primitive exports.
+For direct numerical coefficient triples with optional scale and precision
+arguments, use the lowercase `olo.a0/b0/db0/c0/d0` functions.
+
+Complete tagged calls automatically normalize to numerical Expressions when
+all kinematic arguments are numbers and at least one is floating point. For
+example, `olo.A0(0, 2.0, 1)` evaluates the finite coefficient during construction.
+Mixed exact and floating inputs use the maximum supplied floating-point
+precision, including complex components and the scale, without a binary64
+conversion of exact inputs. All-exact calls such as `olo.A0(0, 2, 1)` retain
+their symbolic meaning; request `.evaluate({})` to choose numerical evaluation.
+Untagged calls, partially symbolic calls, and invalid tags, arities, or numerical
+domains remain symbolic. Nonfinite numerical results also leave the call intact.
+
 
 ## Build the standalone extension
 
@@ -66,13 +103,10 @@ cd python
 maturin develop --release
 ```
 
-Python 3.9 or newer and Rust edition 2024 are required. The manifest pins the same
-Symbolica revision as the core, `821b02451256a92039a0665006628bd5d91470cc`, and
-uses PyO3 0.28. Numerica is selected from that same upstream revision with a
-Cargo override at each build root. There are no local source patches or sibling
-checkout requirements. A consuming host must repeat the Numerica override;
-overrides in a dependency's manifest do not propagate. The supplied lockfiles
-record the standalone and shared-host dependency resolutions.
+Python 3.9 or newer and Rust edition 2024 are required. The manifests use
+Symbolica and Numerica 3.0.1 from crates.io, with PyO3 0.28. Libraries and hosts
+share versioned dependencies without Symbolica source overrides.
+The supplied lockfiles record the standalone and shared-host dependency resolutions.
 
 The core and adapter dependencies use `default-features = false` for Symbolica,
 explicitly retaining `tracing_max_level_info`, `integer-gmp`, `float-mpfr`,
@@ -83,16 +117,27 @@ PyO3 constructor-string extraction, before evaluator construction. With this
 supported feature configuration, the unchanged reproducer and full API suite
 pass; no JIT-clone fix or extra cache/thread-lifetime restriction was required.
 
-Import eagerly registers every native symbol and the complete transparent
-function map, then prepares all five Native and all five SymJIT caches. With the core's default
-`prebuilt` feature, this loads numerical evaluator instructions and recompiles each level with the
-same strict JIT settings; it does not deserialize foreign native code. Without that feature,
-startup builds all five evaluators from the expressions instead. A missing or
-incompatible enabled cache raises `RuntimeError` during import. Subsequent
-ordinary calls use the direct Rust backend. `backend="symjit", rebuild=True`
-explicitly recompiles the requested SymJIT evaluator and is substantially more
-expensive than warmed evaluation. Native rebuilding prepares fresh constants
-and a numeric workspace, without JIT compilation.
+Import registers Python classes and functions only. Symbolica state initialization
+attaches lightweight master callbacks; it does not build OneLOop formulas or
+prepare numerical backends. The selected backend and family are prepared on
+first use. With `prebuilt`, requesting SymJIT loads that family's numerical
+instructions and compiles them for this machine. Without `prebuilt`, it builds
+that family's evaluator from expressions. Cache/configuration errors are raised
+when SymJIT is requested, not during import or native evaluation.
+
+Ordinary calls use the direct Rust backend. `backend="symjit", rebuild=True`
+explicitly recompiles the requested evaluator. Native rebuilding prepares fresh
+constants and a numeric workspace without JIT compilation. The read-only
+`is_initialized()` reports explicit Rust `oneloop::initialize()` full warmup;
+it remains false during ordinary lazy Python use.
+
+On 2026-09-22, fresh imports of the local community host took 10–41 ms across
+three staged processes, down from 13.16 s before lazy loading. A fresh import
+after installation into the existing host took 0.10 s. First native A0 calls
+took 0.2–1.4 ms; first SymJIT A0 calls took 4–8 ms. These are local development
+build measurements, not a platform-independent latency guarantee. Formula
+construction also now resolves the exact `log(1)/(1-1)` limit before building
+the discarded singular expression, eliminating the startup infinity warnings.
 
 The core enables its five embedded cache assets by default. The 2026-09-08 release
 extension with the system allocator and native binary64 Li2 passed all eleven
@@ -110,9 +155,9 @@ silently changing the cached compiler configuration.
 ```python
 import oneloop_native as olo
 
-assert olo.is_initialized()  # Read-only: import has already prepared all families.
-finite, simple_pole, double_pole = olo.A0(2.0, mu_squared=4.0)
-value = olo.B0(-1.0, 1.0, 1.0, mu_squared=1.0)
+assert not olo.is_initialized()  # Import does not warm up numerical backends.
+finite, simple_pole, double_pole = olo.a0(2.0, mu_squared=4.0)
+value = olo.b0(-1.0, 1.0, 1.0, mu_squared=1.0)
 
 evaluator = olo.Evaluator("B0")
 value = evaluator.evaluate([-1.0, 1.0, 1.0, 1.0])
@@ -134,10 +179,10 @@ The direct functions have these argument orders:
 
 | Function | Ordered arguments before optional `mu_squared=1.0` |
 | --- | --- |
-| `A0` | `mass_squared` |
-| `B0`, `dB0` | `momentum_squared, mass_0_squared, mass_1_squared` |
-| `C0` | `p1_squared, p2_squared, p3_squared, mass_0_squared, mass_1_squared, mass_2_squared` |
-| `D0` | `p1_squared, p2_squared, p3_squared, p4_squared, s12, s23, mass_0_squared, mass_1_squared, mass_2_squared, mass_3_squared` |
+| `a0` | `mass_squared` |
+| `b0`, `db0` | `momentum_squared, mass_0_squared, mass_1_squared` |
+| `c0` | `p1_squared, p2_squared, p3_squared, mass_0_squared, mass_1_squared, mass_2_squared` |
+| `d0` | `p1_squared, p2_squared, p3_squared, p4_squared, s12, s23, mass_0_squared, mass_1_squared, mass_2_squared, mass_3_squared` |
 
 Here `s12` and `s23` are squared channel invariants, not their square roots. All
 momenta and masses are already squared quantities. External invariants must be
@@ -150,7 +195,7 @@ The reusable `Evaluator` accepts the same ordered arguments **with
 `mu_squared` always supplied last**, giving arities 2, 4, 4, 7, and 11. An empty
 batch returns `[]`; ragged rows or incorrect argument counts raise `ValueError`.
 In the shared-kernel host, construct this object with
-`Evaluator(S("oneloopmaster::B0"))` (or the equivalent variable Expression), not a
+`Evaluator(olo.B0)` (the primitive master Expression), not a
 family-name string. Only the numeric-only standalone compatibility API retains
 its historical `Evaluator("B0")` selector. Numeric Symbolica Expressions, including
 rational constants and composite constant expressions, are also accepted in host
@@ -160,14 +205,15 @@ Rows are passed together to the core's batched evaluator. List conversion and
 Python result allocation remain part of Python call overhead and are included
 in the measured Python/Fortran ratios below. NumPy is not needed in standalone mode.
 
-Direct functions use the core's shared, mutex-protected family caches; lowercase
-aliases `a0`, `b0`, `db0`, `c0`, and `d0` are available. Each reusable object
+Numerical functions `a0`, `b0`, `db0`, `c0`, and `d0` use the core's shared,
+mutex-protected family caches. The standalone numeric-only build also retains
+uppercase aliases; community uppercase exports are primitive Expressions. Each reusable object
 clones a warmed backend into its own evaluator workspace:
 
 ```python
 evaluator = olo.Evaluator("B0", rebuild=True)  # Explicit fresh construction.
 evaluator.rebuild()  # Replace this object's evaluator only after success.
-value = olo.B0(-1.0, 1.0, 1.0, rebuild=True)  # One uncached rebuilt call.
+value = olo.b0(-1.0, 1.0, 1.0, rebuild=True)  # One uncached rebuilt call.
 assert evaluator.family == "B0"
 assert evaluator.arity == 4
 ```
@@ -182,7 +228,7 @@ the same keyword, and its methods can override it for one call:
 from decimal import Decimal, localcontext
 import oneloop_native as olo
 
-finite, pole, double_pole = olo.A0(Decimal("2"),
+finite, pole, double_pole = olo.a0(Decimal("2"),
                                  mu_squared=Decimal("4"), prec=1000)
 assert isinstance(finite.real, Decimal)
 assert isinstance(finite.imag, Decimal)
@@ -214,7 +260,7 @@ Python's built-in `complex` cannot hold Decimal components. Use
 ```python
 mass = olo.DecimalComplex(Decimal("0.70000000000000000000000000000001"),
                           Decimal("-0.03000000000000000000000000000002"))
-finite, _, _ = olo.B0(Decimal("3"), mass, Decimal("1.4"),
+finite, _, _ = olo.b0(Decimal("3"), mass, Decimal("1.4"),
                       mu_squared=Decimal("4"), prec=1000)
 print(finite.real, finite.imag)
 rounded = complex(finite)  # Explicitly lossy conversion to binary64.
@@ -241,7 +287,7 @@ The core uses the generated generic Rust implementation with Symbolica
 exact formulas with Symbolica's interpreter; `"symjit"` is binary64-only.
 The reusable object keeps a precision-specific workspace for reuse; changing
 precision prepares its constants again. Both sets of five binary64 backends are
-loaded eagerly on import, but arbitrary precisions are prepared on request.
+prepared on first use, as are arbitrary precisions.
 Arbitrary-precision batches amortize Python overhead; they do not use binary64
 SymJIT. Its current binary64 batches also use scalar code because upstream
 SIMD fails zero-input batches. `rebuild=True` rebuilds the selected backend, and no custom
@@ -294,11 +340,11 @@ and returns three native Symbolica `Expression` objects:
 
 ```python
 from symbolica import E, N, Replacement, S
-from symbolica.community import oneloop as olo
+from symbolica.community.hep import oneloop as olo
 
 psq = S("inspection_psq", is_real=True)
 m2 = S("inspection_m2", is_positive=True)
-master = S("oneloopmaster::B0")(psq, m2, m2, 1)
+master = olo.B0(psq, m2, m2, 1)
 finite, pole, double_pole = olo.get_expression(master)
 assert olo.get_expression(master, coefficient=0) == finite
 
@@ -393,22 +439,20 @@ from symbolica.community.oneloop_native import *
 initialize_module()
 ```
 
-Registration adds Python classes and functions without constructing Symbolica
-symbols. `initialize_module()` calls the core's eager initializer, preparing
-all symbols, the complete native expression map, and all five scalar caches.
-The core also registers this work with Symbolica's `initialize!` inventory, so
-the host's first Symbolica state access may have already completed it. This is
-idempotent, and `is_initialized()` reports readiness without doing more work.
+Registration adds Python classes and functions without constructing formulas.
+`initialize_module()` is a no-op for OneLOop. Symbolica's `initialize!` inventory
+attaches only lightweight master and JIT callbacks. Evaluators remain lazy;
+`is_initialized()` reports explicit full warmup without doing any work.
 
 In this single-kernel configuration, compact master expressions can be combined
 with other host expressions and then compiled with their transparent definitions:
 
 ```python
 from symbolica import S
-from symbolica.community import oneloop as olo
+from symbolica.community.hep import oneloop as olo
 
 x = S("x")
-finite, pole, double_pole = olo.master_coefficients(S("oneloopmaster::A0")(x, 1))
+finite, pole, double_pole = olo.master_coefficients(olo.A0(x, 1))
 evaluator = olo.compile_native([finite + pole], [x])
 result = evaluator.evaluate_complex([2 + 0j])
 ```
@@ -458,7 +502,7 @@ binary64 Li2, and the original fresh-worker-per-test mode
 are fake-evaluator performance-harness tests that do not run Symbolica. This
 supersedes the earlier 107.040-second seven-test debug result.
 
-The standalone suite first tests eager import in two fresh subprocesses, one
+The standalone suite first tests lazy import in two fresh subprocesses, one
 entering through a direct function and one through a reusable evaluator after
 import. Each checks readiness before its first master call, all 31 fixtures
 across all five families, and nine mixed batch rows per family, with no rebuild
@@ -488,15 +532,15 @@ environment, run `bash python/host/test.sh` from the repository root. It builds
 the host with Maturin and sets the shared-kernel module selection automatically.
 
 This test mode passes explicit `rebuild=True` to numerical constructors and
-direct calls. It does not disable eager startup or change the core's enabled
+direct calls. It does not change lazy startup or the core's enabled
 features: import still loads embedded caches in the default build. Batch sizes
 make the same tests applicable when SIMD is enabled, but do not assert that it
 is enabled. Explicit-rebuild mode skips the two positive cold subprocesses;
 portable-environment rejection is still checked at import in separate children.
 Community mode skips the standalone subprocess tests entirely.
 
-To test a prepared community host, set
-`ONELOOP_PYTHON_MODULE=symbolica.community.oneloop` instead.
+To test a prepared full community host, set
+`ONELOOP_PYTHON_MODULE=symbolica.community.hep.oneloop` instead.
 After the sequential subprocess checks, the remaining test harness explicitly
 creates one persistent, adequately stacked test thread and does not require any
 third-party Python testing dependency. The unchanged separate
@@ -590,3 +634,12 @@ integrated community host are outside these measurements. The timing-boundary
 differences described above remain relevant; these are sampled throughput
 results, not universal guarantees. See the
 [full report and retained evidence](../performance/2026-09-08/README.md).
+
+## HEP registration
+
+The minimal shared host exposes `symbolica.community.hep.oneloop`; the original
+`symbolica.community.oneloop` import remains an alias with identical classes.
+A full community host can call `oneloop_native::register_hep_module` on its
+existing HEP module after Feynkit registration. See [HEP integration](../HEP_INTEGRATION.md)
+for data ownership, the single-kernel dependency requirement and initialization.
+The minimal host does not include Feynkit's graph or momentum classes.

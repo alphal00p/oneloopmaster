@@ -1,0 +1,9 @@
+SIMD requested=true, compiled=true
+actual=[Complex { re: 0.25, im: -0.75 }, Complex { re: 1.25, im: 0.25 }, Complex { re: 2.25, im: 1.25 }, Complex { re: 3.25, im: 2.25 }]
+expected=[Complex { re: 0.75, im: -2.25 }, Complex { re: 2.5, im: 0.5 }, Complex { re: 6.75, im: 3.75 }, Complex { re: 6.5, im: 4.5 }]
+
+thread 'main' (3403133) panicked at src/bin/nested_simd_fallback.rs:68:5:
+assertion `left == right` failed: nested SIMD bailout did not trigger scalar retry
+  left: [Complex { re: 0.25, im: -0.75 }, Complex { re: 1.25, im: 0.25 }, Complex { re: 2.25, im: 1.25 }, Complex { re: 3.25, im: 2.25 }]
+ right: [Complex { re: 0.75, im: -2.25 }, Complex { re: 2.5, im: 0.5 }, Complex { re: 6.75, im: 3.75 }, Complex { re: 6.5, im: 4.5 }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

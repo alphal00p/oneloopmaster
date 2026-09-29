@@ -165,26 +165,33 @@ fn explicit_constants_preserve_nested_tagged_calls_and_inspection() {
 }
 
 #[test]
-fn forwarding_keeps_lexical_captures_and_parameter_shadowing() {
+fn functions_capture_global_inputs_and_shadow_only_their_own_parameters() {
     let x = symbol!("forward_scope_x");
     let f = symbol!("forward_scope_f");
     let g = symbol!("forward_scope_g");
     let mut map = FunctionMap::new();
     map.add_function(f, Vec::<Symbol>::new(), x.to_atom() + Symbol::PI)
         .unwrap();
-    map.add_function(g, vec![x], f.call(())).unwrap();
+    // Since Symbolica 4cd26c33, ordinary functions see global inputs and
+    // their own formals. Caller-local capture now requires add_aliases.
+    map.add_function(g, vec![x], f.call(()) + x).unwrap();
     let expressions = [g.call((2,)), g.call((3,))];
-    let mut evaluator = Atom::evaluator_multiple(&expressions, &[] as &[Atom])
+    let mut evaluator = Atom::evaluator_multiple(&expressions, &[x.to_atom()])
         .function_map(map.into())
         .build()
         .unwrap()
         .map_coeff(&|c| c.re.to_f64());
     let mut output = [0.; 2];
-    evaluator.evaluate(&[], &mut output);
-    assert_eq!(
-        output,
-        [2. + std::f64::consts::PI, 3. + std::f64::consts::PI]
-    );
+    for global in [5., -7.] {
+        evaluator.evaluate(&[global], &mut output);
+        assert_eq!(
+            output,
+            [
+                global + std::f64::consts::PI + 2.,
+                global + std::f64::consts::PI + 3.
+            ]
+        );
+    }
 }
 
 #[test]
@@ -285,7 +292,7 @@ fn jit_lowering_preserves_complex_branches_in_nested_and_restored_evaluators() {
 }
 
 #[test]
-fn helper_aliases_preserve_the_original_floating_point_sum_order() {
+fn helpers_preserve_the_original_floating_point_sum_order() {
     let x = symbol!("ordered_argument");
     let (f, g, h) = symbol!("ordered_first", "ordered_second", "ordered_third");
     let mut map = FunctionMap::new();
@@ -302,7 +309,6 @@ fn helper_aliases_preserve_the_original_floating_point_sum_order() {
         )
         .unwrap();
     }
-    map.prepare_symbols();
     let sum = f.call((x,)) + g.call((x,)) + h.call((x,));
     let (expressions, parameters) = map.normalize_inputs(&[sum], &[x.to_atom()], false);
     let mut evaluator = Atom::evaluator_multiple(&expressions, &parameters)
@@ -316,4 +322,43 @@ fn helper_aliases_preserve_the_original_floating_point_sum_order() {
         evaluator.evaluate_single(&[Complex::new(1., 0.)]),
         Complex::new(1., 0.)
     );
+}
+
+#[test]
+fn jit_square_root_callback_preserves_extreme_finite_scales() {
+    let z = symbol!("jit_sqrt_scale_argument").to_atom();
+    let map = FunctionMap::new();
+    let (expressions, parameters) = map.normalize_inputs(&[z.sqrt()], &[z], true);
+    let exact = Atom::evaluator_multiple(&expressions, &parameters)
+        .function_map(map.as_jit_symbolica().clone())
+        .build()
+        .unwrap();
+    let mut evaluator = exact
+        .jit_compile::<Complex<f64>>(
+            symbolica::evaluate::JITCompilationSettings::new()
+                .optimization_level(2)
+                .direct_translation(false)
+                .with_option("fastmath", "false")
+                .with_option("fast_complex", "true")
+                .with_option("use_simd", "false")
+                .with_option("use_threads", "false"),
+        )
+        .unwrap();
+    for (input, expected) in [
+        (Complex::new(1e300, 0.), Complex::new(1e150, 0.)),
+        (Complex::new(1e-300, 0.), Complex::new(1e-150, 0.)),
+        (Complex::new(0., -2e300), Complex::new(1e150, -1e150)),
+        (Complex::new(0., -2e-300), Complex::new(1e-150, -1e-150)),
+    ] {
+        let mut output = [Complex::new(f64::NAN, f64::NAN)];
+        evaluator.evaluate(&[input], &mut output);
+        for (actual, expected) in [(output[0].re, expected.re), (output[0].im, expected.im)] {
+            assert!(actual.is_finite(), "sqrt({input:?}) = {:?}", output[0]);
+            if expected == 0. {
+                assert_eq!(actual, 0.);
+            } else {
+                assert!((actual / expected - 1.).abs() < 1e-14);
+            }
+        }
+    }
 }

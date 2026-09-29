@@ -555,8 +555,9 @@ dependencies = [
 
 [[package]]
 name = "numerica"
-version = "3.0.0"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=821b02451256a92039a0665006628bd5d91470cc#821b02451256a92039a0665006628bd5d91470cc"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "836accdb415b7667573bd12676e0b2eb4440e3f60b110038d96a9086f5651c15"
 dependencies = [
  "ahash",
  "bincode",
@@ -1141,8 +1142,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "symbolica"
-version = "3.0.0"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=821b02451256a92039a0665006628bd5d91470cc#821b02451256a92039a0665006628bd5d91470cc"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0965398bbe5063c00b3a0d078d7d3dc57b61819b97e960b73e9a7e9602662795"
 dependencies = [
  "ahash",
  "append-only-vec",
@@ -1178,9 +1180,9 @@ dependencies = [
 
 [[package]]
 name = "symjit"
-version = "2.25.6"
+version = "2.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97114f6aba423d7a6a1336992ce0e5140e56a5176cce1a72ab252b5560ede2fe"
+checksum = "b3e0ed8cf2dd16f83f5393de7e34de02516bbcb2d7d0e85bb2a5615c665c947b"
 dependencies = [
  "ahash",
  "anyhow",

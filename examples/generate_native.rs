@@ -15,8 +15,8 @@ use symbolica::{
     evaluate::{ExportedInstructions, Instruction, Slot},
 };
 
-// Lift symbolic constants as explicit parameters before exporting. Symbolica's
-// public instruction API then never has to reveal its constant placeholders.
+// Preserve Symbolica's exact registered-constant metadata when exporting.
+// Numeric placeholders must never become literal zero constants in native code.
 #[derive(Clone)]
 struct Graph {
     input_count: usize,
@@ -47,14 +47,23 @@ impl From<ExportedInstructions<Complex<Rational>>> for Graph {
             output_count: graph.output_count,
             instructions: graph.instructions,
             constants: graph.constants,
-            constant_functions: Vec::new(),
+            constant_functions: graph
+                .constant_functions
+                .into_iter()
+                .map(|constant| ConstantFunction {
+                    index: constant.index,
+                    symbol: constant.symbol,
+                    tags: constant.tags,
+                    fixed_args: constant.fixed_args,
+                })
+                .collect(),
             sub_evaluators: graph
                 .sub_evaluators
                 .into_iter()
                 .map(|child| SubEvaluator {
                     symbol: child.symbol,
                     tags: child.tags,
-                    instructions: child.instructions.into(),
+                    instructions: std::sync::Arc::unwrap_or_clone(child.instructions).into(),
                 })
                 .collect(),
         }
@@ -80,11 +89,22 @@ fn export_checked(
         {
             return Err("coefficient mapping changed exported graph shape".into());
         }
-        for (exact, numeric) in exact.constants.iter().zip(&numeric.constants) {
+        for (index, (value, numeric)) in exact.constants.iter().zip(&numeric.constants).enumerate()
+        {
+            if exact
+                .constant_functions
+                .iter()
+                .any(|constant| constant.index == index)
+            {
+                continue;
+            }
+            let exact = value;
             if exact.re.to_multi_prec_float(128) != numeric.re
                 || exact.im.to_multi_prec_float(128) != numeric.im
             {
-                return Err("unresolved symbolic constant: lift it as an explicit parameter before exporting".into());
+                return Err(
+                    "unresolved symbolic constant: upstream export omitted its definition".into(),
+                );
             }
         }
         for (exact, numeric) in exact.sub_evaluators.iter().zip(&numeric.sub_evaluators) {
@@ -96,63 +116,6 @@ fn export_checked(
     Ok(exact.into())
 }
 
-fn lift_constants(mut graph: Graph, constants: Vec<ConstantFunction>) -> Graph {
-    graph.input_count -= constants.len();
-    let start = graph.constants.len();
-    let remap = |slot: &mut Slot| {
-        if let Slot::Param(index) = slot
-            && *index >= graph.input_count
-        {
-            *slot = Slot::Const(start + *index - graph.input_count);
-        }
-    };
-    for instruction in &mut graph.instructions {
-        match instruction {
-            Instruction::Add(out, args, _) | Instruction::Mul(out, args, _) => {
-                remap(out);
-                args.iter_mut().for_each(remap);
-            }
-            Instruction::Pow(out, base, _, _) | Instruction::Assign(out, base) => {
-                remap(out);
-                remap(base);
-            }
-            Instruction::Powf(out, base, exponent, _) => {
-                remap(out);
-                remap(base);
-                remap(exponent);
-            }
-            Instruction::Fun(out, function, _) => {
-                remap(out);
-                function.2.iter_mut().for_each(remap);
-            }
-            Instruction::IfElse(condition, _) => remap(condition),
-            Instruction::Join(out, condition, yes, no) => {
-                remap(out);
-                remap(condition);
-                remap(yes);
-                remap(no);
-            }
-            Instruction::Goto(_) | Instruction::Label(_) => {}
-        }
-    }
-    for (offset, mut constant) in constants.into_iter().enumerate() {
-        constant.index = start + offset;
-        graph
-            .constants
-            .push(Complex::new(Rational::from(0), Rational::from(0)));
-        graph.constant_functions.push(constant);
-    }
-    graph
-}
-
-fn pi_constant() -> ConstantFunction {
-    ConstantFunction {
-        index: 0,
-        symbol: Symbol::PI,
-        tags: Vec::new(),
-        fixed_args: Vec::new(),
-    }
-}
 type Environment = BTreeMap<Slot, String>;
 type Signature = (Symbol, Vec<String>);
 
@@ -952,14 +915,11 @@ fn generate(directory: PathBuf) -> Result<(), String> {
             arguments.extend(parameters.iter().cloned());
             symbol.call(&arguments)
         });
-        let mut parameters = parameters;
-        parameters.push(Symbol::PI.to_atom());
         let graph = export_checked(
             context
                 .evaluator(&calls, &parameters)
                 .map_err(|error| error.to_string())?,
         )?;
-        let graph = lift_constants(graph, vec![pi_constant()]);
         let mut generator = Generator {
             constants: &mut constants,
             helpers: Vec::new(),
@@ -1037,25 +997,11 @@ fn powi<T: NativeFloat>(a: &T, exponent: i64, _: bool) -> T {
             .spawn(|| {
                 oneloop::initialize().unwrap();
                 let expressions = [Symbol::PI.to_atom(), Atom::num((1, 2)).polylog(2)];
-                let evaluator = Atom::evaluator_multiple(&expressions, &expressions)
+                let evaluator = Atom::evaluator_multiple(&expressions, &[] as &[Atom])
                     .direct_translation(true)
                     .build()
                     .unwrap();
-                let graph = lift_constants(
-                    export_checked(evaluator).unwrap(),
-                    vec![
-                        pi_constant(),
-                        ConstantFunction {
-                            index: 0,
-                            symbol: symbolica::transcendental::polylog(),
-                            tags: vec!["2".into()],
-                            fixed_args: vec![Complex::new(
-                                Rational::from((1, 2)),
-                                Rational::from(0),
-                            )],
-                        },
-                    ],
-                );
+                let graph = export_checked(evaluator).unwrap();
                 assert_eq!(graph.input_count, 0);
                 assert_eq!(graph.constant_functions.len(), 2);
                 let mut constants = Constants::default();

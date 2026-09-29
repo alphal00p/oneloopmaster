@@ -1,0 +1,17 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `/tmp/oneloop-latest-symjit/target/debug/complex_sqrt_scales generic`
+fast_complex=false
+sqrt(Complex { re: 0.0, im: 0.0 }): actual=Complex { re: 0.0, im: 0.0 }, expected=Complex { re: 0.0, im: 0.0 }
+sqrt(Complex { re: 1e300, im: 0.0 }): actual=Complex { re: inf, im: 0.0 }, expected=Complex { re: 1e150, im: 0.0 }
+sqrt(Complex { re: -1e300, im: -0.0 }): actual=Complex { re: 0.0, im: -inf }, expected=Complex { re: 0.0, im: -1e150 }
+sqrt(Complex { re: 0.0, im: -2e300 }): actual=Complex { re: 0.0, im: -inf }, expected=Complex { re: 1e150, im: -1e150 }
+sqrt(Complex { re: 1e-300, im: 0.0 }): actual=Complex { re: 7.071067811865476e-151, im: 0.0 }, expected=Complex { re: 1e-150, im: 0.0 }
+sqrt(Complex { re: 0.0, im: -2e-300 }): actual=Complex { re: inf, im: -0.0 }, expected=Complex { re: 1e-150, im: -1e-150 }
+sqrt(Complex { re: 1.0, im: 1e-20 }): actual=Complex { re: 1.0, im: 5e-21 }, expected=Complex { re: 1.0, im: 5e-21 }
+sqrt(Complex { re: 1.0, im: -1e-20 }): actual=Complex { re: 1.0, im: -5e-21 }, expected=Complex { re: 1.0, im: -5e-21 }
+
+thread 'main' (3080938) panicked at src/bin/complex_sqrt_scales.rs:42:5:
+assertion `left == right` failed: complex square root lost a representable component
+  left: 5
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

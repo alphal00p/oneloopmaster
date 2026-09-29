@@ -1,0 +1,123 @@
+SymJIT 2.25.6 reproductions
+Linux-6.18.45-x86_64-with-glibc2.42
+rustc 1.98.1 (48a229cea 2026-09-01) (built from a source tarball)
+CPU: AMD EPYC 9754 128-Core Processor
+Relevant CPU flags: sse2 fma avx avx2 avx512f
+
+### reproducer: complex_sqrt
+exit: 101
+fast_complex=true
+sqrt(Complex { re: 0.0, im: -4.0 }): actual=Complex { re: 1.4142135623730951, im: -1.414213562373095 }, expected=Complex { re: 1.4142135623730951, im: -1.4142135623730951 }
+sqrt(Complex { re: -4.0, im: -0.0 }): actual=Complex { re: -0.0, im: 2.0 }, expected=Complex { re: 0.0, im: -2.0 }
+sqrt(Complex { re: 0.0, im: 4.0 }): actual=Complex { re: 1.4142135623730951, im: 1.414213562373095 }, expected=Complex { re: 1.4142135623730951, im: 1.4142135623730951 }
+sqrt(Complex { re: -4.0, im: 0.0 }): actual=Complex { re: 0.0, im: 2.0 }, expected=Complex { re: 0.0, im: 2.0 }
+
+thread 'main' (3272344) panicked at src/bin/complex_sqrt.rs:42:5:
+assertion `left == right` failed: principal complex square-root branch is incorrect
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### reproducer: complex_sqrt generic
+exit: 101
+fast_complex=false
+sqrt(Complex { re: 0.0, im: -4.0 }): actual=Complex { re: -1.414213562373095, im: 1.4142135623730951 }, expected=Complex { re: 1.4142135623730951, im: -1.4142135623730951 }
+sqrt(Complex { re: -4.0, im: -0.0 }): actual=Complex { re: -0.0, im: 2.0 }, expected=Complex { re: 0.0, im: -2.0 }
+sqrt(Complex { re: 0.0, im: 4.0 }): actual=Complex { re: 1.414213562373095, im: 1.4142135623730951 }, expected=Complex { re: 1.4142135623730951, im: 1.4142135623730951 }
+sqrt(Complex { re: -4.0, im: 0.0 }): actual=Complex { re: 0.0, im: 2.0 }, expected=Complex { re: 0.0, im: 2.0 }
+
+thread 'main' (3272345) panicked at src/bin/complex_sqrt.rs:42:5:
+assertion `left == right` failed: principal complex square-root branch is incorrect
+  left: 2
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### reproducer: complex_if
+exit: 101
+if(Complex { re: 0.0, im: 1.0 }, 7, 11): actual=Complex { re: 11.0, im: 0.0 }, expected=Complex { re: 7.0, im: 0.0 }
+if(Complex { re: 0.0, im: -1.0 }, 7, 11): actual=Complex { re: 11.0, im: 0.0 }, expected=Complex { re: 7.0, im: 0.0 }
+if(Complex { re: 1.0, im: 0.0 }, 7, 11): actual=Complex { re: 7.0, im: 0.0 }, expected=Complex { re: 7.0, im: 0.0 }
+if(Complex { re: 0.0, im: 0.0 }, 7, 11): actual=Complex { re: 11.0, im: 0.0 }, expected=Complex { re: 11.0, im: 0.0 }
+
+thread 'main' (3272346) panicked at src/bin/complex_if.rs:62:5:
+assertion `left == right` failed: complex truth must test both components
+  left: 2
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### reproducer: complex_if join-only
+exit: 101
+if(Complex { re: 0.0, im: 1.0 }, 7, 11): actual=Complex { re: 11.0, im: 0.0 }, expected=Complex { re: 7.0, im: 0.0 }
+if(Complex { re: 0.0, im: -1.0 }, 7, 11): actual=Complex { re: 11.0, im: 0.0 }, expected=Complex { re: 7.0, im: 0.0 }
+if(Complex { re: 1.0, im: 0.0 }, 7, 11): actual=Complex { re: 7.0, im: 0.0 }, expected=Complex { re: 7.0, im: 0.0 }
+if(Complex { re: 0.0, im: 0.0 }, 7, 11): actual=Complex { re: 11.0, im: 0.0 }, expected=Complex { re: 11.0, im: 0.0 }
+
+thread 'main' (3272347) panicked at src/bin/complex_if.rs:62:5:
+assertion `left == right` failed: complex truth must test both components
+  left: 2
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### reproducer: complex_rounding
+exit: 101
+fastmath=false, fast_complex=false
+z=Complex { re: 0.1, im: 0.2 }; z*conj(z): actual=Complex { re: 0.05000000000000001, im: 1.6653345369377347e-18 }, expected=Complex { re: 0.05000000000000001, im: 0.0 }
+
+thread 'main' (3272348) panicked at src/bin/complex_rounding.rs:27:5:
+assertion `left == right` failed: strict complex multiplication introduced an imaginary residue
+  left: 1.6653345369377347e-18
+ right: 0.0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### control: complex_rounding packed
+exit: 0
+fastmath=false, fast_complex=true
+z=Complex { re: 0.1, im: 0.2 }; z*conj(z): actual=Complex { re: 0.05000000000000001, im: 0.0 }, expected=Complex { re: 0.05000000000000001, im: 0.0 }
+
+
+### reproducer: direct_power
+exit: 101
+compiling z^(1/4), direct=true
+
+thread 'main' (3272350) panicked at /home/codex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/symjit-2.25.6/src/symjit/assembler.rs:77:36:
+label _func_power_ not found
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### control: direct_power indirect
+exit: 0
+compiling z^(1/4), direct=false
+actual=Complex { re: 2.0, im: 0.0 }, expected=2+0i
+
+
+### reproducer: direct_negative_powers
+exit: 101
+direct=true: [2^(-2), 2^(-3)]=[Complex { re: 4.0, im: 0.0 }, Complex { re: 8.0, im: 0.0 }], expected=[Complex { re: 0.25, im: 0.0 }, Complex { re: 0.125, im: 0.0 }]
+
+thread 'main' (3272352) panicked at src/bin/direct_negative_powers.rs:24:5:
+assertion `left == right` failed
+  left: [Complex { re: 4.0, im: 0.0 }, Complex { re: 8.0, im: 0.0 }]
+ right: [Complex { re: 0.25, im: 0.0 }, Complex { re: 0.125, im: 0.0 }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+### control: direct_negative_powers indirect
+exit: 0
+direct=false: [2^(-2), 2^(-3)]=[Complex { re: 0.25, im: 0.0 }, Complex { re: 0.125, im: 0.0 }], expected=[Complex { re: 0.25, im: 0.0 }, Complex { re: 0.125, im: 0.0 }]
+
+
+### reproducer: zero_input_batch
+exit: SIGSEGV
+calling evaluate_matrix with zero parameters, 2 outputs, 5 rows; SIMD requested=true, compiled=true
+
+
+### control: zero_input_batch scalar
+exit: 0
+calling evaluate_matrix with zero parameters, 2 outputs, 5 rows; SIMD requested=false, compiled=false
+actual=[Complex { re: 2.0, im: 0.0 }, Complex { re: 3.141592653589793, im: 0.0 }, Complex { re: 2.0, im: 0.0 }, Complex { re: 3.141592653589793, im: 0.0 }, Complex { re: 2.0, im: 0.0 }, Complex { re: 3.141592653589793, im: 0.0 }, Complex { re: 2.0, im: 0.0 }, Complex { re: 3.141592653589793, im: 0.0 }, Complex { re: 2.0, im: 0.0 }, Complex { re: 3.141592653589793, im: 0.0 }]
+

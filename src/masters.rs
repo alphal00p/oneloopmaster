@@ -209,6 +209,47 @@ fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<
     output[tag].clone()
 }
 
+/// Fold only explicitly approximate, complete coefficient calls. In particular,
+/// an untagged inspection call or an exact rational call remains symbolic.
+fn normalized_numeric_call(family: Family, view: AtomView<'_>) -> Option<Complex<Float>> {
+    crate::record_usage();
+    let AtomView::Fun(function) = view else {
+        return None;
+    };
+    if function.get_nargs() != family.arity() + 1 {
+        return None;
+    }
+    let mut arguments = function.iter();
+    let tag = match i32::try_from(arguments.next()?).ok()? {
+        0 => 0,
+        -1 => 1,
+        -2 => 2,
+        _ => return None,
+    };
+    let arguments = arguments.collect::<Vec<_>>();
+    // Exact numbers acquire precision only when another argument explicitly
+    // supplies it. Include imaginary components and the renormalization scale.
+    let precision = arguments
+        .iter()
+        .filter_map(|argument| Complex::<Float>::try_from(*argument).ok())
+        .flat_map(|value| [value.re.prec(), value.im.prec()])
+        .max()?;
+    let arguments = arguments
+        .into_iter()
+        .map(|argument| {
+            let AtomView::Num(number) = argument else {
+                return None;
+            };
+            number.get_coeff_view().to_float(precision).ok()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    // Construction must remain non-throwing for points outside the numerical
+    // contract. Explicit evaluation retains the existing descriptive errors.
+    crate::native::validate_point(family, &arguments).ok()?;
+    let value = scalar_float(family, tag, &arguments);
+    (value.re.is_finite() && value.im.is_finite()).then_some(value)
+}
+
 fn info(family: Family) -> EvaluationInfo {
     // Symbolica routes a call containing only its tag through the constant
     // interface. Such a call is malformed for every master; report the same
@@ -242,11 +283,24 @@ fn info(family: Family) -> EvaluationInfo {
 /// `Complex<DoubleFloat>` and `Complex<Float>`. Invalid tags, domains or numeric arities panic with a descriptive
 /// message because Symbolica's numeric callback interface returns a number,
 /// not a `Result`. The native map performs its own function validation.
+/// Complete tagged calls containing a floating-point argument normalize via
+/// the native hook at the supplied precision. Untagged, exact, incomplete, and
+/// invalid-domain calls remain symbolic until explicitly evaluated.
 #[allow(non_snake_case)]
 pub fn A0() -> Symbol {
     initialization::ensure_symbolica_state();
     static SYMBOL: OnceLock<Symbol> = OnceLock::new();
-    *SYMBOL.get_or_init(|| symbolica::symbol!("oneloopmaster::A0", eval = info(Family::A0)))
+    *SYMBOL.get_or_init(|| {
+        symbolica::symbol!(
+            "oneloopmaster::A0",
+            eval = info(Family::A0),
+            norm = |view, out| {
+                if let Some(value) = normalized_numeric_call(Family::A0, view) {
+                    out.to_num(value);
+                }
+            }
+        )
+    })
 }
 
 /// Initializes and returns `oneloopmaster::B0(tag, p², m0², m1², mu²)`.
@@ -254,7 +308,17 @@ pub fn A0() -> Symbol {
 pub fn B0() -> Symbol {
     initialization::ensure_symbolica_state();
     static SYMBOL: OnceLock<Symbol> = OnceLock::new();
-    *SYMBOL.get_or_init(|| symbolica::symbol!("oneloopmaster::B0", eval = info(Family::B0)))
+    *SYMBOL.get_or_init(|| {
+        symbolica::symbol!(
+            "oneloopmaster::B0",
+            eval = info(Family::B0),
+            norm = |view, out| {
+                if let Some(value) = normalized_numeric_call(Family::B0, view) {
+                    out.to_num(value);
+                }
+            }
+        )
+    })
 }
 
 /// Initializes and returns `oneloopmaster::dB0(tag, p², m0², m1², mu²)`.
@@ -262,7 +326,17 @@ pub fn B0() -> Symbol {
 pub fn dB0() -> Symbol {
     initialization::ensure_symbolica_state();
     static SYMBOL: OnceLock<Symbol> = OnceLock::new();
-    *SYMBOL.get_or_init(|| symbolica::symbol!("oneloopmaster::dB0", eval = info(Family::DB0)))
+    *SYMBOL.get_or_init(|| {
+        symbolica::symbol!(
+            "oneloopmaster::dB0",
+            eval = info(Family::DB0),
+            norm = |view, out| {
+                if let Some(value) = normalized_numeric_call(Family::DB0, view) {
+                    out.to_num(value);
+                }
+            }
+        )
+    })
 }
 
 /// Initializes and returns `oneloopmaster::C0(tag, p1², p2², p3², m1², m2², m3², mu²)`.
@@ -270,7 +344,17 @@ pub fn dB0() -> Symbol {
 pub fn C0() -> Symbol {
     initialization::ensure_symbolica_state();
     static SYMBOL: OnceLock<Symbol> = OnceLock::new();
-    *SYMBOL.get_or_init(|| symbolica::symbol!("oneloopmaster::C0", eval = info(Family::C0)))
+    *SYMBOL.get_or_init(|| {
+        symbolica::symbol!(
+            "oneloopmaster::C0",
+            eval = info(Family::C0),
+            norm = |view, out| {
+                if let Some(value) = normalized_numeric_call(Family::C0, view) {
+                    out.to_num(value);
+                }
+            }
+        )
+    })
 }
 
 /// Initializes and returns the box master, with the arguments of [`crate::d0`]
@@ -279,7 +363,17 @@ pub fn C0() -> Symbol {
 pub fn D0() -> Symbol {
     initialization::ensure_symbolica_state();
     static SYMBOL: OnceLock<Symbol> = OnceLock::new();
-    *SYMBOL.get_or_init(|| symbolica::symbol!("oneloopmaster::D0", eval = info(Family::D0)))
+    *SYMBOL.get_or_init(|| {
+        symbolica::symbol!(
+            "oneloopmaster::D0",
+            eval = info(Family::D0),
+            norm = |view, out| {
+                if let Some(value) = normalized_numeric_call(Family::D0, view) {
+                    out.to_num(value);
+                }
+            }
+        )
+    })
 }
 
 /// Adds the fifteen tagged native master definitions to a complete native map.
@@ -311,5 +405,98 @@ pub(crate) fn register_masters(map: &mut FunctionMap) {
             )
             .expect("unique native OneLOop master definition");
         }
+    }
+}
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::*;
+    use symbolica::prelude::RealLike;
+
+    fn approximate(value: i64, precision: u32) -> Atom {
+        Atom::num(Float::with_val(precision, value))
+    }
+
+    fn assert_symbolic(expression: Atom, symbol: Symbol) {
+        assert!(
+            matches!(expression.as_view(), AtomView::Fun(function) if function.get_symbol() == symbol)
+        );
+    }
+
+    #[test]
+    fn mixed_floating_calls_fold_for_every_master() {
+        // The massless simple sectors provide independent pole/derivative
+        // values while exercising all five registered normalization callbacks.
+        let cases = [
+            (A0(), -1, vec![2, 1], 2.0),
+            (B0(), -1, vec![-2, 0, 0, 1], 1.0),
+            (dB0(), 0, vec![-2, 0, 0, 1], 0.5),
+            (C0(), -2, vec![0, 0, -2, 0, 0, 0, 1], -0.5),
+            (D0(), -2, vec![0, 0, 0, 0, -2, -3, 0, 0, 0, 0, 1], 2.0 / 3.0),
+        ];
+        for (symbol, tag, values, expected) in cases {
+            let mut arguments = vec![Atom::num(tag)];
+            arguments.extend(values.into_iter().map(Atom::num));
+            *arguments.last_mut().unwrap() = approximate(1, 160);
+            let result = symbol.call(&arguments);
+            let value = Complex::<Float>::try_from(result.as_view()).unwrap();
+            assert!(
+                (value.re.to_f64() - expected).abs() < 1e-14,
+                "{}: {value}",
+                symbol.get_name()
+            );
+            assert_eq!(value.im.to_f64(), 0.0);
+        }
+    }
+
+    #[test]
+    fn finite_normalization_retains_supplied_precision() {
+        let result = A0().call((0, approximate(2, 200), 1));
+        let value = Complex::<Float>::try_from(result.as_view()).unwrap();
+        assert!((value.re.to_f64() - 2.0 * (1.0 - 2.0_f64.ln())).abs() < 1e-14);
+        assert!(value.re.prec() > 150);
+        // Even when the only inexact input is the scale, exact complex masses
+        // are converted at that precision, rather than through binary64.
+        let mass = Atom::num(Complex::new(
+            Rational::from((2, 3)),
+            Rational::from((-1, 7)),
+        ));
+        let result = A0().call((-1, mass, approximate(1, 240)));
+        let value = Complex::<Float>::try_from(result.as_view()).unwrap();
+        assert!(value.re.prec() > 200 && value.im.prec() > 200);
+        assert!((value.re.to_f64() - 2.0 / 3.0).abs() < 1e-15);
+        assert!((value.im.to_f64() + 1.0 / 7.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn exact_untagged_symbolic_and_invalid_calls_are_preserved() {
+        let x = Atom::var(symbolica::symbol!("normalization_test::x"));
+        let float = approximate(2, 100);
+        for call in [
+            A0().call((0, 2, 1)),
+            A0().call((&float, 1)),
+            A0().call((0, &float, &x)),
+            A0().call((3, &float, 1)),
+            A0().call((0, &float, 1, 2)),
+            A0().call((0, &float, 0)),
+            A0().call((0, &float, -1)),
+            A0().call((
+                0,
+                Atom::num(Complex::new(Rational::from(2), Rational::from(1))),
+                &float,
+            )),
+        ] {
+            assert_symbolic(call, A0());
+        }
+        assert_symbolic(
+            B0().call((
+                0,
+                Atom::num(Complex::new(Rational::from(-2), Rational::from(1))),
+                0,
+                0,
+                float,
+            )),
+            B0(),
+        );
     }
 }

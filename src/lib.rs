@@ -208,7 +208,12 @@ fn physical_sqrt(value: &Atom) -> Atom {
 }
 
 fn log_over_one_minus(value: &Atom) -> Atom {
-    let difference = 1 - value;
+    let difference: Atom = 1 - value;
+    // Rust evaluates the arguments to IF eagerly. Resolve an exact removable
+    // singularity before constructing the otherwise discarded 0/0 expression.
+    if difference.is_zero() {
+        return Atom::num(-1);
+    }
     if_nonzero_else(
         &difference,
         physical_log(value) / &difference,
@@ -222,6 +227,9 @@ fn dilog_complement(value: &Atom) -> Atom {
 
 fn dilog_divided_difference(first: &Atom, second: &Atom) -> Atom {
     let difference = first - second;
+    if difference.is_zero() {
+        return log_over_one_minus(first);
+    }
     let unequal = (dilog_complement(first) - dilog_complement(second)) / &difference;
     if_nonzero_else(&difference, unequal, log_over_one_minus(first))
 }
@@ -236,3 +244,18 @@ fn x_log_ratio(value: &Atom, mu_squared: &Atom) -> Atom {
 
 #[cfg(test)]
 mod tests;
+
+static CITATIONS_USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[inline]
+pub fn record_usage() {
+    use std::sync::atomic::Ordering;
+    if !CITATIONS_USED.load(Ordering::Relaxed) {
+        CITATIONS_USED.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Whether this package has performed an operation in this process.
+pub fn was_used() -> bool {
+    CITATIONS_USED.load(std::sync::atomic::Ordering::Relaxed)
+}

@@ -1,16 +1,24 @@
 # Portable scalar evaluators
 
-Generated on 2026-09-19 with unmodified Symbolica and Numerica at
-`821b02451256a92039a0665006628bd5d91470cc` and released SymJIT 2.25.6.
-No dependency source patches are applied.
+Regenerated on 2026-09-29 with released Symbolica and Numerica 3.0.1 and
+SymJIT 2.26.0. No dependency source patches are applied.
+
+The C0 asset was regenerated on 2026-09-22 after restoring the zero-root
+ordering of the finite three-mass triangle. Its round-trip validation passed
+all existing C0 acceptance and benchmark rows. An additional regression checks
+45 equal-mass kinematic points, including both sides of the timelike threshold,
+through the native, expression and portable SymJIT backends; native, expression
+and public master callbacks also agree with independent analytic values to
+110 decimal digits.
 
 These files contain bincode-serialized numerical `ExpressionEvaluator` graphs,
 including nested definitions and registered callback metadata. They contain no
 native machine code. Loading recompiles every level for the host with OneLOop's
 explicit settings: O2, ordinary translation, packed complex arithmetic enabled,
 and fastmath, SIMD batches, threads and AVX-512 disabled. Registered numerical
-callbacks preserve complex square-root branches and complex conditions. Packed
-complex arithmetic avoids unwanted FMA contraction in the generic compiler.
+callbacks preserve complex square-root range/branches and exact predicates.
+Packed complex arithmetic retains the validated production policy; the earlier
+strict-FMA defect is fixed in SymJIT 2.26.0.
 
 The generator restored each file and checked all three Laurent coefficients
 against all 293 acceptance and 31 benchmark rows before writing it. All five
@@ -21,16 +29,17 @@ exhaustive analytic-region coverage.
 
 | Family | Bytes | SHA-256 |
 | --- | ---: | --- |
-| A0 | 1,891 | `7cfe260396001602a94b9b768899a092793c3584dfb50fdd1ed8302264aabd26` |
-| B0 | 14,880 | `e22b4a035d092f9ac9d34e7587e81c8c5bdb388713fa558ae67ac74e72ba8ca9` |
-| dB0 | 71,901 | `ff7a37d25d2150a26d6d933996f014b664067584944630151516cd2e6957c98c` |
-| C0 | 590,631 | `9b6b597e2de2f2cc9873ce0caa1624b533c867baba6eedab1bc78718217542b2` |
-| D0 | 13,160,627 | `6d32bfa9a7d3a9032303dd732e9e1e872fb889c8e5920b85a92eb6d19933579e` |
+| A0 | 1,891 | `8a3a160b9e0909a60461179f2327f4bddd85153d79679b4ed1e5b8a73e3edf71` |
+| B0 | 14,880 | `cc8611afca806d3d28f16e566da9601963dcf1f4340c99c1f00f6968bf3563c2` |
+| dB0 | 71,901 | `5aa2786250a8e131d0b751d7e05b6c89431b55e624dc3e5e07cee9a7e2779f77` |
+| C0 | 179,716 | `506ec67a01cc34eaa378b1c3fea3b5092a9a8cd738f3ddac1e0595ad502bb09a` |
+| D0 | 4,333,475 | `af637c421c71922dbda4e34c0bb4ee22c72d52c52eba4f438b9963fa5d325869` |
 
 The `oneloop-evaluator-v2` discriminator binds these files to the selected
 Symbolica/SymJIT versions and settings. Earlier patched-backend caches are
-incompatible. Helper aliases retain their original relative symbol order so
-hash-map iteration cannot change the order of floating-point operations.
+incompatible. Original helper symbols and signatures are preserved. Upstream shares
+non-inlined bodies, so explicit-pi aliases and padded argument lists are no
+longer needed. Symbol ordering still controls floating-point operation order.
 
 Regenerate with:
 

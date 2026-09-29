@@ -1,0 +1,11 @@
+[package]
+name = "symjit-port-reproducers"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+symjit = "=2.26.0"
+
+# This directory is a standalone project, independent of OneLOop's dependencies.
+[workspace]

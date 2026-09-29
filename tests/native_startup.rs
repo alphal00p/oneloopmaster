@@ -84,7 +84,7 @@ fn native_startup_child() {
             };
             assert!(!expression.is_zero());
             assert!(DEPENDENT_INITIALIZER_RAN.load(Ordering::Acquire));
-            assert!(oneloop::is_initialized());
+            assert!(!oneloop::is_initialized());
             for family in [
                 oneloop::ScalarIntegral::A0,
                 oneloop::ScalarIntegral::B0,
@@ -94,7 +94,8 @@ fn native_startup_child() {
             ] {
                 let _ = oneloop::ScalarEvaluator::cached(family).unwrap();
             }
-            oneloop::initialize().unwrap(); // Already complete and idempotent.
+            oneloop::initialize().unwrap(); // Explicit full warmup is optional.
+            assert!(oneloop::is_initialized());
         })
         .unwrap()
         .join()

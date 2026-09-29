@@ -1,18 +1,16 @@
 # Upstream patches and historical fixes
 
-All seven fixes in the [Symbolica regression report](symbolica-main-regressions.md)
-are upstream in main `821b02451256a92039a0665006628bd5d91470cc`, now selected by
-OneLOop and both Python build roots. The patches and their tarball retain the
-original `08defb39` base as historical reproductions; do not apply them to current
-main. SymJIT defects remain tracked separately.
+Current build roots select unmodified Symbolica/Numerica main
+`a19c760dd567c239f30d87e4e924ca2f8b8457ab` and released SymJIT 2.26.0.
+See the [2026-09-21 audit](upstream-status-2026-09-21.md) for current regression
+results and remaining SIMD callback/fallback and root/reciprocal scaling defects.
+No dependency source patches are applied.
 
-The current migration targets unmodified Symbolica main
-`821b02451256a92039a0665006628bd5d91470cc` and released SymJIT 2.25.6.
-No current Cargo manifest applies a source patch. The
-[Numerica radial precision patch](numerica-hypot-precision.md) is now historical:
-its `hypot` fix and a further complex-logarithm precision fix are upstream in the
-selected revision. The standalone and Symbolica-tree patch formats retain their
-original bases and eight regression tests.
+All seven fixes in the [Symbolica regression report](symbolica-main-regressions.md)
+were upstream by `821b0245` and remain in the selected main. Those patches and
+their tarball retain their original `08defb39` base; do not apply them to current
+main. The [Numerica radial precision patch](numerica-hypot-precision.md) is also
+historical: its hypot and complex-logarithm repairs are already upstream.
 
 The older standalone Numerica and polylog artifacts are patch proposals whose
 repairs are now in Symbolica main. The development patches below are archived

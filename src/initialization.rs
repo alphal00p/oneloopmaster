@@ -1,34 +1,39 @@
-//! Eager registration and backend preparation at Symbolica state startup.
+//! Lightweight symbol registration and optional explicit backend warmup.
 use std::sync::OnceLock;
 
+static REGISTERED: OnceLock<()> = OnceLock::new();
 static INITIALIZED: OnceLock<Result<(), String>> = OnceLock::new();
 
 /// Trigger Symbolica's initializer inventory before entering any OneLOop
 /// OnceLock. Its initializer may call back into the same public constructors.
 pub(crate) fn ensure_symbolica_state() {
-    if INITIALIZED.get().is_some() {
+    if REGISTERED.get().is_some() {
         return;
     }
     let _ = symbolica::symbol!("oneloopmaster::__state_initialized");
 }
 
 pub(crate) fn from_symbolica() {
-    INITIALIZED.get_or_init(|| {
-        // Register every master, native helper and argument symbol together.
-        // The transparent definitions are also ready for manual compilation.
-        let _ = crate::expressions::shared_definitions();
-        crate::inspection::prepare_symbols();
-        crate::backend::initialize_native_all()?;
-        crate::evaluators::initialize_all()
+    REGISTERED.get_or_init(|| {
+        // Parsed masters need their numeric hooks before callers can create
+        // symbols with these names. Keep formulas and evaluators out of startup.
+        let _ = (
+            crate::A0(),
+            crate::B0(),
+            crate::dB0(),
+            crate::C0(),
+            crate::D0(),
+        );
+        crate::definitions::register_callbacks();
     });
 }
 
 /// Initialize every OneLOop symbol and all five shared numerical backends.
 ///
-/// The `initialize!` registration also runs automatically with Symbolica's
-/// global-state initialization. Call this function at application startup to
-/// receive configuration/cache errors before evaluating anything. Python calls
-/// it during module import. Work stays on the calling thread; see the README's
+/// This is an optional eager warmup. Ordinary imports and evaluations prepare
+/// only the requested backend on first use. Call this function explicitly to
+/// receive configuration/cache errors before evaluating anything.
+/// Work stays on the calling thread; see the README's
 /// stack and Symbolica-license requirements.
 pub fn initialize() -> Result<(), String> {
     if let Some(status) = INITIALIZED.get() {
@@ -37,12 +42,16 @@ pub fn initialize() -> Result<(), String> {
     crate::evaluators::portable_environment()?;
     ensure_symbolica_state();
     INITIALIZED
-        .get()
-        .ok_or_else(|| "OneLOop initialization was requested recursively".to_owned())?
+        .get_or_init(|| {
+            let _ = crate::expressions::shared_definitions();
+            crate::inspection::prepare_symbols();
+            crate::backend::initialize_native_all()?;
+            crate::evaluators::initialize_all()
+        })
         .clone()
 }
 
-/// Whether symbol registration and all five shared backends are complete.
+/// Whether explicit full warmup via [`initialize`] completed successfully.
 /// This query does not itself initialize Symbolica or load evaluators.
 pub fn is_initialized() -> bool {
     INITIALIZED.get().is_some_and(Result::is_ok)
