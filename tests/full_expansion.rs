@@ -61,8 +61,7 @@ fn complete_massive_triangle_then_select() {
 #[test]
 fn all_generic_masters_have_complete_shared_expressions_and_select_late() {
     use oneloop::{
-        EvaluationBackend, PrecisionEvaluator, ScalarIntegral as F, get_expression_shared,
-        select_branch_shared,
+        PrecisionEvaluator, ScalarIntegral as F, get_expression_shared, select_branch_shared,
     };
     std::thread::Builder::new().stack_size(128*1024*1024).spawn(|| {
         for (family, symbol, momenta) in [(F::A0,oneloop::A0(),0),(F::B0,oneloop::B0(),1),(F::DB0,oneloop::dB0(),1),(F::C0,oneloop::C0(),3),(F::D0,oneloop::D0(),6)] {
@@ -89,7 +88,7 @@ fn all_generic_masters_have_complete_shared_expressions_and_select_late() {
                 F::C0 => vec![0,0,-3,0,0,0,2],
                 F::D0 => vec![0,0,0,0,-3,-5,0,0,0,0,2],
             }.into_iter().map(Atom::num).collect();
-            let mut reference = PrecisionEvaluator::with_binary_precision_and_backend(family,384,EvaluationBackend::Native).unwrap();
+            let mut reference = PrecisionEvaluator::with_binary_precision_and_backend(family,384,oneloop::DEFAULT_BACKEND).unwrap();
             for (region,point) in [euclidean,complex,infrared].into_iter().enumerate() {
                 let rules = parameters.iter().zip(&point).map(|(x,v)| {
                     let rule = Replacement::new(x.clone(),v.clone());

@@ -3,6 +3,7 @@
 #![allow(unused_imports, unused_variables)]
 use super::{C, Context, NativeFloat};
 use super::primitives::*;
+use super::primitives::{inline_add as add, inline_mul as mul};
 
 pub(super) fn evaluate<T: NativeFloat>(input: &[C<T>], ctx: &Context<T>) -> [C<T>; 3] {
     let a0 = &input[0];

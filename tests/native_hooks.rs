@@ -1,7 +1,9 @@
 //! Bare Symbol callbacks, without transparent function-map definitions.
 #[path = "support/fixtures.rs"]
 mod fixtures;
-use oneloop::{NativeEvaluator, ScalarIntegral};
+#[cfg(feature = "generated-evaluators")]
+use oneloop::NativeEvaluator;
+use oneloop::ScalarIntegral;
 use symbolica::{
     atom::{Atom, AtomCore},
     domains::float::{Complex, DoubleFloat, RealLike, SingleFloat},
@@ -42,6 +44,7 @@ fn double_float_master_hooks_preserve_the_numeric_domain() {
                             prototype.from_rational(&z.im),
                         )
                     });
+                #[cfg(feature = "generated-evaluators")]
                 let mut native = NativeEvaluator::<DoubleFloat>::new(family).unwrap();
                 for row in fixtures.iter().filter(|r| r.family == family) {
                     let arguments = row
@@ -49,11 +52,14 @@ fn double_float_master_hooks_preserve_the_numeric_domain() {
                         .iter()
                         .map(|z| Complex::new(z.re.into(), z.im.into()))
                         .collect::<Vec<_>>();
-                    let mut expected = [Complex::new(0.0.into(), 0.0.into()); 3];
-                    let mut actual = expected;
-                    native.evaluate(&arguments, &mut expected).unwrap();
+                    let mut actual = [Complex::new(0.0.into(), 0.0.into()); 3];
                     hooks.evaluate(&arguments, &mut actual);
-                    assert_eq!(actual, expected, "{} {}", family.name(), row.name);
+                    #[cfg(feature = "generated-evaluators")]
+                    {
+                        let mut expected = actual;
+                        native.evaluate(&arguments, &mut expected).unwrap();
+                        assert_eq!(actual, expected, "{} {}", family.name(), row.name);
+                    }
                     row.check(&actual.map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())));
                 }
                 if family == ScalarIntegral::A0 {

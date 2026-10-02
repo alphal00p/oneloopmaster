@@ -12,6 +12,8 @@ use std::{
     collections::BTreeMap,
     sync::{Mutex, OnceLock},
 };
+#[cfg(not(feature = "generated-evaluators"))]
+use symbolica::domains::float::SingleFloat;
 use symbolica::{
     atom::{AtomView, EvaluationInfo},
     domains::{
@@ -124,7 +126,10 @@ impl Drop for EvaluationGuard {
 }
 
 type ExactEvaluator = ExpressionEvaluator<Complex<Rational>>;
+#[cfg(feature = "generated-evaluators")]
 type PrecisionEvaluator = crate::NativeEvaluator<Float>;
+#[cfg(not(feature = "generated-evaluators"))]
+type PrecisionEvaluator = crate::PrecisionEvaluator;
 
 pub(crate) fn exact_evaluator(family: ScalarIntegral) -> &'static ExactEvaluator {
     initialization::ensure_symbolica_state();
@@ -153,7 +158,14 @@ pub(crate) fn jit_evaluator(family: ScalarIntegral) -> Result<JitEvaluator, Stri
 fn scalar_f64(family: Family, tag: usize, args: &[Complex<f64>]) -> Complex<f64> {
     family.check_arity(args.len());
     let _guard = EvaluationGuard::enter();
-    crate::backend::native_coefficient(family, tag, args)
+    #[cfg(feature = "generated-evaluators")]
+    {
+        crate::backend::native_coefficient(family, tag, args)
+    }
+    #[cfg(not(feature = "generated-evaluators"))]
+    {
+        crate::backend::expression_coefficient(family, tag, args)
+    }
 }
 
 fn scalar_double_float(
@@ -163,16 +175,41 @@ fn scalar_double_float(
 ) -> Complex<DoubleFloat> {
     family.check_arity(args.len());
     let _guard = EvaluationGuard::enter();
-    static CACHE: [OnceLock<Mutex<crate::NativeEvaluator<DoubleFloat>>>; 5] =
-        [const { OnceLock::new() }; 5];
+    // Validate before taking the lock: rejected input must not poison the cache.
+    #[cfg(not(feature = "generated-evaluators"))]
+    crate::native::validate_point(family, args).expect("valid master arguments");
+    #[cfg(feature = "generated-evaluators")]
+    type DoubleEvaluator = crate::NativeEvaluator<DoubleFloat>;
+    #[cfg(not(feature = "generated-evaluators"))]
+    type DoubleEvaluator = ExpressionEvaluator<Complex<DoubleFloat>>;
+    static CACHE: [OnceLock<Mutex<DoubleEvaluator>>; 5] = [const { OnceLock::new() }; 5];
     let mut evaluator = CACHE[family as usize]
         .get_or_init(|| {
-            Mutex::new(crate::NativeEvaluator::new(family).expect("native DoubleFloat constants"))
+            #[cfg(feature = "generated-evaluators")]
+            let evaluator =
+                crate::NativeEvaluator::new(family).expect("native DoubleFloat constants");
+            #[cfg(not(feature = "generated-evaluators"))]
+            let evaluator = {
+                let prototype = DoubleFloat::from(0.0);
+                exact_evaluator(family).clone().map_coeff(&|z| {
+                    Complex::new(
+                        prototype.from_rational(&z.re),
+                        prototype.from_rational(&z.im),
+                    )
+                })
+            };
+            Mutex::new(evaluator)
         })
         .lock()
         .expect("OneLOop DoubleFloat cache poisoned");
     let mut output = core::array::from_fn::<_, 3, _>(|_| Complex::new(0.0.into(), 0.0.into()));
+    #[cfg(feature = "generated-evaluators")]
     let result = evaluator.evaluate(args, &mut output);
+    #[cfg(not(feature = "generated-evaluators"))]
+    let result: Result<(), String> = {
+        evaluator.evaluate(args, &mut output);
+        Ok(())
+    };
     drop(evaluator);
     // Domain rejection must not poison a reusable shared evaluator when the
     // caller catches the numeric callback's deliberate panic.
@@ -197,7 +234,7 @@ fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<
         .lock()
         .expect("OneLOop precision evaluator cache poisoned");
     let evaluator = cache.entry(precision).or_insert_with(|| {
-        crate::NativeEvaluator::with_binary_precision(family, precision)
+        PrecisionEvaluator::with_binary_precision(family, precision)
             .expect("native arbitrary-precision constants")
     });
     let mut output = core::array::from_fn::<_, 3, _>(|_| {
@@ -279,7 +316,7 @@ fn info(family: Family) -> EvaluationInfo {
 
 /// Initializes and returns `oneloopmaster::A0(tag, m², mu²)`.
 ///
-/// All master accessors attach direct Rust callbacks for `Complex<f64>`,
+/// All master accessors attach numeric callbacks for `Complex<f64>`,
 /// `Complex<DoubleFloat>` and `Complex<Float>`. Invalid tags, domains or numeric arities panic with a descriptive
 /// message because Symbolica's numeric callback interface returns a number,
 /// not a `Result`. The native map performs its own function validation.

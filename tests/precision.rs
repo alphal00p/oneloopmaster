@@ -412,13 +412,17 @@ fn equal_mass_triangle_zero_root_has_physical_lips_at_machine_and_110_digits() {
                 ),
             ),
         ];
-        let mut precise = [Native, Expression].map(|backend| {
-            (
-                backend,
-                PrecisionEvaluator::with_binary_precision_and_backend(family, bits, backend)
-                    .unwrap(),
-            )
-        });
+        let mut precise = [Native, Expression]
+            .into_iter()
+            .filter(|backend| *backend != Native || cfg!(feature = "generated-evaluators"))
+            .map(|backend| {
+                (
+                    backend,
+                    PrecisionEvaluator::with_binary_precision_and_backend(family, bits, backend)
+                        .unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
         // No FunctionMap: this is the public C0 coefficient callback path.
         let mut hook = bare_hook(family, bits);
         for (ratio, finite) in references {
@@ -448,7 +452,9 @@ fn equal_mass_triangle_zero_root_has_physical_lips_at_machine_and_110_digits() {
                         "s/m²={ratio}, m²={mass_squared}, mu²={scale_squared}, momentum slot={position}"
                     );
                     let machine_input = arguments.map(|value| Complex::new(f64::from(value), 0.));
-                    for backend in [Native, Expression, SymJit] {
+                    for backend in [Native, Expression, SymJit].into_iter().filter(|backend| {
+                        *backend != Native || cfg!(feature = "generated-evaluators")
+                    }) {
                         let mut actual = [Complex::new(0., 0.); 3];
                         oneloop::evaluate_with_backend(
                             family,

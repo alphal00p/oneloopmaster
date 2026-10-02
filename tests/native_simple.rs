@@ -1,3 +1,4 @@
+#![cfg(feature = "generated-evaluators")]
 //! Algebraically compact native sectors versus the independent mapped formulas.
 use oneloop::{EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral};
 use symbolica::domains::float::{Complex, Float, Real, SingleFloat};

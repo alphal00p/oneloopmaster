@@ -15,6 +15,14 @@ pub enum EvaluationBackend {
 }
 
 impl EvaluationBackend {
+    /// Whether this implementation was included in the build.
+    pub const fn is_available(self) -> bool {
+        match self {
+            Self::Native => cfg!(feature = "generated-evaluators"),
+            Self::SymJit | Self::Expression => true,
+        }
+    }
+
     /// Stable name used by the Python adapter and diagnostics.
     pub fn name(self) -> &'static str {
         match self {
@@ -27,7 +35,10 @@ impl EvaluationBackend {
 
 // Direct Rust is faster on each measured mixed-family workload. SymJIT remains
 // selectable explicitly; uniform SIMD-friendly inputs can still favor it.
+#[cfg(feature = "generated-evaluators")]
 pub const DEFAULT_BACKEND: EvaluationBackend = EvaluationBackend::Native;
+#[cfg(not(feature = "generated-evaluators"))]
+pub const DEFAULT_BACKEND: EvaluationBackend = EvaluationBackend::Expression;
 
 type C = Complex<f64>;
 struct NativeBackend {
@@ -35,7 +46,34 @@ struct NativeBackend {
     group: crate::evaluators::CoefficientGroups,
 }
 static NATIVE: [OnceLock<Mutex<NativeBackend>>; 5] = [const { OnceLock::new() }; 5];
-static EXPRESSION: [OnceLock<Mutex<ExpressionEvaluator<C>>>; 5] = [const { OnceLock::new() }; 5];
+struct ExpressionBackend {
+    evaluator: ExpressionEvaluator<C>,
+    group: crate::evaluators::CoefficientGroups,
+}
+static EXPRESSION: [OnceLock<Mutex<ExpressionBackend>>; 5] = [const { OnceLock::new() }; 5];
+
+fn expression(family: ScalarIntegral) -> &'static Mutex<ExpressionBackend> {
+    EXPRESSION[family as usize].get_or_init(|| {
+        Mutex::new(ExpressionBackend {
+            evaluator: crate::masters::exact_evaluator(family)
+                .clone()
+                .map_coeff(&|v| C::new(v.re.to_f64(), v.im.to_f64())),
+            group: crate::evaluators::CoefficientGroups::new(),
+        })
+    })
+}
+
+#[cfg(not(feature = "generated-evaluators"))]
+pub(crate) fn expression_coefficient(family: ScalarIntegral, tag: usize, input: &[C]) -> C {
+    crate::native::validate_point(family, input).expect("valid master arguments");
+    let mut value = expression(family)
+        .lock()
+        .expect("expression evaluator cache poisoned");
+    let ExpressionBackend { evaluator, group } = &mut *value;
+    group.evaluate(input, tag, |output| {
+        evaluator.evaluate(input, output);
+    })
+}
 
 fn native(family: ScalarIntegral) -> Result<&'static Mutex<NativeBackend>, String> {
     if let Some(value) = NATIVE[family as usize].get() {
@@ -50,6 +88,7 @@ fn native(family: ScalarIntegral) -> Result<&'static Mutex<NativeBackend>, Strin
     Ok(NATIVE[family as usize].get().expect("native cache was set"))
 }
 
+#[cfg(feature = "generated-evaluators")]
 pub(crate) fn initialize_native_all() -> Result<(), String> {
     for family in [
         ScalarIntegral::A0,
@@ -123,27 +162,22 @@ pub fn evaluate_batch_with_backend(
         }
         EvaluationBackend::SymJit => crate::evaluators::evaluate_batch(family, input, output, rows),
         EvaluationBackend::Expression => {
-            let value = EXPRESSION[family as usize].get_or_init(|| {
-                Mutex::new(
-                    crate::masters::exact_evaluator(family)
-                        .clone()
-                        .map_coeff(&|v| C::new(v.re.to_f64(), v.im.to_f64())),
-                )
-            });
-            let mut evaluator = value
+            let mut value = expression(family)
                 .lock()
                 .map_err(|_| "expression evaluator cache poisoned")?;
+            value.group.invalidate();
             for (point, values) in input
                 .chunks_exact(family.arity())
                 .zip(output.chunks_exact_mut(3))
             {
-                evaluator.evaluate(point, values);
+                value.evaluator.evaluate(point, values);
             }
             Ok(())
         }
     }
 }
 
+#[cfg(feature = "generated-evaluators")]
 pub(crate) fn native_coefficient(family: ScalarIntegral, tag: usize, input: &[C]) -> C {
     let (coefficient, result) = {
         let mut value = native(family)

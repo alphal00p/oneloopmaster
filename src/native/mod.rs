@@ -2,36 +2,51 @@
 //!
 //! The generated functions contain ordinary arithmetic and structured Rust
 //! branches. They neither build nor execute a Symbolica/SymJIT evaluator.
+#[cfg_attr(not(feature = "generated-evaluators"), allow(dead_code))]
 mod primitives;
+#[cfg(feature = "generated-evaluators")]
 mod simple;
 // The emitter has its own stable formatting and mechanically named SSA locals.
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[cfg(feature = "generated-evaluators")]
 mod generated_a0;
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[cfg(feature = "generated-evaluators")]
 mod generated_b0;
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[cfg(feature = "generated-evaluators")]
 mod generated_db0;
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[cfg(feature = "generated-evaluators")]
 mod generated_c0;
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[cfg(feature = "generated-evaluators")]
 mod generated_d0;
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[cfg(feature = "generated-evaluators")]
 mod generated_constants;
 
 use crate::ScalarIntegral;
 pub use primitives::NativeFloat;
 use primitives::*;
+#[cfg(feature = "generated-evaluators")]
 use symbolica::domains::{integer::Integer, rational::Rational};
+
+#[cfg(not(feature = "generated-evaluators"))]
+mod disabled;
+#[cfg(not(feature = "generated-evaluators"))]
+pub use disabled::NativeEvaluator;
 
 /// Exact initialization data emitted alongside the generated arithmetic.
 /// No strings or rational conversions are used in a warmed scalar call.
 #[allow(dead_code)] // The generator also supports fixed Li2 constants in future formulas.
+#[cfg(feature = "generated-evaluators")]
 enum ConstantSpec {
     Rational { re: &'static str, im: &'static str },
     Pi,
@@ -39,11 +54,13 @@ enum ConstantSpec {
 }
 
 #[derive(Clone)]
+#[cfg(feature = "generated-evaluators")]
 struct Context<T: NativeFloat> {
     constants: Vec<C<T>>,
     simple: simple::Constants<T>,
 }
 
+#[cfg(feature = "generated-evaluators")]
 impl<T: NativeFloat> Context<T> {
     fn new(bits: u32) -> Result<Self, String> {
         let prototype = T::zero_at(bits);
@@ -87,6 +104,7 @@ impl<T: NativeFloat> Context<T> {
 /// are `[finite, simple pole, double pole]`. This backend uses no runtime
 /// evaluator or JIT. Constants are prepared once at construction.
 #[derive(Clone)]
+#[cfg(feature = "generated-evaluators")]
 pub struct NativeEvaluator<T: NativeFloat> {
     family: ScalarIntegral,
     bits: u32,
@@ -94,6 +112,7 @@ pub struct NativeEvaluator<T: NativeFloat> {
     arguments: Vec<C<T>>,
 }
 
+#[cfg(feature = "generated-evaluators")]
 impl<T: NativeFloat> NativeEvaluator<T> {
     /// Construct at the numeric type's default working precision.
     pub fn new(family: ScalarIntegral) -> Result<Self, String> {

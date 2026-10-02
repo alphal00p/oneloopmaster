@@ -213,13 +213,17 @@ struct Generator<'a> {
 }
 
 impl<'a> Generator<'a> {
-    fn module(&mut self, graph: &Graph) -> Result<String, String> {
+    fn module(&mut self, graph: &Graph, inline_arithmetic: bool) -> Result<String, String> {
         if graph.output_count != 3 {
             return Err("scalar graph must have three outputs".into());
         }
         let body = self.body(graph, true)?;
         let mut output = header();
-        output.push_str("#![allow(unused_imports, unused_variables)]\nuse super::{C, Context, NativeFloat};\nuse super::primitives::*;\n\n");
+        output.push_str("#![allow(unused_imports, unused_variables)]\nuse super::{C, Context, NativeFloat};\nuse super::primitives::*;\n");
+        if inline_arithmetic {
+            output.push_str("use super::primitives::{inline_add as add, inline_mul as mul};\n");
+        }
+        output.push('\n');
         output.push_str("pub(super) fn evaluate<T: NativeFloat>(input: &[C<T>], ctx: &Context<T>) -> [C<T>; 3] {\n");
         output.push_str(&body);
         output.push_str("}\n\n");
@@ -926,7 +930,13 @@ fn generate(directory: PathBuf) -> Result<(), String> {
             normalized: HashMap::new(),
             outlines: Outlines::default(),
         };
-        let source = generator.module(&graph)?;
+        // Sharing compensated arithmetic pays off in the large triangle/box
+        // graphs, but call overhead is significant for the small families.
+        let inline_arithmetic = matches!(
+            family,
+            ScalarIntegral::A0 | ScalarIntegral::B0 | ScalarIntegral::DB0
+        );
+        let source = generator.module(&graph, inline_arithmetic)?;
         eprintln!(
             "{}: {} instructions, {} canonical helpers, {} outlined branches, {} bytes",
             family.name(),

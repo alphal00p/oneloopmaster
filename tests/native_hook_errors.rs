@@ -1,5 +1,7 @@
 //! Expected callback errors must not poison a shared native family cache.
-use oneloop::{NativeEvaluator, NativeFloat, ScalarIntegral};
+#[cfg(feature = "generated-evaluators")]
+use oneloop::NativeEvaluator;
+use oneloop::{NativeFloat, ScalarIntegral};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use symbolica::{
     atom::Atom,
@@ -22,11 +24,17 @@ fn check_domain<T: NativeFloat>(bits: u32, convert: impl Fn(f64) -> T) {
         });
         let mut valid = vec![value(1., 0.); family.arity()];
         valid[..momenta].fill(value(0., 0.));
-        let mut expected = core::array::from_fn::<_, 3, _>(|_| value(0., 0.));
-        NativeEvaluator::<T>::with_binary_precision(family, bits)
-            .unwrap()
-            .evaluate(&valid, &mut expected)
-            .unwrap();
+        #[cfg(feature = "generated-evaluators")]
+        let expected = {
+            let mut expected = core::array::from_fn::<_, 3, _>(|_| value(0., 0.));
+            NativeEvaluator::<T>::with_binary_precision(family, bits)
+                .unwrap()
+                .evaluate(&valid, &mut expected)
+                .unwrap();
+            expected
+        };
+        #[cfg(not(feature = "generated-evaluators"))]
+        let expected = callbacks.each_ref().map(|callback| callback(&valid));
 
         let mut upper_mass = valid.clone();
         upper_mass[momenta].im = convert(0.125);

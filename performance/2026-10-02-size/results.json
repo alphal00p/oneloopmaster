@@ -1,0 +1,196 @@
+{
+  "baseline_revision": "06a72bfb6ed6e8364a9459da3e0e294fa270962f",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "platform": "x86_64-unknown-linux-gnu",
+  "profile": "release, opt-level=3, default codegen units, no LTO, unstripped",
+  "size_scope": "Standalone oneloop-native Linux wheels; these are not full Symbolica community wheel totals.",
+  "python_lock_sha256": "9588ebb15d6882e6d20c1bcb71a41ff06dee354361d8f49b777dd332292c07d8",
+  "wheel_command": "maturin build --release --manifest-path python/Cargo.toml --skip-auditwheel",
+  "without_generated_flags": "--no-default-features --features extension-module,prebuilt",
+  "symbol_size_method": "nm -S --demangle; sum unique (address,size) text symbols starting with oneloop::native::generated",
+  "wheels": {
+    "baseline": {
+      "wheel_bytes": 18025625,
+      "extension_bytes": 59926456,
+      "extension_compressed_bytes": 17982689,
+      "symbols": {
+        "file_bytes": 59926456,
+        "text_bytes": 46133218,
+        "generated_code_bytes": 28420022,
+        "generated_domains": {
+          "f64": 6134680,
+          "Float": 4501845,
+          "DoubleFloat": 17783497
+        },
+        "generated_modules": {
+          "generated_a0": 1722,
+          "generated_b0": 118953,
+          "generated_c0": 3243035,
+          "generated_d0": 24649049,
+          "generated_db0": 407263
+        }
+      }
+    },
+    "optimized": {
+      "wheel_bytes": 14119875,
+      "extension_bytes": 44449960,
+      "extension_compressed_bytes": 14076703,
+      "symbols": {
+        "file_bytes": 44449960,
+        "text_bytes": 30677858,
+        "generated_code_bytes": 12978005,
+        "generated_domains": {
+          "f64": 6134680,
+          "Float": 4501845,
+          "DoubleFloat": 2341480
+        },
+        "generated_modules": {
+          "generated_a0": 1722,
+          "generated_b0": 118953,
+          "generated_c0": 1346274,
+          "generated_d0": 11103793,
+          "generated_db0": 407263
+        }
+      }
+    },
+    "without_generated": {
+      "wheel_bytes": 10451945,
+      "extension_bytes": 30013936,
+      "extension_compressed_bytes": 10408772,
+      "symbols": {
+        "file_bytes": 30013936,
+        "text_bytes": 17544482,
+        "generated_code_bytes": 0,
+        "generated_domains": {},
+        "generated_modules": {}
+      }
+    }
+  },
+  "timing_method": "numeric_performance 10 7 native; each row is the mean of two run medians; order baseline/optimized/optimized/baseline; pinned to CPU 383; same Rust dependency lockfile; 128 MiB main stack; setup and conversion excluded; final comparison repeated after this task's builds and test suites completed",
+  "timing_limits": "Local shared-machine measurements, not a universal speed guarantee. Small differences can reflect noise.",
+  "timings": [
+    {
+      "domain": "f64",
+      "family": "A0",
+      "baseline_ns_per_point": 43.85,
+      "optimized_ns_per_point": 43.65,
+      "change_percent": -0.46
+    },
+    {
+      "domain": "f64",
+      "family": "B0",
+      "baseline_ns_per_point": 97.15,
+      "optimized_ns_per_point": 96.75,
+      "change_percent": -0.41
+    },
+    {
+      "domain": "f64",
+      "family": "dB0",
+      "baseline_ns_per_point": 137.5,
+      "optimized_ns_per_point": 136.85,
+      "change_percent": -0.47
+    },
+    {
+      "domain": "f64",
+      "family": "C0",
+      "baseline_ns_per_point": 1638647.0,
+      "optimized_ns_per_point": 1650703.5,
+      "change_percent": 0.74
+    },
+    {
+      "domain": "f64",
+      "family": "D0",
+      "baseline_ns_per_point": 8136583.35,
+      "optimized_ns_per_point": 8168356.3,
+      "change_percent": 0.39
+    },
+    {
+      "domain": "DoubleFloat",
+      "family": "A0",
+      "baseline_ns_per_point": 667.5,
+      "optimized_ns_per_point": 658.4,
+      "change_percent": -1.36
+    },
+    {
+      "domain": "DoubleFloat",
+      "family": "B0",
+      "baseline_ns_per_point": 2413.25,
+      "optimized_ns_per_point": 2439.8,
+      "change_percent": 1.1
+    },
+    {
+      "domain": "DoubleFloat",
+      "family": "dB0",
+      "baseline_ns_per_point": 3625.15,
+      "optimized_ns_per_point": 3477.35,
+      "change_percent": -4.08
+    },
+    {
+      "domain": "DoubleFloat",
+      "family": "C0",
+      "baseline_ns_per_point": 4421730.85,
+      "optimized_ns_per_point": 4323357.7,
+      "change_percent": -2.22
+    },
+    {
+      "domain": "DoubleFloat",
+      "family": "D0",
+      "baseline_ns_per_point": 22714199.35,
+      "optimized_ns_per_point": 21819217.8,
+      "change_percent": -3.94
+    },
+    {
+      "domain": "Float128",
+      "family": "A0",
+      "baseline_ns_per_point": 6390.1,
+      "optimized_ns_per_point": 5251.45,
+      "change_percent": -17.82
+    },
+    {
+      "domain": "Float128",
+      "family": "B0",
+      "baseline_ns_per_point": 16232.2,
+      "optimized_ns_per_point": 16065.0,
+      "change_percent": -1.03
+    },
+    {
+      "domain": "Float128",
+      "family": "dB0",
+      "baseline_ns_per_point": 23871.25,
+      "optimized_ns_per_point": 22826.15,
+      "change_percent": -4.38
+    },
+    {
+      "domain": "Float128",
+      "family": "C0",
+      "baseline_ns_per_point": 4711752.3,
+      "optimized_ns_per_point": 4625057.05,
+      "change_percent": -1.84
+    },
+    {
+      "domain": "Float128",
+      "family": "D0",
+      "baseline_ns_per_point": 23734006.15,
+      "optimized_ns_per_point": 23691528.85,
+      "change_percent": -0.18
+    }
+  ],
+  "validation": {
+    "rust_generated": {
+      "passed": 89,
+      "ignored": 2
+    },
+    "rust_without_generated": {
+      "passed": 10
+    },
+    "python_generated": {
+      "passed": 6
+    },
+    "python_without_generated": {
+      "passed": 8
+    },
+    "host_without_generated": "cargo check passed",
+    "feature_matrix": "generated-only and prebuilt-only all-targets cargo check passed",
+    "formatting": "Core cargo fmt, changed Python Rust source rustfmt, and git diff --check passed. Whole Python cargo fmt reports a pre-existing wrapping difference in python/src/inspection.rs."
+  }
+}

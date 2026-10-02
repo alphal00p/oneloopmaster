@@ -45,6 +45,7 @@ pub fn initialize() -> Result<(), String> {
         .get_or_init(|| {
             let _ = crate::expressions::shared_definitions();
             crate::inspection::prepare_symbols();
+            #[cfg(feature = "generated-evaluators")]
             crate::backend::initialize_native_all()?;
             crate::evaluators::initialize_all()
         })

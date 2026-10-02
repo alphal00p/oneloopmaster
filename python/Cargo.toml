@@ -10,11 +10,13 @@ name = "oneloop_native"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["extension-module"]
+default = ["extension-module", "prebuilt", "generated-evaluators"]
+prebuilt = ["oneloop/prebuilt"]
+generated-evaluators = ["oneloop/generated-evaluators"]
 extension-module = ["pyo3/extension-module", "pyo3/abi3-py39"]
 community = ["symbolica/python_export"]
 
 [dependencies]
-oneloop = { path = ".." }
+oneloop = { path = "..", default-features = false }
 pyo3 = "0.28"
 symbolica = { version = "3.0.1", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }

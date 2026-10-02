@@ -1,3 +1,4 @@
+#![cfg(feature = "generated-evaluators")]
 //! Direct Rust arithmetic versus original fixtures and native expressions.
 #[path = "support/fixtures.rs"]
 mod fixtures;

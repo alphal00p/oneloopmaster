@@ -69,6 +69,11 @@ impl BackendChoice {
             Self::SymJit => EvaluationBackend::SymJit,
             Self::Expression => EvaluationBackend::Expression,
         };
+        if !backend.is_available() {
+            return Err(PyValueError::new_err(
+                "backend='native' requires the generated-evaluators Cargo feature; use auto or expression, or rebuild with that feature",
+            ));
+        }
         if arbitrary && backend == EvaluationBackend::SymJit {
             return Err(PyValueError::new_err(
                 "backend='symjit' supports binary64 only; Decimal/large-integer inputs or prec != 16 require native, expression or auto",

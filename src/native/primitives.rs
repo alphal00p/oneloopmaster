@@ -50,6 +50,20 @@ pub trait NativeFloat: Real + SingleFloat + PartialOrd + Send + Sync + 'static {
     fn hypot(&self, other: &Self) -> Self;
     fn dilog(z: &C<Self>) -> C<Self>;
 
+    // Keep ordinary machine arithmetic inline, while allowing larger numeric
+    // domains to share these operations across the generated expression DAG.
+    #[doc(hidden)]
+    #[inline]
+    fn complex_add(a: &C<Self>, b: &C<Self>) -> C<Self> {
+        inline_add(a, b)
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    fn complex_mul(a: &C<Self>, b: &C<Self>) -> C<Self> {
+        inline_mul(a, b)
+    }
+
     #[doc(hidden)]
     fn exact_i64(&self) -> Option<i64>;
 }
@@ -106,6 +120,18 @@ fn double_to_float(value: DoubleFloat, bits: u32) -> Float {
 }
 
 impl NativeFloat for DoubleFloat {
+    // Compensated arithmetic expands to many instructions. Sharing these two
+    // operations avoids repeating that expansion in every generated branch.
+    #[inline(never)]
+    fn complex_add(a: &C<Self>, b: &C<Self>) -> C<Self> {
+        inline_add(a, b)
+    }
+
+    #[inline(never)]
+    fn complex_mul(a: &C<Self>, b: &C<Self>) -> C<Self> {
+        inline_mul(a, b)
+    }
+
     const FIXED_BITS: Option<u32> = Some(106);
     const DEFAULT_BITS: u32 = 106;
 
@@ -210,11 +236,21 @@ impl NativeFloat for Float {
 
 #[inline]
 pub(crate) fn add<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
+    T::complex_add(a, b)
+}
+
+#[inline]
+pub(crate) fn inline_add<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
     C::new(a.re.clone() + &b.re, a.im.clone() + &b.im)
 }
 
 #[inline]
 pub(crate) fn mul<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
+    T::complex_mul(a, b)
+}
+
+#[inline]
+pub(crate) fn inline_mul<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
     // Keep separately rounded products, including exactly cancelling pairs.
     C::new(
         a.re.clone() * &b.re - a.im.clone() * &b.im,

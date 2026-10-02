@@ -458,6 +458,55 @@ when building/loading portable caches: these overrides can pin SymJIT to a
 particular machine architecture, so the portable API rejects them. Register
 any custom numerical Symbol callbacks before loading a manually composed cache.
 
+### Build size and optional generated evaluators
+
+The default features are `prebuilt` and `generated-evaluators`. The latter
+compiles the ahead-of-time Rust formulas for `f64`, `DoubleFloat`, and `Float`.
+These generated formulas, especially the box integral, account for most of
+OneLOop's machine code. To omit them while keeping all scalar families and
+numeric domains available:
+
+```toml
+oneloop = { git = "https://github.com/alphal00p/oneloopmaster", branch = "main", default-features = false, features = ["prebuilt"] }
+```
+
+Without `generated-evaluators`, automatic evaluation and the registered master
+callbacks use the expression interpreter. Arbitrary precision stays arbitrary
+precision, and `DoubleFloat` stays `DoubleFloat`. Explicit `NativeEvaluator`
+construction or `EvaluationBackend::Native` returns a configuration error.
+Rust callers can query `EvaluationBackend::Native.is_available()` first.
+SymJIT remains explicitly selectable. This trades throughput and first-use
+formula preparation for a smaller library; it does not change the integral API.
+
+The Python adapter forwards both features. Its default build retains generated
+evaluators. For a smaller standalone wheel, use:
+
+```sh
+cd python
+maturin build --release --no-default-features --features extension-module,prebuilt
+```
+
+Community hosts must disable default features on **both** `oneloop` and
+`oneloop-python` dependencies; Cargo combines features enabled by every caller.
+Enable `community,prebuilt` on the adapter for expression interoperability and
+cached SymJIT support. A host can expose its own opt-in feature forwarding
+`oneloop/generated-evaluators` and `oneloop-python/generated-evaluators`.
+Disabling `prebuilt` separately also removes the embedded SymJIT caches, at the
+cost of generating them on first use.
+
+To compare warm numerical throughput in all three numeric domains, run
+`cargo run --release --example numeric_performance -- 100 5 native` and repeat
+with `expression` as the final argument. The survey validates the independent
+Fortran fixtures before timing, and excludes construction and input conversion.
+
+The [2026-10-02 Linux measurements](performance/2026-10-02-size/results.json)
+compare against commit `06a72bf`: sharing `DoubleFloat` arithmetic in the large
+generated graphs reduces generated machine code from 27.10 to 12.38 MiB.
+The standalone adapter wheel shrinks from 17.19 to 13.47 MiB with generated
+evaluators enabled, or 9.97 MiB with them disabled and `prebuilt` retained.
+These are local unstripped x86-64 release builds, not total community-wheel sizes.
+Small-family arithmetic stays inline to avoid adding call overhead to A0/B0/dB0.
+
 The `prebuilt` feature is enabled by default and embeds all five evaluators using
 `include_bytes!`. Asset provenance, sizes and hashes are in
 [assets/evaluators/README.md](assets/evaluators/README.md). To rebuild explicitly,

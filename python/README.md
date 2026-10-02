@@ -17,6 +17,17 @@ The full local community checkout is also integrated; see
 
 ## Build the expression-native host (recommended)
 
+Both build modes enable `prebuilt` and `generated-evaluators` by default.
+For a smaller standalone wheel, run `maturin build --release
+--no-default-features --features extension-module,prebuilt` in this directory.
+For a smaller development host, run `maturin build --release
+--no-default-features --features prebuilt` in `host/`.
+The smaller builds use the expression backend for `backend="auto"` and numeric
+master hooks, retain all numeric domains, and reject explicit `backend="native"`
+requests with a feature-required error. See the
+[build-size documentation](../README.md#build-size-and-optional-generated-evaluators)
+for Cargo feature unification in community hosts.
+
 Use an isolated Python virtual environment with Maturin installed, without a
 separate `symbolica`/`symbolica-community` distribution:
 

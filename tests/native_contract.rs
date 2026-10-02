@@ -1,3 +1,4 @@
+#![cfg(feature = "generated-evaluators")]
 //! Direct-native contract checks. Deliberately never initialize Symbolica State.
 use oneloop::{NativeEvaluator, NativeFloat, ScalarIntegral};
 use symbolica::domains::float::{Complex, DoubleFloat, Float, FloatLike};

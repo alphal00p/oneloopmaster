@@ -1,0 +1,16 @@
+domain	family	median_ns_per_point
+f64	A0	44.2
+f64	B0	97.7
+f64	dB0	138.3
+f64	C0	1638074.1
+f64	D0	8230429.9
+DoubleFloat	A0	675.2
+DoubleFloat	B0	2434.6
+DoubleFloat	dB0	3670.8
+DoubleFloat	C0	4452879.8
+DoubleFloat	D0	22533711.5
+Float128	A0	5247.0
+Float128	B0	16024.9
+Float128	dB0	22672.9
+Float128	C0	4736347.8
+Float128	D0	24027111.4
