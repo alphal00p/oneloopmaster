@@ -20,7 +20,7 @@ The host was built with Maturin's dev profile and Symbolica at opt-level 2.
 From the OneLOop checkout:
 
 ```sh
-ONELOOP_PYTHON_MODULE=symbolica.community.hep.oneloop \
+ONELOOP_PYTHON_MODULE=symbolica.hepkit.oneloop \
   /common/dev/symbolica-community/main/.venv-feynkit/bin/python \
   -m unittest discover -s python/tests -v
 ```

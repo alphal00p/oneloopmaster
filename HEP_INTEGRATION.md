@@ -37,13 +37,14 @@ at each integral-engine boundary. No graph-to-master mapping is implemented here
 
 ## One kernel and one public namespace
 
-The adapter now provides `register_hep_module(&hep)` for a host to attach
-`hep.oneloop` to the existing HEP module. Classes identify themselves as
-`symbolica.community.hep.oneloop`. The minimal development host exercises this
+The adapter provides `register_hep_module(&hep)` for a host to attach the private
+`_oneloop_native` backend to its HEP module. The public Python package
+`symbolica.hepkit.oneloop` imports that backend; classes identify themselves as
+`symbolica.hepkit.oneloop`. The minimal development host exercises this
 path and preserves `symbolica.community.oneloop` as an alias with identical
 class objects. It does not include Feynkit itself.
 
-In community `src/hep.rs`, immediately after Feynkit registration, add:
+In the community host, immediately after Feynkit registration, add:
 
 ```rust
 oneloop_native::register_hep_module(module)?;
@@ -56,8 +57,9 @@ each requested numerical backend remain lazy. The Symbolica state inventory
 registers only the lightweight master and JIT callbacks.
 Add the `oneloop-python` dependency with `default-features = false` and
 `features = ["community"]`; the Rust library name is `oneloop_native`.
-The public Python HEP package already re-exports the native module's attributes.
-Add corresponding `hep.oneloop` stubs when merging into the full distribution.
+The public package at `python/symbolica/hepkit/oneloop/__init__.py` imports
+`symbolica.community.hepkit_oneloop_native`. Keep its type hints alongside it in
+`__init__.pyi`, merging the master evaluator and reducer APIs in the full distribution.
 
 OneLOop's manifests now declare a versioned Symbolica dependency and select its
 Git revision through root-level `[patch.crates-io]` entries. This is deliberate:
@@ -80,7 +82,7 @@ After registration in the full community host, existing APIs suffice:
 
 ```python
 from symbolica import S
-from symbolica.community import hep
+from symbolica import hepkit as hep
 
 p = hep.FourMomentum(3.0, 1.0, 0.0, 0.0)
 finite, pole, double_pole = hep.oneloop.B0(p.mass_squared, 4, 4)
@@ -104,7 +106,7 @@ The checkout at `/common/dev/symbolica-community/main` now links the native
 OneLOop adapter into `HepModule` alongside Feynkit. Its root manifest pins
 Symbolica, Numerica, and Graphica to `a19c760`; its lockfile uses SymJIT 2.26.0.
 OneLOop's registration and initialization are gated out on WASM. The full host
-provides `symbolica.community.hep.oneloop`, with Python type hints; the legacy
+provides `symbolica.hepkit.oneloop`, with Python type hints; the legacy
 `symbolica.community.oneloop` alias belongs only to the minimal development host.
 The full host uses the system allocator after its original mimalloc build
 crashed during the Python suite's thread transitions; see the
@@ -126,7 +128,7 @@ To run OneLOop's Python tests against this full host:
 
 ```sh
 cd /common/dev/oneloopmaster
-ONELOOP_PYTHON_MODULE=symbolica.community.hep.oneloop \
+ONELOOP_PYTHON_MODULE=symbolica.hepkit.oneloop \
   /common/dev/symbolica-community/main/.venv-feynkit/bin/python \
   -m unittest discover -s python/tests -v
 ```

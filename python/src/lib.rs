@@ -394,8 +394,8 @@ fn single(
 /// Examples
 /// --------
 /// >>> from symbolica import S, E
-/// >>> from symbolica.community import hep
-/// >>> from symbolica.community.hep import oneloop
+/// >>> from symbolica import hepkit as hep
+/// >>> from symbolica.hepkit import oneloop
 /// >>> initialized = oneloop.is_initialized()
 #[pyfunction]
 fn is_initialized() -> bool {
@@ -418,8 +418,8 @@ fn is_initialized() -> bool {
 /// Examples
 /// --------
 /// >>> from symbolica import S, E
-/// >>> from symbolica.community import hep
-/// >>> from symbolica.community.hep import oneloop
+/// >>> from symbolica import hepkit as hep
+/// >>> from symbolica.hepkit import oneloop
 /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
 /// >>> finite, pole, double_pole = evaluator.evaluate([1.0, 1.0])
 /// >>> assert pole == 1+0j and double_pole == 0j
@@ -430,7 +430,7 @@ fn is_initialized() -> bool {
     pyclass(
         name = "Evaluator",
         unsendable,
-        module = "symbolica.community.hep.oneloop"
+        module = "symbolica.hepkit.oneloop"
     )
 )]
 #[cfg_attr(
@@ -487,8 +487,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> assert evaluator.family == "A0" and evaluator.arity == 2
     ///
@@ -543,8 +543,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> assert evaluator.family == "A0"
     #[getter]
@@ -557,8 +557,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> assert evaluator.arity == 2
     /// >>> assert oneloop.Evaluator(oneloop.B0).arity == 4
@@ -572,8 +572,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> assert evaluator.prec == 16
     #[getter]
@@ -586,8 +586,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> assert evaluator.backend == "auto"
     #[getter]
@@ -604,8 +604,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> finite, pole, double_pole = evaluator.evaluate([1.0, 1.0])
     /// >>> assert pole == 1+0j
@@ -658,8 +658,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> rows = evaluator.evaluate_batch([[1.0, 1.0], [2.0, 1.0]])
     /// >>> assert rows[0] == evaluator.evaluate([1.0, 1.0])
@@ -750,8 +750,8 @@ impl Evaluator {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> evaluator = oneloop.Evaluator(oneloop.A0)
     /// >>> before = evaluator.evaluate([1.0, 1.0])
     /// >>> evaluator.rebuild()
@@ -782,7 +782,7 @@ impl Evaluator {
     ///
     /// Examples
     /// --------
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> summary = repr(oneloop.Evaluator(oneloop.A0))
     fn __repr__(&self) -> String {
         format!(
@@ -827,8 +827,8 @@ higher precision produce DecimalComplex values. ``backend`` selects "auto",
 Examples
 --------
 >>> from symbolica import S, E
->>> from symbolica.community import hep
->>> from symbolica.community.hep import oneloop
+>>> from symbolica import hepkit as hep
+>>> from symbolica.hepkit import oneloop
 >>> finite, pole, double_pole = oneloop.a0(1.0, 1.0)
 
 Parameters
@@ -864,8 +864,8 @@ higher precision produce DecimalComplex values. ``backend`` selects "auto",
 Examples
 --------
 >>> from symbolica import S, E
->>> from symbolica.community import hep
->>> from symbolica.community.hep import oneloop
+>>> from symbolica import hepkit as hep
+>>> from symbolica.hepkit import oneloop
 >>> finite, pole, double_pole = oneloop.b0(-1.0, 1.0, 1.0, 1.0)
 
 Parameters
@@ -903,8 +903,8 @@ higher precision produce DecimalComplex values. ``backend`` selects "auto",
 Examples
 --------
 >>> from symbolica import S, E
->>> from symbolica.community import hep
->>> from symbolica.community.hep import oneloop
+>>> from symbolica import hepkit as hep
+>>> from symbolica.hepkit import oneloop
 >>> finite, pole, double_pole = oneloop.db0(-1.0, 1.0, 1.0, 1.0)
 
 Parameters
@@ -949,8 +949,8 @@ higher precision produce DecimalComplex values. ``backend`` selects "auto",
 Examples
 --------
 >>> from symbolica import S, E
->>> from symbolica.community import hep
->>> from symbolica.community.hep import oneloop
+>>> from symbolica import hepkit as hep
+>>> from symbolica.hepkit import oneloop
 >>> finite, pole, double_pole = oneloop.c0(-1.0, -2.0, -3.0, 1.0, 1.0, 1.0, 1.0)
 
 Parameters
@@ -999,8 +999,8 @@ higher precision produce DecimalComplex values. ``backend`` selects "auto",
 Examples
 --------
 >>> from symbolica import S, E
->>> from symbolica.community import hep
->>> from symbolica.community.hep import oneloop
+>>> from symbolica import hepkit as hep
+>>> from symbolica.hepkit import oneloop
 >>> finite, pole, double_pole = oneloop.d0(-1.0, -1.0, -1.0, -1.0, -3.0, -4.0, 1.0, 1.0, 1.0, 1.0, 1.0)
 
 Parameters
@@ -1153,8 +1153,8 @@ Citation {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> s = S("s")
     /// >>> coefficients = oneloop.master_coefficients(oneloop.B0(s, 0, 0, 1))
     /// >>> assert len(coefficients) == 3
@@ -1239,8 +1239,8 @@ Citation {
     /// Examples
     /// --------
     /// >>> from symbolica import S, E
-    /// >>> from symbolica.community import hep
-    /// >>> from symbolica.community.hep import oneloop
+    /// >>> from symbolica import hepkit as hep
+    /// >>> from symbolica.hepkit import oneloop
     /// >>> m2 = S("m2")
     /// >>> coefficients = oneloop.master_coefficients(oneloop.A0(m2, 1))
     /// >>> compiled = oneloop.compile_native(coefficients, [m2])
@@ -1303,12 +1303,12 @@ pub use community::CommunityModule;
 /// remains lazy; the community initialize hook performs no numerical work.
 #[cfg(feature = "community")]
 pub fn register_hep_module(hep: &Bound<'_, PyModule>) -> PyResult<()> {
-    let module = PyModule::new(hep.py(), "symbolica.community.hep.oneloop")?;
+    let module = PyModule::new(hep.py(), "symbolica.community.hepkit_oneloop_native")?;
     register(&module)?;
-    hep.add("oneloop", &module)?;
+    hep.add("_oneloop_native", &module)?;
     hep.py()
         .import("sys")?
         .getattr("modules")?
-        .set_item("symbolica.community.hep.oneloop", &module)?;
+        .set_item("symbolica.community.hepkit_oneloop_native", &module)?;
     Ok(())
 }

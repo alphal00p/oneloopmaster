@@ -35,7 +35,7 @@ API, even though OneLOop's manual batched evaluations accept ordinary lists.
 
 ```python
 from symbolica import E, N, Replacement, S
-from symbolica.community.hep import oneloop as olo
+from symbolica.hepkit import oneloop as olo
 
 psq = S("psq", is_real=True)
 m2 = S("m2", is_positive=True)
@@ -340,7 +340,7 @@ and returns three native Symbolica `Expression` objects:
 
 ```python
 from symbolica import E, N, Replacement, S
-from symbolica.community.hep import oneloop as olo
+from symbolica.hepkit import oneloop as olo
 
 psq = S("inspection_psq", is_real=True)
 m2 = S("inspection_m2", is_positive=True)
@@ -449,7 +449,7 @@ with other host expressions and then compiled with their transparent definitions
 
 ```python
 from symbolica import S
-from symbolica.community.hep import oneloop as olo
+from symbolica.hepkit import oneloop as olo
 
 x = S("x")
 finite, pole, double_pole = olo.master_coefficients(olo.A0(x, 1))
@@ -540,7 +540,7 @@ portable-environment rejection is still checked at import in separate children.
 Community mode skips the standalone subprocess tests entirely.
 
 To test a prepared full community host, set
-`ONELOOP_PYTHON_MODULE=symbolica.community.hep.oneloop` instead.
+`ONELOOP_PYTHON_MODULE=symbolica.hepkit.oneloop` instead.
 After the sequential subprocess checks, the remaining test harness explicitly
 creates one persistent, adequately stacked test thread and does not require any
 third-party Python testing dependency. The unchanged separate
@@ -637,7 +637,7 @@ results, not universal guarantees. See the
 
 ## HEP registration
 
-The minimal shared host exposes `symbolica.community.hep.oneloop`; the original
+The minimal shared host exposes `symbolica.hepkit.oneloop`; the original
 `symbolica.community.oneloop` import remains an alias with identical classes.
 A full community host can call `oneloop_native::register_hep_module` on its
 existing HEP module after Feynkit registration. See [HEP integration](../HEP_INTEGRATION.md)

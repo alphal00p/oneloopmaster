@@ -19,7 +19,7 @@ use symbolica::{
 /// A complete Symbolica expression with transparent common-subexpression bindings.
 /// No numerical callback or OneLOop helper is needed to interpret its definitions.
 #[cfg(feature = "community")]
-#[pyclass(name = "SharedExpression", module = "symbolica.community.oneloop")]
+#[pyclass(name = "SharedExpression", module = "symbolica.hepkit.oneloop")]
 struct PythonSharedExpression {
     expression: AliasedAtom,
 }
@@ -99,8 +99,8 @@ fn selected(coefficient: Option<i32>) -> PyResult<Option<usize>> {
 /// Examples
 /// --------
 /// >>> from symbolica import S, E
-/// >>> from symbolica.community import hep
-/// >>> from symbolica.community.hep import oneloop
+/// >>> from symbolica import hepkit as hep
+/// >>> from symbolica.hepkit import oneloop
 /// >>> m2 = S("m2")
 /// >>> pole = oneloop.get_expression(oneloop.A0(m2, 1), coefficient=-1)
 ///
@@ -186,8 +186,8 @@ fn get_expression(
 /// Examples
 /// --------
 /// >>> from symbolica import S, E
-/// >>> from symbolica.community import hep
-/// >>> from symbolica.community.hep import oneloop
+/// >>> from symbolica import hepkit as hep
+/// >>> from symbolica.hepkit import oneloop
 /// >>> from symbolica import Replacement
 /// >>> m2 = S("m2")
 /// >>> expressions = oneloop.get_expression(oneloop.A0(m2, 1))

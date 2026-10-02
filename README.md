@@ -143,7 +143,7 @@ Use the [shared-kernel Python build](python/README.md):
 
 ```python
 from symbolica import E, S, N, Replacement
-from symbolica.community.hep import oneloop as olo
+from symbolica.hepkit import oneloop as olo
 
 psq = S("psq", is_real=True)
 m2 = S("mz_masses::m2", is_positive=True)  # m², not m
@@ -505,7 +505,7 @@ For example, on an adequately stacked calling thread:
 
 ```python
 from symbolica import S
-from symbolica.community.hep import oneloop as olo
+from symbolica.hepkit import oneloop as olo
 
 bubble = olo.Evaluator(olo.B0)  # Reuses a direct Rust numeric workspace.
 values = bubble.evaluate_batch([

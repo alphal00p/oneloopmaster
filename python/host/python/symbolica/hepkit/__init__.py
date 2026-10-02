@@ -2,6 +2,6 @@
 
 The full community distribution also exposes Feynkit in this namespace.
 """
-from ..hep_native import oneloop
+from . import oneloop
 
 __all__ = ["oneloop"]
