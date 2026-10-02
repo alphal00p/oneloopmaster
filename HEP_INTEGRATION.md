@@ -39,8 +39,8 @@ at each integral-engine boundary. No graph-to-master mapping is implemented here
 
 The adapter provides `register_hep_module(&hep)` for a host to attach the private
 `_oneloop_native` backend to its HEP module. The public Python package
-`symbolica.hepkit.oneloop` imports that backend; classes identify themselves as
-`symbolica.hepkit.oneloop`. The minimal development host exercises this
+`symbolica.community.hepkit.oneloop` imports that backend; classes identify themselves as
+`symbolica.community.hepkit.oneloop`. The minimal development host exercises this
 path and preserves `symbolica.community.oneloop` as an alias with identical
 class objects. It does not include Feynkit itself.
 
@@ -57,7 +57,7 @@ each requested numerical backend remain lazy. The Symbolica state inventory
 registers only the lightweight master and JIT callbacks.
 Add the `oneloop-python` dependency with `default-features = false` and
 `features = ["community"]`; the Rust library name is `oneloop_native`.
-The public package at `python/symbolica/hepkit/oneloop/__init__.py` imports
+The public package at `python/symbolica/community/hepkit/oneloop/__init__.py` imports
 `symbolica.community.hepkit_oneloop_native`. Keep its type hints alongside it in
 `__init__.pyi`, merging the master evaluator and reducer APIs in the full distribution.
 
@@ -82,7 +82,7 @@ After registration in the full community host, existing APIs suffice:
 
 ```python
 from symbolica import S
-from symbolica import hepkit as hep
+from symbolica.community import hepkit as hep
 
 p = hep.FourMomentum(3.0, 1.0, 0.0, 0.0)
 finite, pole, double_pole = hep.oneloop.B0(p.mass_squared, 4, 4)
@@ -106,7 +106,7 @@ The checkout at `/common/dev/symbolica-community/main` now links the native
 OneLOop adapter into `HepModule` alongside Feynkit. Its root manifest pins
 Symbolica, Numerica, and Graphica to `a19c760`; its lockfile uses SymJIT 2.26.0.
 OneLOop's registration and initialization are gated out on WASM. The full host
-provides `symbolica.hepkit.oneloop`, with Python type hints; the legacy
+provides `symbolica.community.hepkit.oneloop`, with Python type hints; the legacy
 `symbolica.community.oneloop` alias belongs only to the minimal development host.
 The full host uses the system allocator after its original mimalloc build
 crashed during the Python suite's thread transitions; see the
@@ -128,7 +128,7 @@ To run OneLOop's Python tests against this full host:
 
 ```sh
 cd /common/dev/oneloopmaster
-ONELOOP_PYTHON_MODULE=symbolica.hepkit.oneloop \
+ONELOOP_PYTHON_MODULE=symbolica.community.hepkit.oneloop \
   /common/dev/symbolica-community/main/.venv-feynkit/bin/python \
   -m unittest discover -s python/tests -v
 ```

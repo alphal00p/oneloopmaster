@@ -53,13 +53,13 @@ fn decimal_component(value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Examples
 /// --------
 /// >>> from decimal import Decimal
-/// >>> from symbolica.hepkit import oneloop
+/// >>> from symbolica.community.hepkit import oneloop
 /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
 /// >>> assert z.real == Decimal("1.25")
 /// >>> assert z.imag == Decimal("-0.5")
 #[cfg_attr(
     feature = "community",
-    pyclass(frozen, module = "symbolica.hepkit.oneloop")
+    pyclass(frozen, module = "symbolica.community.hepkit.oneloop")
 )]
 #[cfg_attr(not(feature = "community"), pyclass(frozen, module = "oneloop_native"))]
 pub(crate) struct DecimalComplex {
@@ -74,7 +74,7 @@ impl DecimalComplex {
     /// Examples
     /// --------
     /// >>> from decimal import Decimal
-    /// >>> from symbolica.hepkit import oneloop
+    /// >>> from symbolica.community.hepkit import oneloop
     /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
     /// >>> assert complex(z) == 1.25 - 0.5j
     ///
@@ -105,7 +105,7 @@ impl DecimalComplex {
     /// Examples
     /// --------
     /// >>> from decimal import Decimal
-    /// >>> from symbolica.hepkit import oneloop
+    /// >>> from symbolica.community.hepkit import oneloop
     /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
     /// >>> assert z.real == Decimal("1.25")
     #[getter]
@@ -118,7 +118,7 @@ impl DecimalComplex {
     /// Examples
     /// --------
     /// >>> from decimal import Decimal
-    /// >>> from symbolica.hepkit import oneloop
+    /// >>> from symbolica.community.hepkit import oneloop
     /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
     /// >>> assert z.imag == Decimal("-0.5")
     #[getter]
@@ -131,7 +131,7 @@ impl DecimalComplex {
     /// Examples
     /// --------
     /// >>> from decimal import Decimal
-    /// >>> from symbolica.hepkit import oneloop
+    /// >>> from symbolica.community.hepkit import oneloop
     /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
     /// >>> assert complex(z) == complex(1.25, -0.5)
     fn __complex__(&self, py: Python<'_>) -> PyResult<Py<PyComplex>> {
@@ -148,7 +148,7 @@ impl DecimalComplex {
     /// Examples
     /// --------
     /// >>> from decimal import Decimal
-    /// >>> from symbolica.hepkit import oneloop
+    /// >>> from symbolica.community.hepkit import oneloop
     /// >>> z = oneloop.DecimalComplex("1.25", "-0.5")
     /// >>> text = repr(z)
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {

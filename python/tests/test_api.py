@@ -194,13 +194,13 @@ class AdapterTests(unittest.TestCase):
             if not module.EXPRESSION_INTEROP:
                 self.skipTest("community host only")
             from symbolica import S
-            from symbolica.hepkit import oneloop as hep
+            from symbolica.community.hepkit import oneloop as hep
             self.assertIs(hep.Evaluator, module.Evaluator)
             self.assertIs(hep.DecimalComplex, module.DecimalComplex)
-            self.assertEqual(hep.__name__, "symbolica.hepkit.oneloop")
-            self.assertEqual(hep.Evaluator.__module__, "symbolica.hepkit.oneloop")
-            self.assertEqual(hep.DecimalComplex.__module__, "symbolica.hepkit.oneloop")
-            self.assertEqual(hep.SharedExpression.__module__, "symbolica.hepkit.oneloop")
+            self.assertEqual(hep.__name__, "symbolica.community.hepkit.oneloop")
+            self.assertEqual(hep.Evaluator.__module__, "symbolica.community.hepkit.oneloop")
+            self.assertEqual(hep.DecimalComplex.__module__, "symbolica.community.hepkit.oneloop")
+            self.assertEqual(hep.SharedExpression.__module__, "symbolica.community.hepkit.oneloop")
             x = S("hep_oneloop_shared_argument")
             master = module.A0(x, 1)
             coefficients = hep.master_coefficients(master)

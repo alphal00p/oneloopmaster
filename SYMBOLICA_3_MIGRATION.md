@@ -10,7 +10,7 @@ Versioned library dependencies plus root-level Symbolica/Numerica overrides
 allow a consuming community host to select one kernel. The supplied host
 metadata resolves exactly one Symbolica, one Numerica and one SymJIT package.
 The Python adapter provides `register_hep_module` and the development host now
-exposes `symbolica.hepkit.oneloop`, preserving the old import's class
+exposes `symbolica.community.hepkit.oneloop`, preserving the old import's class
 identities. [HEP_INTEGRATION.md](HEP_INTEGRATION.md) records the inspected upstream
 Feynkit/community revisions, reusable types and the full-host registration steps.
 The full Feynkit/community distribution is not modified or built in this update.

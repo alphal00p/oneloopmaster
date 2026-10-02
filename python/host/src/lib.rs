@@ -6,11 +6,11 @@ use symbolica::api::python::{Citation, SymbolicaCommunityModule, create_symbolic
 fn core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     create_symbolica_module(module)?;
     module.add_function(pyo3::wrap_pyfunction!(get_citations, module)?)?;
-    let hep = PyModule::new(module.py(), "_hepkit_native")?;
+    let hep = PyModule::new(module.py(), "symbolica.community.hepkit_native")?;
     oneloop_native::register_hep_module(&hep)?;
-    module.add_submodule(&hep)?;
+    module.add("_hepkit_native", &hep)?;
     let modules = module.py().import("sys")?.getattr("modules")?;
-    modules.set_item("symbolica._hepkit_native", &hep)?;
+    modules.set_item("symbolica.community.hepkit_native", &hep)?;
     // The legacy import shares the very same classes and Symbolica state.
     modules.set_item(
         "symbolica.community.oneloop_native",
