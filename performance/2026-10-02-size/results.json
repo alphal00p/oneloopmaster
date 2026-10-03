@@ -2,7 +2,7 @@
   "baseline_revision": "06a72bfb6ed6e8364a9459da3e0e294fa270962f",
   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
   "platform": "x86_64-unknown-linux-gnu",
-  "profile": "release, opt-level=3, default codegen units, no LTO, unstripped",
+  "profile": "release, opt-level=3, default codegen units, local ThinLTO only (no cross-crate LTO), unstripped",
   "size_scope": "Standalone oneloop-native Linux wheels; these are not full Symbolica community wheel totals.",
   "python_lock_sha256": "9588ebb15d6882e6d20c1bcb71a41ff06dee354361d8f49b777dd332292c07d8",
   "wheel_command": "maturin build --release --manifest-path python/Cargo.toml --skip-auditwheel",

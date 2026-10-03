@@ -22,6 +22,8 @@ class BackendSelection(unittest.TestCase):
 
     def test_machine_native_and_symjit_all_benchmark_points(self):
         def check(module):
+            if module.DEFAULT_BACKEND != "native":
+                self.skipTest("requires generated-evaluators")
             for kind, rows in read_fixture_groups().items():
                 family = FAMILIES[kind]
                 native = module.Evaluator(family_selector(module, family), backend="native")
@@ -41,6 +43,8 @@ class BackendSelection(unittest.TestCase):
 
     def test_arbitrary_native_and_expression_all_families(self):
         def check(module):
+            if module.DEFAULT_BACKEND != "native":
+                self.skipTest("requires generated-evaluators")
             for digits in (32, 1000):
                 for family, momenta, masses in [("A0", 0, 1), ("B0", 1, 2), ("dB0", 1, 2), ("C0", 3, 3), ("D0", 6, 4)]:
                     for mass_pair, scale in [
@@ -59,6 +63,8 @@ class BackendSelection(unittest.TestCase):
 
     def test_genuinely_complex_triangle_backend_agreement(self):
         def check(module):
+            if module.DEFAULT_BACKEND != "native":
+                self.skipTest("requires generated-evaluators")
             arguments = [Decimal(-2), Decimal(-3), Decimal(-5)] + [
                 module.DecimalComplex("1", "-0.1"), module.DecimalComplex("2", "-0.2"),
                 module.DecimalComplex("3", "-0.3"),
@@ -73,6 +79,8 @@ class BackendSelection(unittest.TestCase):
 
     def test_batched_1024_native_machine_and_decimal(self):
         def check(module):
+            if module.DEFAULT_BACKEND != "native":
+                self.skipTest("requires generated-evaluators")
             machine_rows = [[1.125 + index / 1024, 4.75] for index in range(1024)]
             native = module.Evaluator(family_selector(module, "A0"), backend="native")
             expected = module.Evaluator(family_selector(module, "A0"), backend="symjit").evaluate_batch(machine_rows)
@@ -93,11 +101,14 @@ class BackendSelection(unittest.TestCase):
     def test_selection_overrides_and_arbitrary_symjit_rejection(self):
         def check(module):
             self.assertIn(module.DEFAULT_BACKEND, ("native", "symjit", "expression"))
-            evaluator = module.Evaluator(family_selector(module, "A0"), backend="native")
-            for backend in ("native", "symjit", "expression", "symbolica", "auto"):
+            evaluator = module.Evaluator(family_selector(module, "A0"), backend=module.DEFAULT_BACKEND)
+            backends = ["symjit", "expression", "symbolica", "auto"]
+            if module.DEFAULT_BACKEND == "native":
+                backends.append("native")
+            for backend in backends:
                 expected = module.a0(2.125, 4.75, backend=backend)
                 self.assert_machine_close(evaluator.evaluate([2.125, 4.75], backend=backend), expected)
-            self.assertEqual(evaluator.backend, "native")
+            self.assertEqual(evaluator.backend, module.DEFAULT_BACKEND)
             self.assertEqual(module.Evaluator(family_selector(module, "A0"), backend="symbolica").backend, "expression")
             self.assertEqual(module.Evaluator(family_selector(module, "A0")).backend, "auto")
             for value in (Decimal("2"), 2**53 + 1, module.DecimalComplex("2", "-1e-1000")):
@@ -113,7 +124,7 @@ class BackendSelection(unittest.TestCase):
                 evaluator.evaluate_batch([], prec=1000, backend="symjit")
             with self.assertRaisesRegex(ValueError, "binary64"):
                 evaluator.evaluate_batch([[2.0, 1.0], [Decimal(2), 1]], backend="symjit")
-            for backend in ("native", "expression", "auto"):
+            for backend in (module.DEFAULT_BACKEND, "expression", "auto"):
                 values = evaluator.evaluate([Decimal("2"), 1], backend=backend)
                 self.assertTrue(all(isinstance(value, module.DecimalComplex) for value in values))
             for bad in ("", "cuda", "jit"):

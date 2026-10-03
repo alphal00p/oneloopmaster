@@ -217,11 +217,11 @@ class AdapterTests(unittest.TestCase):
                     primitive = getattr(module, name)
                     numeric = getattr(module, name.lower())
                     row = read_fixture_groups()[kind][0][1]
-                    reference = numeric(*row, backend="native")
+                    reference = numeric(*row)
                     if not module.EXPRESSION_INTEROP:
                         # The separate extension retains its original numeric
                         # uppercase calls, as well as the lowercase aliases.
-                        self.assertEqual(primitive(*row, backend="native"), reference)
+                        self.assertEqual(primitive(*row), reference)
                         continue
                     from symbolica import E, Expression, S
                     self.assertTrue(callable(primitive))
@@ -244,7 +244,7 @@ class AdapterTests(unittest.TestCase):
     @unittest.skipUnless(MODULE == "oneloop_native", "standalone extension cold-load test")
     def test_00_main_thread_cold_start(self):
         # Run before this process imports the extension in any worker test.
-        # Two fresh processes distinguish lazy native and SymJIT first calls.
+        # Two fresh processes distinguish the default backend and SymJIT first calls.
         for entry in ("direct", "evaluator"):
             with self.subTest(entry=entry):
                 backend = "auto" if entry == "direct" else "symjit"
@@ -326,9 +326,11 @@ class AdapterTests(unittest.TestCase):
                             self.assertTrue(math.isfinite(abs(a - b)))
                             self.assertLess(abs(a - b), 1e-12)
             self.assertAlmostEqual(singles[0][0].real, -0.1520447048200202, places=12)
-            # Explicitly distinguish SymJIT source rebuilding from a fresh
-            # Native constant/workspace setup, independent of DEFAULT_BACKEND.
-            for backend in ("symjit", "native"):
+            # Exercise rebuilding for each available numeric backend.
+            backends = ["symjit", "expression"]
+            if module.DEFAULT_BACKEND == "native":
+                backends.append("native")
+            for backend in backends:
                 rebuilt = new_evaluator(module, "B0", rebuild=True, backend=backend)
                 for actual, expected in zip(rebuilt.evaluate(rows[0]), singles[0]):
                     self.assertLess(abs(actual - expected), 1e-12)

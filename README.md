@@ -5,8 +5,8 @@ not link the Fortran wrapper or the standalone numerical Rust implementation.
 All integral algorithms are exact symbolic expressions; continuation definitions
 are transparent `FunctionMap` entries. The same expression graph also generates
 inspectable generic Rust arithmetic for direct numerical evaluation. Public
-master-Symbol hooks use that direct native backend, never Fortran or a separate
-numerical OneLOop algorithm.
+master-Symbol hooks interpret those expressions by default, or use the generated
+Rust backend when `generated-evaluators` is enabled.
 
 Development status: the expanded audit passes at 256 bits, but retains 14
 fixed-binary64 B0/dB0 disagreements. The measured 1.5×-Fortran performance target
@@ -331,8 +331,9 @@ let exact_evaluator = context.evaluator(&[finite, pole], &[p])?;
 The context supplies transparent tagged native definitions; Symbolica gives them
 precedence over the hooks. Bare calls can instead evaluate through cached hooks
 for `Complex<f64>`, `Complex<DoubleFloat>` and `Complex<Float>`. These hooks
-always use the generated direct native backend, independently of the manual
-backend selection. They construct no per-point Atom or expression evaluator.
+use the expression interpreter by default, or generated Rust when
+`generated-evaluators` is enabled, independently of the manual backend selection.
+Both routes cache their evaluators rather than constructing them per point.
 They are opaque to the *outer* evaluator's optimizer, so prefer the context
 when optimization across combined expressions is wanted. They do not supply
 every Symbolica numeric domain or automatic error-controlled precision. Invalid tags/arities produce descriptive
@@ -383,7 +384,8 @@ parameters are runtime inputs, including
 | `ScalarEvaluator` | Portable SymJIT O2, with scalar binary64 batches | `f64` |
 | `PrecisionEvaluator` | Explicit Native or exact-expression interpreter | `Float` |
 
-`NativeEvaluator` owns reusable constants and a workspace. Its arithmetic runs
+`NativeEvaluator` requires `generated-evaluators` and owns reusable constants
+and a workspace. Its arithmetic runs
 in generated Rust. Dilogarithms use Symbolica's registered polylog callback;
 first use can initialize Symbolica and the requested OneLOop backend. Rational
 constants are converted directly at construction.
@@ -419,7 +421,7 @@ compiling combinations to SymJIT O2.
 use oneloop::{ScalarEvaluator, ScalarIntegral};
 use symbolica::domains::float::Complex;
 
-oneloop::initialize()?; // All symbols, five Native and five SymJIT backends ready.
+oneloop::initialize()?; // All symbols and enabled numeric backends ready.
 // Clone the prepared O2 backend; no additional IR loading or JIT compilation.
 let mut evaluator = ScalarEvaluator::prebuilt(ScalarIntegral::B0)?;
 let rows = [-1., 1., 1., 1.,  // p², m0², m1², mu²
@@ -436,14 +438,15 @@ scalar code for each row; its upstream SIMD path fails zero-input batches.
 For default manual evaluation without constructing an evaluator object,
 `oneloop::evaluate(family, input, output)` and
 `oneloop::evaluate_batch(family, input, output, rows)` use `DEFAULT_BACKEND`,
-currently `EvaluationBackend::Native`. Select a route explicitly with
+which is `EvaluationBackend::Expression` by default and `EvaluationBackend::Native`
+with `generated-evaluators` enabled. Select a route explicitly with
 `evaluate_with_backend(family, input, output, EvaluationBackend::Native)` or
 `evaluate_batch_with_backend(family, input, output, rows, backend)`; `Expression`
 selects Symbolica's native expression interpreter. These convenience routes
 prepare only the requested backend and family.
 The historical measurements below used an older patched SIMD backend and do
 not establish performance for this revision. The selector does not control
-the native-only Symbol hooks. `ScalarEvaluator::cached(family)` clones the
+the registered Symbol hooks. `ScalarEvaluator::cached(family)` clones the
 prepared SymJIT backend into an independently reusable workspace; an explicitly
 compiled custom expression keeps its own evaluator. See the
 [backend selectors](src/backend.rs).
@@ -460,14 +463,14 @@ any custom numerical Symbol callbacks before loading a manually composed cache.
 
 ### Build size and optional generated evaluators
 
-The default features are `prebuilt` and `generated-evaluators`. The latter
-compiles the ahead-of-time Rust formulas for `f64`, `DoubleFloat`, and `Float`.
-These generated formulas, especially the box integral, account for most of
-OneLOop's machine code. To omit them while keeping all scalar families and
-numeric domains available:
+The default build enables `prebuilt` and uses the expression interpreter.
+The opt-in `generated-evaluators` feature compiles the ahead-of-time Rust
+formulas for `f64`, `DoubleFloat`, and `Float`. These generated formulas,
+especially the box integral, account for most of OneLOop's machine code.
+To enable them for faster evaluation at the cost of a larger library:
 
 ```toml
-oneloop = { git = "https://github.com/alphal00p/oneloopmaster", branch = "main", default-features = false, features = ["prebuilt"] }
+oneloop = { git = "https://github.com/alphal00p/oneloopmaster", branch = "main", features = ["generated-evaluators"] }
 ```
 
 Without `generated-evaluators`, automatic evaluation and the registered master
@@ -478,16 +481,16 @@ Rust callers can query `EvaluationBackend::Native.is_available()` first.
 SymJIT remains explicitly selectable. This trades throughput and first-use
 formula preparation for a smaller library; it does not change the integral API.
 
-The Python adapter forwards both features. Its default build retains generated
-evaluators. For a smaller standalone wheel, use:
+The Python adapter and development host also omit generated evaluators by
+default and forward both features. To opt into generated evaluators, use:
 
 ```sh
 cd python
-maturin build --release --no-default-features --features extension-module,prebuilt
+maturin build --release --features generated-evaluators
 ```
 
-Community hosts must disable default features on **both** `oneloop` and
-`oneloop-python` dependencies; Cargo combines features enabled by every caller.
+Community hosts must ensure no dependency enables `generated-evaluators` to
+keep the smaller build; Cargo combines features enabled by every caller.
 Enable `community,prebuilt` on the adapter for expression interoperability and
 cached SymJIT support. A host can expose its own opt-in feature forwarding
 `oneloop/generated-evaluators` and `oneloop-python/generated-evaluators`.
@@ -495,7 +498,7 @@ Disabling `prebuilt` separately also removes the embedded SymJIT caches, at the
 cost of generating them on first use.
 
 To compare warm numerical throughput in all three numeric domains, run
-`cargo run --release --example numeric_performance -- 100 5 native` and repeat
+`cargo run --release --features generated-evaluators --example numeric_performance -- 100 5 native` and repeat
 with `expression` as the final argument. The survey validates the independent
 Fortran fixtures before timing, and excludes construction and input conversion.
 
@@ -503,7 +506,8 @@ The [2026-10-02 Linux measurements](performance/2026-10-02-size/results.json)
 compare against commit `06a72bf`: sharing `DoubleFloat` arithmetic in the large
 generated graphs reduces generated machine code from 27.10 to 12.38 MiB.
 The standalone adapter wheel shrinks from 17.19 to 13.47 MiB with generated
-evaluators enabled, or 9.97 MiB with them disabled and `prebuilt` retained.
+evaluators enabled, or 9.97 MiB with the current defaults (generated evaluators
+disabled and `prebuilt` retained).
 These are local unstripped x86-64 release builds, not total community-wheel sizes.
 Small-family arithmetic stays inline to avoid adding call overhead to A0/B0/dB0.
 
@@ -594,9 +598,10 @@ Numerical functions `olo.a0/b0/db0/c0/d0(..., mu_squared=1, prec=16)` also
 accept `rebuild=True` and `backend="auto"`. Reusable evaluators and their methods
 likewise accept a backend choice: `"native"`, `"symjit"` or `"expression"`.
 `prec` counts **decimal digits**. With `"auto"`, ordinary Python numbers at the
-default precision use direct binary64 Rust and return Python `complex` results.
+default precision use binary64 arithmetic and return Python `complex` results.
 Higher precision, large integers, `Decimal` inputs, or `DecimalComplex` inputs
-use direct generic Rust with Float and return `DecimalComplex` coefficients.
+use Float and return `DecimalComplex` coefficients. Automatic calls use the
+expression interpreter unless `generated-evaluators` enables direct Rust.
 `backend="expression"` selects the transparent expression interpreter;
 `"symjit"` selects the embedded O2 backend and rejects arbitrary-precision requests.
 Use `backend="symjit", rebuild=True` to recompile that backend. Rebuilding a
@@ -654,7 +659,8 @@ therefore apply to that first use, as well as Symbol access and Python import.
 
 `PrecisionEvaluator` evaluates the same formulas at a fixed arbitrary working
 precision, with explicit Native or Expression selection and no additional direct
-dependency. `new` defaults to Native; SymJIT is binary64-only.
+dependency. `new` defaults to Expression, or Native when `generated-evaluators`
+is enabled; SymJIT is binary64-only.
 An explicit direct native request looks like:
 
 ```rust,ignore
@@ -718,7 +724,7 @@ ONELOOP_AUDIT_FIXTURES=tests/data/scalar_audit.txt cargo test --test parity \
   audit_extra_fortran_fixtures -- --ignored --test-threads=1 --nocapture
 ```
 
-The final native-default release suite passes **114 tests**, with six ignored
+The earlier generated-evaluator release suite passed **114 tests**, with six ignored
 entries (four opt-in diagnostics and two subprocess helpers invoked by parent
 tests). The direct native backend passes the broader table at 256 bits; its
 explicit binary64 diagnostic still fails on 14 small-momentum B0/dB0 coefficients:

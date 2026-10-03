@@ -10,7 +10,7 @@ name = "core"
 crate-type = ["cdylib"]
 
 [features]
-default = ["prebuilt", "generated-evaluators"]
+default = ["prebuilt"]
 prebuilt = ["oneloop-python/prebuilt"]
 generated-evaluators = ["oneloop-python/generated-evaluators"]
 

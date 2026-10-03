@@ -10,7 +10,7 @@ name = "oneloop_native"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["extension-module", "prebuilt", "generated-evaluators"]
+default = ["extension-module", "prebuilt"]
 prebuilt = ["oneloop/prebuilt"]
 generated-evaluators = ["oneloop/generated-evaluators"]
 extension-module = ["pyo3/extension-module", "pyo3/abi3-py39"]

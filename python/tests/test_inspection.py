@@ -27,7 +27,7 @@ class ExpressionInspection(unittest.TestCase):
                 ("D0", [-1, -2, -3, -4, -5, -6, 2, 2, 2, 2]),
             ]:
                 primitive = getattr(module, name)
-                reference = getattr(module, name.lower())(*arguments, 1, backend="native")
+                reference = getattr(module, name.lower())(*arguments, 1)
                 for tag, expected in zip((0, -1, -2), reference):
                     with self.subTest(family=name, tag=tag):
                         # A floating scale suffices even when every other

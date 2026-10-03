@@ -7,8 +7,8 @@ description = "Exact Symbolica expressions for one-loop integrals"
 publish = false # Development snapshot: licensing approval remains open.
 
 [features]
-default = ["prebuilt", "generated-evaluators"]
-# Ahead-of-time Rust evaluators; disable for a smaller library with interpreted hooks.
+default = ["prebuilt"]
+# Opt into ahead-of-time Rust evaluators instead of the smaller interpreted hooks.
 generated-evaluators = []
 prebuilt = []
 

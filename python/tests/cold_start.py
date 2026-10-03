@@ -2,7 +2,7 @@
 
 Invoked by test_api.py, or directly as: python cold_start.py D0 evaluator.
 Import must leave all scalar backends uninitialized until first use.
-Only native and prebuilt SymJIT first-use paths are exercised. Source rebuilding
+Only automatic/native and prebuilt SymJIT first-use paths are exercised. Source rebuilding
 still belongs on the adequately stacked calling thread described in the README.
 """
 

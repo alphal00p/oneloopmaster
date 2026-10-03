@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-03",
+  "scope": "Standalone OneLoop Python adapter; not a full community wheel",
+  "default_features": {
+    "core": [
+      "prebuilt"
+    ],
+    "python": [
+      "extension-module",
+      "prebuilt"
+    ],
+    "development_host": [
+      "prebuilt"
+    ]
+  },
+  "build_command": "maturin build --release --locked --offline --manifest-path python/Cargo.toml --skip-auditwheel",
+  "opt_in_flag": "--features generated-evaluators",
+  "builds": {
+    "default": {
+      "wheel_bytes": 10452184,
+      "extension_bytes": 30013968
+    },
+    "generated_opt_in": {
+      "wheel_bytes": 14119903,
+      "extension_bytes": 44449960
+    }
+  },
+  "validation": {
+    "rust_default": {
+      "command": "cargo test --release --locked --offline --test backend_features --test native_hooks --test native_hook_errors --test precision",
+      "passed": 10
+    },
+    "python_default": {
+      "command": "python3 -m unittest discover -s python/tests -v",
+      "passed": 23,
+      "skipped": 16
+    },
+    "python_generated_opt_in": {
+      "command": "python3 -m unittest discover -s python/tests -v",
+      "passed": 27,
+      "skipped": 12
+    },
+    "development_host": "cargo check and cargo tree confirm default build excludes generated-evaluators",
+    "format": "cargo fmt -- --check and git diff --check passed"
+  }
+}

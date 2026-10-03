@@ -17,14 +17,13 @@ The full local community checkout is also integrated; see
 
 ## Build the expression-native host (recommended)
 
-Both build modes enable `prebuilt` and `generated-evaluators` by default.
-For a smaller standalone wheel, run `maturin build --release
---no-default-features --features extension-module,prebuilt` in this directory.
-For a smaller development host, run `maturin build --release
---no-default-features --features prebuilt` in `host/`.
-The smaller builds use the expression backend for `backend="auto"` and numeric
-master hooks, retain all numeric domains, and reject explicit `backend="native"`
-requests with a feature-required error. See the
+Both build modes enable `prebuilt` and omit `generated-evaluators` by default.
+Run `maturin build --release` in this directory for the standalone wheel or in
+`host/` for the development host. These builds use the expression backend for
+`backend="auto"` and numeric master hooks, retain all numeric domains, and reject
+explicit `backend="native"` requests with a feature-required error.
+To enable the faster, larger generated evaluators in either build, add
+`--features generated-evaluators`. See the
 [build-size documentation](../README.md#build-size-and-optional-generated-evaluators)
 for Cargo feature unification in community hosts.
 
@@ -182,7 +181,8 @@ values = evaluator.evaluate_batch([
 Every call returns three coefficients ordered as
 `(finite, simple_pole, double_pole)`, corresponding to Laurent tags `(0, -1, -2)`.
 Ordinary numeric inputs with the default `prec=16` use binary64 components and
-return Python `complex` values through direct Rust arithmetic by default.
+return Python `complex` values through the expression interpreter by default,
+or direct Rust arithmetic when built with `generated-evaluators`.
 Select `backend="symjit"` for the prepared SymJIT O2 path, or
 `backend="expression"` for the transparent Symbolica expression interpreter.
 Higher precision or Decimal inputs use the arbitrary-precision path below.
@@ -289,13 +289,14 @@ Selection rules are consistent across scalar and batch calls:
 - At `prec=16`, any `Decimal`, `DecimalComplex`, or integer beyond the exact
   binary64 integer range selects arbitrary precision too.
 - A mixed batch uses arbitrary precision for the entire batch if any input
-  requires it. Otherwise the default batch uses binary64 Native arithmetic.
+  requires it. Otherwise the default batch uses binary64 arithmetic.
 - Arbitrary-precision results use DecimalComplex; ordinary default calls retain
   Python complex outputs. Precision must be a positive integer, not a Boolean.
 
-The core uses the generated generic Rust implementation with Symbolica
-`Complex<Float>` and fixed guard bits. `backend="expression"` evaluates the same
-exact formulas with Symbolica's interpreter; `"symjit"` is binary64-only.
+The core uses Symbolica's expression interpreter with `Complex<Float>` and fixed
+guard bits by default. With `generated-evaluators` enabled, it defaults to the
+generated generic Rust implementation instead. `backend="expression"` explicitly
+selects the interpreter; `"symjit"` is binary64-only.
 The reusable object keeps a precision-specific workspace for reuse; changing
 precision prepares its constants again. Both sets of five binary64 backends are
 prepared on first use, as are arbitrary precisions.

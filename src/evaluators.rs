@@ -11,7 +11,7 @@ type C = Complex<f64>;
 pub(crate) fn portable_environment() -> Result<(), String> {
     // Config::default accepts architecture-pinned compiler types through this
     // override, and SymJIT stores that choice in its serialized IR. Require the
-    // ordinary Native default for this explicitly portable wrapper.
+    // ordinary automatic backend for this explicitly portable wrapper.
     if std::env::var_os("SYMJIT_TOML").is_some() {
         return Err(
             "unset SYMJIT_TOML when building or loading portable OneLOop evaluators".into(),
