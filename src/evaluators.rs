@@ -1,4 +1,4 @@
-//! Portable SymJIT caches and row-major batched numerical evaluation.
+//! Portable evaluator source caches and row-major batched numerical evaluation.
 use crate::{ScalarIntegral, masters};
 use std::sync::{Arc, Mutex, OnceLock};
 use symbolica::{
@@ -9,9 +9,9 @@ use symbolica::{
 type C = Complex<f64>;
 
 pub(crate) fn portable_environment() -> Result<(), String> {
-    // Config::default accepts architecture-pinned compiler types through this
-    // override, and SymJIT stores that choice in its serialized IR. Require the
-    // ordinary automatic backend for this explicitly portable wrapper.
+    // Config::default accepts architecture-pinned compiler types through these
+    // overrides. Require the ordinary automatic backend both when constructing
+    // a portable source cache and when recompiling it on the receiving host.
     if std::env::var_os("SYMJIT_TOML").is_some() {
         return Err(
             "unset SYMJIT_TOML when building or loading portable OneLOop evaluators".into(),
@@ -27,12 +27,25 @@ pub(crate) fn portable_environment() -> Result<(), String> {
     Ok(())
 }
 
-// Deliberately version-bound: portable IR is not a stable cross-version ABI.
-const FORMAT: &[u8] = b"oneloop-evaluator-v2:a19c760dd567c239f30d87e4e924ca2f8b8457ab:symjit-2.26.0:strict-o2-complex1-simd0\0";
+// The payload is Symbolica ExpressionEvaluator IR, not serialized SymJIT code.
+// Keep its schema and compilation policy versioned; loading always recompiles
+// with the backend selected by the consuming application's Cargo.lock.
+const FORMAT: &[u8] = b"oneloop-evaluator-v3:a19c760dd567c239f30d87e4e924ca2f8b8457ab:symbolica-ir:strict-o2-complex1-simd0\0";
+// These source-IR formats have identical payloads. The old backend tag recorded
+// the producer, but never made its native code part of the cache.
+const LEGACY_FORMATS: [&[u8]; 2] = [
+    b"oneloop-evaluator-v2:a19c760dd567c239f30d87e4e924ca2f8b8457ab:symjit-2.26.0:strict-o2-complex1-simd0\0",
+    b"oneloop-evaluator-v2:a19c760dd567c239f30d87e4e924ca2f8b8457ab:symjit-2.26.4:strict-o2-complex1-simd0\0",
+];
 
 fn cache_payload(data: &[u8]) -> Result<(&[u8], usize, usize), String> {
     let payload = data
         .strip_prefix(FORMAT)
+        .or_else(|| {
+            LEGACY_FORMATS
+                .iter()
+                .find_map(|prefix| data.strip_prefix(*prefix))
+        })
         .ok_or("incompatible evaluator cache")?;
     let dimensions = payload.get(..16).ok_or("truncated evaluator cache")?;
     let dimension = |offset| {
@@ -142,7 +155,8 @@ impl JitEvaluator {
         Ok(())
     }
 
-    /// Serialize the numerical evaluator and every nested function definition.
+    /// Serialize Symbolica evaluator IR and every nested function definition.
+    /// No SymJIT application or native machine code is serialized.
     /// Treat this as trusted executable content, not an untrusted data format.
     pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
         let mut data = FORMAT.to_vec();
@@ -155,7 +169,7 @@ impl JitEvaluator {
         Ok(data)
     }
 
-    /// Load a version-matched trusted cache. Native machine code is regenerated
+    /// Load a schema-matched trusted source cache. Native machine code is regenerated
     /// for the host with the same strict settings at every nesting level; no
     /// symbolic expression construction is required.
     /// Register any custom numerical Symbol callbacks before loading. The

@@ -16,5 +16,5 @@ prebuilt = []
 # Do not impose Symbolica's optional global mimalloc allocator on embedding hosts.
 symbolica = { version = "3.0.1", default-features = false, features = ["tracing_max_level_info", "integer-gmp", "float-mpfr", "native_code_generation", "bincode"] }
 bincode = "2.0"
-# Evaluator cache compatibility includes the JIT backend version.
-symjit = "=2.26.0"
+# Compatible backend updates are selected by the consuming Cargo.lock.
+symjit = "2.26.0"
