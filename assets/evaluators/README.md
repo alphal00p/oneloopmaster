@@ -35,9 +35,12 @@ exhaustive analytic-region coverage.
 | C0 | 179,716 | `506ec67a01cc34eaa378b1c3fea3b5092a9a8cd738f3ddac1e0595ad502bb09a` |
 | D0 | 4,333,475 | `af637c421c71922dbda4e34c0bb4ee22c72d52c52eba4f438b9963fa5d325869` |
 
-The `oneloop-evaluator-v2` discriminator binds these files to the selected
-Symbolica/SymJIT versions and settings. Earlier patched-backend caches are
-incompatible. Original helper symbols and signatures are preserved. Upstream shares
+The embedded files retain the `oneloop-evaluator-v2` discriminator. Its old
+SymJIT version field describes their producer; loading always recompiles the
+Symbolica IR with the current backend. New saves use `oneloop-evaluator-v3`,
+which binds the Symbolica IR schema and strict compilation policy without
+claiming backend binary compatibility. Only the known v2 source formats are
+accepted for migration. Original helper symbols and signatures are preserved. Upstream shares
 non-inlined bodies, so explicit-pi aliases and padded argument lists are no
 longer needed. Symbol ordering still controls floating-point operation order.
 

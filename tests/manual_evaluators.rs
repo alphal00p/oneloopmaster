@@ -14,6 +14,27 @@ fn manual_cache_clones_batches_and_constant_only_expressions() {
             assert_eq!((original.input_count(), original.output_count()), (1, 3));
             let bytes = original.to_bytes().unwrap();
             let header_end = bytes.iter().position(|&b| b == 0).unwrap() + 1;
+            assert!(bytes.starts_with(b"oneloop-evaluator-v3:"));
+            // Previous releases stored the same Symbolica IR with a backend
+            // producer tag. Reload it using the currently selected backend,
+            // and always save the backend-independent v3 source format.
+            for backend in ["2.26.0", "2.26.4"] {
+                let mut legacy = format!(
+                    "oneloop-evaluator-v2:a19c760dd567c239f30d87e4e924ca2f8b8457ab:symjit-{backend}:strict-o2-complex1-simd0\0"
+                ).into_bytes();
+                legacy.extend_from_slice(&bytes[header_end..]);
+                let mut loaded = JitEvaluator::from_bytes(&legacy).unwrap();
+                assert_eq!(loaded.to_bytes().unwrap(), bytes);
+                let mut values = [Complex::new(0., 0.); 3];
+                loaded.evaluate(&[Complex::new(2., 0.)], &mut values).unwrap();
+                assert_eq!(values, [Complex::new(7., 0.), Complex::new(2., 0.), Complex::new(0.25, 0.)]);
+            }
+            let mut unknown = bytes.clone();
+            unknown[0] = b'X';
+            assert!(JitEvaluator::from_bytes(&unknown).is_err());
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(JitEvaluator::from_bytes(&trailing).is_err());
             for offset in [header_end, header_end + 8] {
                 let mut corrupt = bytes.clone();
                 corrupt[offset..offset + 8].copy_from_slice(&0u64.to_le_bytes());
