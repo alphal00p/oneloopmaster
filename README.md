@@ -23,6 +23,30 @@ real squared renormalization scale. External invariants are real. Coefficients
 are ordered `[finite, 1/epsilon, 1/epsilon²]`, with OneLOop normalization. This is
 a Laurent expansion through the finite term, not an unexpanded function of epsilon.
 
+## Positive epsilon coefficients
+
+`A0(1, m2, mu2)` and `B0(1, p2, m02, m12, mu2)` evaluate the coefficient
+of epsilon. The exact constructors are `a0_epsilon` and `b0_epsilon`;
+`ScalarIntegral::laurent_orders()` reports the supported range. Existing
+three-coefficient APIs still return `[finite, simple pole, double pole]`.
+
+Both positive orders use the common `1/r_Gamma` normalization, where
+`r_Gamma = Gamma(1+eps)*Gamma(1-eps)^2/Gamma(1-2*eps)`. In particular,
+A0's positive coefficient is `m2*(1-L+L^2/2+pi^2/6)`, with
+`L=log(m2/mu2)`. Replacing `1/r_Gamma` by `exp(gamma_E*eps)` changes
+that coefficient by `-pi^2*m2/12`.
+
+B0 uses an exact logarithm/dilogarithm expression for
+`pi^2/6 + integral_0^1 log((m02*(1-x)+m12*x-p2*x*(1-x)-i0)/mu2)^2 dx/2`,
+with separate scaleless, zero-momentum, massless and coincident-root limits.
+The public hooks and transparent function map support binary64 and arbitrary
+precision. Tests compare both mass orderings against independently integrated
+90-digit parameter-space fixtures, including real-axis branch cuts.
+
+Higher positive orders, and positive orders of dB0/C0/D0, remain unsupported.
+Adding these coefficients does not remove the existing numerical limitations
+of the finite-order evaluators documented below.
+
 ## Development dependency
 
 The Rust library and both Python build roots use the released Symbolica 3.0.1

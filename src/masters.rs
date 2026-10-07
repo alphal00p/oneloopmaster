@@ -1,7 +1,8 @@
 //! Public scalar master Symbols and their numeric evaluation hooks.
 //!
 //! A call has the form `oneloopmaster::M(tag, arguments...)`, with Laurent
-//! tags `0`, `-1`, and `-2`. Numeric arguments follow the corresponding
+//! tags `0`, `-1`, and `-2`; A0 and B0 also accept `1`, their O(epsilon) coefficients
+//! from [`a0_epsilon`] and [`b0_epsilon`]. Numeric arguments follow the corresponding
 //! lowercase constructor, with the squared renormalization scale last.
 //! Native definitions supplied by [`OneLoopExpressions`] take precedence
 //! over the hooks and remain visible to Symbolica's evaluator compiler.
@@ -10,14 +11,13 @@ use super::*;
 use std::{
     cell::Cell,
     collections::BTreeMap,
+    ops::RangeInclusive,
     sync::{Mutex, OnceLock},
 };
-#[cfg(not(feature = "generated-evaluators"))]
-use symbolica::domains::float::SingleFloat;
 use symbolica::{
     atom::{AtomView, EvaluationInfo},
     domains::{
-        float::{Complex, DoubleFloat, Float},
+        float::{Complex, DoubleFloat, Float, Real, SingleFloat},
         rational::Rational,
     },
     evaluate::ExpressionEvaluator,
@@ -47,6 +47,16 @@ impl ScalarIntegral {
     /// Laurent tag used by the Symbol interface.
     pub fn arity(self) -> usize {
         [2, 4, 4, 7, 11][self as usize]
+    }
+
+    /// Laurent orders whose coefficient may be nonzero. Every master accepts
+    /// the tags from -2 through the upper end; A0 and B0 reach O(epsilon).
+    pub fn laurent_orders(self) -> RangeInclusive<i32> {
+        match self {
+            Self::A0 | Self::B0 => -1..=1,
+            Self::DB0 => -1..=0,
+            Self::C0 | Self::D0 => -2..=0,
+        }
     }
 
     fn series(self, a: &[Atom]) -> LaurentSeries {
@@ -83,6 +93,18 @@ impl ScalarIntegral {
     }
 }
 
+/// Coefficient index of the positive O(epsilon) tag, after the finite, simple-pole
+/// and double-pole indices 0, 1 and 2.
+const EPSILON_INDEX: usize = 3;
+
+fn tag_index(family: Family, tag: i32) -> Option<usize> {
+    match tag {
+        1 if matches!(family, Family::A0 | Family::B0) => Some(EPSILON_INDEX),
+        -2..=0 => Some(tag.unsigned_abs() as usize),
+        _ => None,
+    }
+}
+
 fn coefficient_index(family: Family, tags: &[AtomView<'_>]) -> usize {
     assert_eq!(
         tags.len(),
@@ -90,18 +112,47 @@ fn coefficient_index(family: Family, tags: &[AtomView<'_>]) -> usize {
         "oneloopmaster::{} requires one Laurent tag",
         family.name()
     );
-    if tags[0] == 0 {
-        0
-    } else if tags[0] == -1 {
-        1
-    } else if tags[0] == -2 {
-        2
-    } else {
-        panic!(
-            "invalid oneloopmaster::{} Laurent tag {}; expected 0, -1, or -2",
-            family.name(),
-            tags[0]
-        );
+    i32::try_from(tags[0])
+        .ok()
+        .and_then(|tag| tag_index(family, tag))
+        .unwrap_or_else(|| {
+            let expected = if matches!(family, Family::A0 | Family::B0) {
+                "1, 0, -1, or -2"
+            } else {
+                "0, -1, or -2"
+            };
+            panic!(
+                "invalid oneloopmaster::{} Laurent tag {}; expected {expected}",
+                family.name(),
+                tags[0]
+            )
+        })
+}
+
+/// A0's O(epsilon) coefficient from its finite part `f = m²(1 - L)`: as
+/// `L = (m² - f)/m²`, [`a0_epsilon`] equals `f + m²(L²/2 + π²/6)`. Taking
+/// `L` first keeps binary64 finite wherever the finite part is.
+fn a0_epsilon_from_finite<T: Real + SingleFloat>(mass_squared: &T, finite: &T) -> T {
+    if mass_squared.is_zero() {
+        return mass_squared.zero();
+    }
+    let logarithm = (mass_squared.clone() - finite) / mass_squared;
+    let pi = mass_squared.pi();
+    let series = logarithm.clone() * &logarithm / mass_squared.from_i64(2)
+        + pi.clone() * &pi / mass_squared.from_i64(6);
+    finite.clone() + mass_squared.clone() * &series
+}
+
+/// Select a coefficient of `[finite, simple pole, double pole]`, or A0's
+/// O(epsilon) coefficient derived from its finite part.
+fn select<T: Real + SingleFloat>(tag: usize, args: &[T], output: [T; 3]) -> T {
+    let [finite, simple_pole, double_pole] = output;
+    match tag {
+        0 => finite,
+        1 => simple_pole,
+        2 => double_pole,
+        EPSILON_INDEX => a0_epsilon_from_finite(&args[0], &finite),
+        _ => unreachable!("tag_index only returns coefficient indices"),
     }
 }
 
@@ -155,17 +206,54 @@ pub(crate) fn jit_evaluator(family: ScalarIntegral) -> Result<JitEvaluator, Stri
     OneLoopExpressions::new().jit_evaluator(family.series(&args).coefficients(), &args)
 }
 
+fn b0_epsilon_evaluator() -> &'static ExactEvaluator {
+    static CACHE: OnceLock<ExactEvaluator> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let args = Family::B0
+            .parameters()
+            .into_iter()
+            .map(Symbol::to_atom)
+            .collect::<Vec<_>>();
+        OneLoopExpressions::new()
+            .evaluator(&[b0_epsilon(&args[0], &args[1], &args[2], &args[3])], &args)
+            .expect("compile B0 positive-epsilon coefficient")
+    })
+}
+
 fn scalar_f64(family: Family, tag: usize, args: &[Complex<f64>]) -> Complex<f64> {
     family.check_arity(args.len());
     let _guard = EvaluationGuard::enter();
-    #[cfg(feature = "generated-evaluators")]
-    {
-        crate::backend::native_coefficient(family, tag, args)
+    let coefficient = |tag| {
+        #[cfg(feature = "generated-evaluators")]
+        {
+            crate::backend::native_coefficient(family, tag, args)
+        }
+        #[cfg(not(feature = "generated-evaluators"))]
+        {
+            crate::backend::expression_coefficient(family, tag, args)
+        }
+    };
+    if tag == EPSILON_INDEX && family == Family::B0 {
+        crate::native::validate_point(family, args).expect("valid master arguments");
+        static CACHE: OnceLock<Mutex<ExpressionEvaluator<Complex<f64>>>> = OnceLock::new();
+        let mut evaluator = CACHE
+            .get_or_init(|| {
+                Mutex::new(
+                    b0_epsilon_evaluator()
+                        .clone()
+                        .map_coeff(&|z| Complex::new(z.re.to_f64(), z.im.to_f64())),
+                )
+            })
+            .lock()
+            .unwrap();
+        let mut output = [Complex::new(0., 0.)];
+        evaluator.evaluate(args, &mut output);
+        return output[0];
     }
-    #[cfg(not(feature = "generated-evaluators"))]
-    {
-        crate::backend::expression_coefficient(family, tag, args)
+    if tag == EPSILON_INDEX {
+        return a0_epsilon_from_finite(&args[0], &coefficient(0));
     }
+    coefficient(tag)
 }
 
 fn scalar_double_float(
@@ -175,6 +263,19 @@ fn scalar_double_float(
 ) -> Complex<DoubleFloat> {
     family.check_arity(args.len());
     let _guard = EvaluationGuard::enter();
+    if tag == EPSILON_INDEX && family == Family::B0 {
+        crate::native::validate_point(family, args).expect("valid master arguments");
+        let prototype = DoubleFloat::from(0.0);
+        let mut evaluator = b0_epsilon_evaluator().clone().map_coeff(&|z| {
+            Complex::new(
+                prototype.from_rational(&z.re),
+                prototype.from_rational(&z.im),
+            )
+        });
+        let mut output = [Complex::new(prototype.clone(), prototype)];
+        evaluator.evaluate(args, &mut output);
+        return output[0];
+    }
     // Validate before taking the lock: rejected input must not poison the cache.
     #[cfg(not(feature = "generated-evaluators"))]
     crate::native::validate_point(family, args).expect("valid master arguments");
@@ -214,7 +315,7 @@ fn scalar_double_float(
     // Domain rejection must not poison a reusable shared evaluator when the
     // caller catches the numeric callback's deliberate panic.
     result.expect("valid master arguments");
-    output[tag]
+    select(tag, args, output)
 }
 
 fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<Float> {
@@ -227,6 +328,22 @@ fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<
         .flat_map(|value| [value.re.prec(), value.im.prec()])
         .max()
         .expect("every master has numeric arguments");
+    if tag == EPSILON_INDEX && family == Family::B0 {
+        crate::native::validate_point(family, args).expect("valid master arguments");
+        let prototype = Float::new(precision);
+        let mut evaluator = b0_epsilon_evaluator().clone().map_coeff_with_prec(
+            &|z| {
+                Complex::new(
+                    prototype.from_rational(&z.re),
+                    prototype.from_rational(&z.im),
+                )
+            },
+            precision,
+        );
+        let mut output = [Complex::new(prototype.clone(), prototype)];
+        evaluator.evaluate(args, &mut output);
+        return output[0].clone();
+    }
     static CACHE: [OnceLock<Mutex<BTreeMap<u32, PrecisionEvaluator>>>; 5] =
         [const { OnceLock::new() }; 5];
     let mut cache = CACHE[family as usize]
@@ -243,7 +360,7 @@ fn scalar_float(family: Family, tag: usize, args: &[Complex<Float>]) -> Complex<
     let result = evaluator.evaluate(args, &mut output);
     drop(cache);
     result.expect("valid master arguments");
-    output[tag].clone()
+    select(tag, args, output)
 }
 
 /// Fold only explicitly approximate, complete coefficient calls. In particular,
@@ -257,12 +374,7 @@ fn normalized_numeric_call(family: Family, view: AtomView<'_>) -> Option<Complex
         return None;
     }
     let mut arguments = function.iter();
-    let tag = match i32::try_from(arguments.next()?).ok()? {
-        0 => 0,
-        -1 => 1,
-        -2 => 2,
-        _ => return None,
-    };
+    let tag = tag_index(family, i32::try_from(arguments.next()?).ok()?)?;
     let arguments = arguments.collect::<Vec<_>>();
     // Exact numbers acquire precision only when another argument explicitly
     // supplies it. Include imaginary components and the renormalization scale.
@@ -413,7 +525,8 @@ pub fn D0() -> Symbol {
     })
 }
 
-/// Adds the fifteen tagged native master definitions to a complete native map.
+/// Adds the seventeen tagged native master definitions, including A0/B0's
+/// O(epsilon) coefficient, to a complete native map.
 /// Pure sector-call constructors keep registration independent of map creation.
 pub(crate) fn register_masters(map: &mut FunctionMap) {
     for (family, master) in [
@@ -429,9 +542,15 @@ pub(crate) fn register_masters(map: &mut FunctionMap) {
             .copied()
             .map(Symbol::to_atom)
             .collect::<Vec<_>>();
+        let epsilon = match family {
+            Family::A0 => Some((1, a0_epsilon(&args[0], &args[1]))),
+            Family::B0 => Some((1, b0_epsilon(&args[0], &args[1], &args[2], &args[3]))),
+            _ => None,
+        };
         for (tag, body) in [0, -1, -2]
             .into_iter()
             .zip(family.series(&args).into_coefficients())
+            .chain(epsilon)
         {
             map.add_tagged_function_with_options(
                 master,
