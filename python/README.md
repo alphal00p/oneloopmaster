@@ -655,3 +655,7 @@ A full community host can call `oneloop_native::register_hep_module` on its
 existing HEP module after Feynkit registration. See [HEP integration](../HEP_INTEGRATION.md)
 for data ownership, the single-kernel dependency requirement and initialization.
 The minimal host does not include Feynkit's graph or momentum classes.
+
+Positive epsilon coefficients are available as `A0(1, m2, mu2)` and
+`B0(1, p2, m02, m12, mu2)` in the common `1/r_Gamma` normalization.
+The existing lowercase evaluators retain their three-coefficient output.

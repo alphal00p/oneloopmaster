@@ -285,6 +285,24 @@ pub fn a0(mass_squared: &Atom, mu_squared: &Atom) -> LaurentSeries {
     LaurentSeries::new(finite, mass_squared.clone(), Atom::num(0))
 }
 
+/// Constructs the O(epsilon) coefficient of the scalar tadpole A0,
+/// `m²(1 - L + L²/2 + π²/6)` with `L = log(m²/mu²)`.
+///
+/// It uses the triangle and box normalization, dividing by
+/// `Γ(1+ε)Γ(1-ε)²/Γ(1-2ε)`, so a reduction may combine it with their double
+/// poles. The alternative `exp(γ_E ε)` convention agrees through the
+/// finite term but gives `π²m²/12` less here. A zero mass gives zero.
+pub fn a0_epsilon(mass_squared: &Atom, mu_squared: &Atom) -> Atom {
+    if mass_squared.is_zero() {
+        return Atom::num(0);
+    }
+
+    let logarithm = physical_log(&(mass_squared / mu_squared));
+    let pi_squared = Symbol::PI.to_atom() * Symbol::PI.to_atom();
+    let series = Atom::num(1) - &logarithm + &logarithm * &logarithm / 2 + pi_squared / 6;
+    if_nonzero(mass_squared, mass_squared * series)
+}
+
 /// Constructs all tadpole coefficients through tensor rank four.
 ///
 /// Coefficients are returned in the order A0, A00, A0000, truncated to the

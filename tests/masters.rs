@@ -340,6 +340,101 @@ fn constant_and_variable_master_calls_preserve_arbitrary_precision() {
 }
 
 #[test]
+fn a0_epsilon_coefficient_matches_its_closed_form_on_every_route() {
+    on_stack(|| {
+        let context = OneLoopExpressions::new();
+        let parameters = [parse!("a0_epsilon_mass"), parse!("a0_epsilon_scale")];
+        // Tag 1 before 0 and -1 also exercises the binary64 coefficient cache.
+        let tagged = [1, 0, -1].map(|tag| A0().call((tag, &parameters[0], &parameters[1])));
+        let routes = [
+            ("hook", compile_calls(&tagged, &parameters)),
+            (
+                "native map",
+                context.evaluator(&tagged, &parameters).unwrap(),
+            ),
+        ];
+        // (mass², scale²): positive, the lower lip of a negative real mass, a
+        // complex mass, the scaleless tadpole, and a mass whose (m²L)² would
+        // overflow binary64.
+        let points = [
+            (2., 0., 1.),
+            (-2., 0., 1.),
+            (3., -0.5, 2.),
+            (0., 0., 1.),
+            (1e160, 0., 1.),
+        ];
+        for bits in [53, 256] {
+            let number = |value: f64| Float::with_val(bits, value);
+            let complex = |value: f64| Complex::new(number(value), number(0.));
+            let pi = Float::with_val(bits, symbolica::domains::backend::float::Constant::Pi);
+            let tolerance = if bits == 53 { 1e-13 } else { 1e-70 };
+            // Relative to the expected magnitude, or absolute below one.
+            let error = |actual: Complex<Float>, expected: &Complex<Float>| {
+                let difference = actual - expected;
+                difference.re.to_f64().hypot(difference.im.to_f64())
+                    / expected.re.to_f64().hypot(expected.im.to_f64()).max(1.)
+            };
+            for &(re, im, scale) in &points {
+                let mass = Complex::new(number(re), number(im));
+                let logarithm = if im == 0. && re < 0. {
+                    Complex::new(number(-re / scale).log(), -pi.clone())
+                } else {
+                    (mass.clone() / complex(scale)).log()
+                };
+                let finite = complex(1.) - &logarithm;
+                let epsilon = finite.clone()
+                    + logarithm.clone() * &logarithm / complex(2.)
+                    + Complex::new(pi.clone() * &pi / number(6.), number(0.));
+                // Tags 1, 0 and -1; the scaleless tadpole vanishes.
+                let expected = if re == 0. {
+                    [complex(0.), complex(0.), complex(0.)]
+                } else {
+                    [
+                        mass.clone() * &epsilon,
+                        mass.clone() * &finite,
+                        mass.clone(),
+                    ]
+                };
+                let inputs = [mass, complex(scale)];
+                for (route, evaluator) in &routes {
+                    let mut output = core::array::from_fn::<_, 3, _>(|_| complex(0.));
+                    arbitrary(evaluator.clone(), bits).evaluate(&inputs, &mut output);
+                    let mut machine = [Complex::new(0., 0.); 3];
+                    double(evaluator.clone()).evaluate(
+                        &[Complex::new(re, im), Complex::new(scale, 0.)],
+                        &mut machine,
+                    );
+                    for (tag, expected) in expected.iter().enumerate() {
+                        let actual = output[tag].clone();
+                        assert!(
+                            error(actual.clone(), expected) < tolerance,
+                            "{route} A0 output {tag} at ({re}{im:+}i, {scale}), {bits} bits: \
+                             {actual} != {expected}"
+                        );
+                        let actual = Complex::new(
+                            Float::with_val(bits, machine[tag].re),
+                            Float::with_val(bits, machine[tag].im),
+                        );
+                        assert!(
+                            error(actual, expected) < 1e-13,
+                            "{route} f64 A0 output {tag} at ({re}{im:+}i, {scale}): {machine:?}"
+                        );
+                    }
+                }
+                // An approximate complete call normalizes to its value. A
+                // floating zero mass becomes exact, so that call stays symbolic.
+                if re != 0. {
+                    let folded = A0().call((1, Atom::num(inputs[0].clone()), scale as i64));
+                    let actual = Complex::<Float>::try_from(folded.as_view())
+                        .unwrap_or_else(|_| panic!("A0(1, ...) did not fold: {folded}"));
+                    assert!(error(actual, &expected[0]) < tolerance);
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn malformed_master_tags_and_arities_are_deliberate_errors() {
     on_stack(|| {
         for (symbol, arity) in masters().into_iter().zip([2, 4, 4, 7, 11]) {
@@ -351,8 +446,14 @@ fn malformed_master_tags_and_arities_are_deliberate_errors() {
                 .is_err(),
                 "missing Laurent tag must fail"
             );
+            // A0 and B0 have an O(epsilon) coefficient.
+            let (positive, expected) = if symbol == A0() || symbol == B0() {
+                (parse!("2"), "expected 1, 0, -1, or -2")
+            } else {
+                (parse!("1"), "expected 0, -1, or -2")
+            };
             for tag in [
-                parse!("1"),
+                positive,
                 parse!("-3"),
                 parse!("1/2"),
                 parse!("invalid_master_tag"),
@@ -362,9 +463,7 @@ fn malformed_master_tags_and_arities_are_deliberate_errors() {
                 }));
                 let panic = failure.err().expect("invalid Laurent tag must fail");
                 let message = panic.downcast_ref::<String>().unwrap();
-                assert!(
-                    message.contains("Laurent tag") && message.contains("expected 0, -1, or -2")
-                );
+                assert!(message.contains("Laurent tag") && message.contains(expected));
             }
             let tag = Atom::num(0);
             let evaluator = info

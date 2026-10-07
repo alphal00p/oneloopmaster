@@ -8,7 +8,9 @@
 mod backend;
 mod branch_selection;
 mod definitions;
+mod epsilon;
 mod evaluators;
+pub use epsilon::b0_epsilon;
 mod expressions;
 mod initialization;
 mod inspection;
