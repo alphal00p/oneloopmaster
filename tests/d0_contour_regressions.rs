@@ -20,11 +20,16 @@
 //!   a `K` that rounds to zero puts its far pole 2^52 beyond the near one, and
 //!   where the selected contour's `a1` keeps fewer than 24 bits the regular
 //!   chart of the other contour is evaluated too and taken unless the two
-//!   agree to half the working precision (`box_complex::tfun_chart`).
+//!   agree to binary64's half precision (`box_complex::tfun_chart`). Where
+//!   no chart is regular, binary64 returns NaN unless the chart used keeps
+//!   10 bits under a move of its line by one rounding unit (a flat chart) or
+//!   13 bits with its K at the rounding level (a K that rounds to zero),
+//!   instead of a silently wrong value (tests/data/contour_unresolved.txt).
 //!
 //! References (tests/data/contour_regressions.txt,
-//! tests/data/contour_gram_rounding.txt): COLLIER 1.2.9 in quadruple
-//! precision, independent of OneLOop and this crate.
+//! tests/data/contour_gram_rounding.txt, tests/data/contour_unresolved.txt):
+//! COLLIER 1.2.9 in quadruple precision, independent of OneLOop and this
+//! crate.
 #![cfg(feature = "generated-evaluators")]
 use oneloop::{
     EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral, evaluate_with_backend,
@@ -125,9 +130,27 @@ fn on_stack(action: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
+/// The data rows `range` of `data` (comments skipped).
+fn data_lines(data: &str, range: std::ops::Range<usize>) -> String {
+    data.lines()
+        .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .skip(range.start)
+        .take(range.len())
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
 /// Binary64 routes (native with and without the hand-written kernels, the
-/// interpreted expressions and SymJIT) and DoubleFloat, in every relabelling.
-fn check_binary64(data: &str, count: usize, tolerance: f64, double_tolerance: f64) {
+/// interpreted expressions and SymJIT) and DoubleFloat, in every relabelling;
+/// with `nonfinite`, a non-finite binary64 value passes (a box whose charts
+/// binary64 cannot resolve must not be silently wrong).
+fn check_binary64(
+    data: &str,
+    count: usize,
+    tolerance: f64,
+    double_tolerance: f64,
+    nonfinite: bool,
+) {
     let rows = rows(data);
     assert_eq!(rows.len(), count);
     let mut failures = Vec::new();
@@ -144,7 +167,8 @@ fn check_binary64(data: &str, count: usize, tolerance: f64, double_tolerance: f6
         for (number, image) in images(args).into_iter().enumerate() {
             let mut check = |route: String, value: C, tolerance: f64| {
                 let error = relative(value, *expected);
-                if !(error <= tolerance) {
+                let detected = nonfinite && !(value.re.is_finite() && value.im.is_finite());
+                if !(error <= tolerance) && !detected {
                     failures.push(format!(
                         "row {} image {number} {route}: {value:?} vs {expected:?} ({error:e})",
                         line + 1
@@ -172,11 +196,14 @@ fn check_binary64(data: &str, count: usize, tolerance: f64, double_tolerance: f6
             let zero = Complex::new(DoubleFloat::from(0.), DoubleFloat::from(0.));
             let mut output = [zero; 3];
             double.evaluate(&input, &mut output).unwrap();
-            check(
-                "DoubleFloat".into(),
-                C::new(output[0].re.to_f64(), output[0].im.to_f64()),
-                double_tolerance,
-            );
+            let value = C::new(output[0].re.to_f64(), output[0].im.to_f64());
+            let error = relative(value, *expected);
+            if !(error <= double_tolerance) {
+                failures.push(format!(
+                    "row {} image {number} DoubleFloat: {value:?} vs {expected:?} ({error:e})",
+                    line + 1
+                ));
+            }
         }
     }
     assert!(
@@ -201,6 +228,7 @@ fn contour_box_regressions_match_collier_in_binary64() {
             7,
             BINARY64,
             PRECISE,
+            false,
         )
     });
 }
@@ -237,7 +265,34 @@ fn contour_boxes_with_a_rounding_level_gram_determinant_match_collier_in_binary6
             9,
             BINARY64,
             1e-14,
+            false,
         )
+    });
+}
+
+/// Boxes whose binary64 chart the rounding cannot resolve (rows 1 and 2 of
+/// tests/data/contour_unresolved.txt): every binary64 route non-finite (the
+/// caller detects it and rescues it in higher precision) or within 1e-11 in
+/// all 24 relabellings. Now NaN in all of them; 09b2c74 too, and f2adce4 was
+/// finite and wrong by up to 6.5e-4 and 1.9 on every route. DoubleFloat within
+/// 1e-14 (4.3e-15 on row 2).
+#[test]
+fn contour_boxes_with_unresolved_charts_are_not_silently_wrong() {
+    on_stack(|| {
+        let data = data_lines(include_str!("data/contour_unresolved.txt"), 0..2);
+        check_binary64(&data, 2, BINARY64, 1e-14, true)
+    });
+}
+
+/// Boxes with a flat chart that keeps its value under the move of its line
+/// (rows 3 and 4 of tests/data/contour_unresolved.txt): every binary64 route
+/// finite and within 1e-11 in all 24 relabellings (now at most 2.3e-12; 2.3e-12
+/// at 09b2c74), DoubleFloat within 1e-14.
+#[test]
+fn contour_boxes_with_resolved_flat_charts_stay_finite() {
+    on_stack(|| {
+        let data = data_lines(include_str!("data/contour_unresolved.txt"), 2..4);
+        check_binary64(&data, 2, BINARY64, 1e-14, false)
     });
 }
 
@@ -337,5 +392,5 @@ const KNOWN_FAILURES: &str = "\
 #[test]
 #[ignore = "known binary64 failure: a conic singular at a massless corner"]
 fn contour_box_known_failures_match_collier_in_binary64() {
-    on_stack(|| check_binary64(KNOWN_FAILURES, 1, BINARY64, PRECISE));
+    on_stack(|| check_binary64(KNOWN_FAILURES, 1, BINARY64, PRECISE, false));
 }

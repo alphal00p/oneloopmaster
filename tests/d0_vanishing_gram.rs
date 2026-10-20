@@ -193,9 +193,10 @@ fn box_near_a_vanishing_gram_determinant_matches_oneloop_on_every_route() {
 /// divides by K. Native binary64 code (hand-written and generated) returned
 /// NaN here, and every binary64 route (interpreted and SymJIT too) in 28% to
 /// 40% of its 1-ulp perturbations. That chart now puts its far pole 2^52
-/// beyond the near one (`box_complex::chart_k`; the second contour, taken
-/// there before, has its `a1` at the rounding level and was wrong by O(1) on
-/// other such boxes, tests/data/contour_gram_rounding.txt).
+/// beyond the near one in binary64 (`box_complex::chart_k`; the second
+/// contour, taken there before, has its `a1` at the rounding level and was
+/// wrong by O(1) on other such boxes, tests/data/contour_gram_rounding.txt),
+/// and keeps it: moved to K's rounding level, the chart keeps 13 bits.
 /// OneLOop 3.6 in quadruple precision; its double precision keeps 6e-14.
 #[test]
 fn box_with_a_vanishing_contour_coefficient_is_finite_on_every_route() {

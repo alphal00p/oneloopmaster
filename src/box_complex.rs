@@ -18,11 +18,22 @@ fn call<const N: usize>(name: &str, args: [&Atom; N]) -> Atom {
     function(name).call(args.map(Clone::clone).as_slice())
 }
 
+/// The squared norm `re(z)² + im(z)²`, as a call of the registered `norm`.
+///
+/// Crossed products in `z conj(z)` need not cancel when the two components
+/// carry different tracked precisions, and a product `s z conj(z)` that
+/// Symbolica flattens (a real factor `s` applied to `z` first) keeps a
+/// rounding residue in its imaginary part even in binary64. The body
+/// ([register_norm]) groups the operand and its real components so that
+/// conjugation and expansion cannot restore those products, and is exactly
+/// real on every route. It is a call so that each use holds one copy of its
+/// operand: written out, the grouping holds 16 copies, and nested norms
+/// multiply them.
 fn norm(z: &Atom) -> Atom {
-    // Use the real norm-squared operation, re(z)^2 + im(z)^2. Crossed
-    // products in z*conj(z) need not cancel when the two components carry
-    // different tracked precisions. Group both the operand and its real
-    // components so conjugation/expansion cannot restore those products.
+    call("norm", [z])
+}
+
+fn norm_body(z: &Atom) -> Atom {
     let z = grouped(z);
     let real = grouped(&re(&z));
     let imaginary = grouped(&im(&z));
@@ -41,15 +52,64 @@ fn min(a: &Atom, b: &Atom) -> Atom {
     if_nonzero_else(&less(a, b), a.clone(), b.clone())
 }
 
-/// Nonzero where the real part of `x >= 0` (a ratio of norms) is at most
-/// half an ulp of 1 at the working precision (`1 + x` rounds to 1):
-/// `x <= 2^-53` in binary64, and correspondingly smaller in `DoubleFloat` and
-/// `Float`, so that tests of half the working precision follow it (as
-/// [far_root]'s bound does). The norms' imaginary parts are rounding
-/// residues (a fused product of `z conj(z)` keeps one), so only the real part
-/// is tested.
-fn negligible(x: Atom) -> Atom {
-    if_nonzero_else(&(grouped(&(1 + re(&x))) - 1), Atom::num(0), Atom::num(1))
+/// Nonzero where `2^bits x < y` for the real `x, y >= 0` (squared norms):
+/// the chart tests compare at binary64's half precision with fixed powers of
+/// two, so that the hand-written, generated, interpreted, SymJIT and
+/// `DoubleFloat` routes take the same chart on the same binary64 inputs
+/// ([tfun_chart], [zero_external]).
+fn below(bits: u32, x: &Atom, y: &Atom) -> Atom {
+    less(&(Atom::num(1u64 << bits) * x), y)
+}
+
+/// `|v - w| < 2^-26 |w|`: the two values agree to binary64's half precision.
+fn agree(v: &Atom, w: &Atom) -> Atom {
+    below(52, &norm(&(v - w)), &norm(w))
+}
+
+/// `|v - w| < 2^-bits |w|`: a chart moved within the rounding of its line or
+/// of its K keeps `bits` bits ([tfun_chart]).
+fn close(bits: u32, v: &Atom, w: &Atom) -> Atom {
+    below(2 * bits, &norm(&(v - w)), &norm(w))
+}
+
+/// Zero where `z` is infinite or NaN (`z - z` is not zero there).
+fn finite(z: &Atom) -> Atom {
+    if_nonzero_else(&(grouped(z) - z), Atom::num(0), Atom::num(1))
+}
+
+/// NaN, formed at run time from `z` (a quotient of two zeros that Symbolica
+/// cannot cancel): the value of a chart that the working precision cannot
+/// resolve, which the caller detects (and NinjaRS rescues in higher
+/// precision) instead of a silent wrong value.
+fn undetermined(z: &Atom) -> Atom {
+    let twice = z * Atom::num(2);
+    (grouped(z) - z) / (grouped(&twice) - &twice)
+}
+
+/// Nonzero where the arithmetic rounds like binary64: `2^60 t + t` rounds to
+/// `2^60 t` for a positive real `t`. `DoubleFloat` and `Float` keep the sum
+/// (and give zero), so that their charts are not tested at binary64's
+/// rounding (they resolve what binary64 does not; NinjaRS's rescue relies on
+/// them).
+fn rounds_like_binary64(t: &Atom) -> Atom {
+    let scaled = grouped(&(t * Atom::num(1i64 << 60)));
+    let sum = grouped(&(&scaled + t));
+    if_nonzero_else(&(sum - scaled), Atom::num(0), Atom::num(1))
+}
+
+/// Nonzero where the arithmetic is `DoubleFloat`: it keeps `t + 2^-1000 t`
+/// exactly for the exact `t = 1 + first` (1 or 2, with `first` 0 or 1), as
+/// its sums of two doubles never round, while binary64 and `Float` of fewer
+/// than 1000 bits round it to `t`. (A test that follows the working precision,
+/// `1 + x` rounding to 1, is therefore never true in `DoubleFloat`.)
+fn double_double(first: &Atom) -> Atom {
+    let t = grouped(&(1 + first));
+    let power = Atom::num(symbolica::domains::integer::Integer::from(2).pow(1000));
+    // The addend is formed at run time: a constant `1 + 2^-1000` would reach
+    // `DoubleFloat` rounded to 1 by its conversion.
+    let small = grouped(&(&t / &power));
+    let moved = grouped(&(&t + &small));
+    if_nonzero_else(&(moved - &t), Atom::num(1), Atom::num(0))
 }
 
 /// The sum of `terms`, added left to right as in OneLOop's `boxc`.
@@ -1339,11 +1399,41 @@ fn tfun_selected(
     (integral + if_nonzero_else(&less(&Atom::num(0), &im(beta)), -&residue, residue)) / data.k
 }
 
-/// [tfun_selected] with the contour `use_first` selects, or, where that
-/// contour's a1 keeps fewer than half the working precision and the other's
-/// does not and the other has a pole within 2^7 ([tfun]), with the other
-/// contour unless the two charts agree to half the working precision
-/// (2^-26 in binary64).
+/// [tfun_selected] with the contour `use_first` selects ([tfun]), except
+/// where that contour's a1 keeps fewer than half of binary64's precision
+/// (`2^56 |a1|² < |g|² + |beta h|²`, 24 bits, it is flat) and the other's does
+/// not and the other has a pole within 2^7: there the other contour, unless
+/// the two charts agree to 2^-26 (or the other is not finite).
+///
+/// In binary64 arithmetic the chart used is also tested where it is the flat
+/// selected one without a regular chart that agrees with it, and where its K
+/// rounds to zero (its far pole is then placed by [chart_k]; 09b2c74 returned
+/// 0/0 there). The flat chart is NaN unless the chart with the line's `g`
+/// moved to `g (1 + 2^-52)` (and the line's sums by the same exact amount)
+/// keeps 10 bits of it, and the chart with a vanishing K (or the other chart
+/// taken, whose K is `b a1` of the flat one) unless the chart with K at the
+/// rounding level of its terms, `2^-52 (|b a1| + |h b1|)`, keeps 13 bits.
+/// With the Gram determinant at the rounding level a flat chart's poles sit
+/// at the line edges' roots with lips that the rounding decides, and a
+/// vanishing K's far pole is a rounding residue: such charts were wrong by up
+/// to 0.2 (and NaN at 09b2c74) where no other chart is regular, and the tests
+/// make them NaN, which the caller detects (NinjaRS rescues it in higher
+/// precision). `DoubleFloat` and `Float` keep their value: they resolve what
+/// binary64 does not, and the moves are binary64 rounding units. The moved
+/// values are grouped, so that every route rounds the same moved line
+/// (moving a1 alone breaks the line products' identity `h u + j = ratio a1`
+/// ([line_product])).
+///
+/// The thresholds are fixed powers of two, so that the hand-written,
+/// generated, interpreted, SymJIT and `DoubleFloat` routes take the same chart
+/// on binary64 inputs: a test that follows the working precision (`1 + x`
+/// rounding to 1) is never true in `DoubleFloat` (which keeps `1 + x` exactly
+/// for any representable `x`) and so took other charts there. `Float`
+/// ([double_double] tells it apart) takes the selected chart: the agreement
+/// rule remedies binary64's rounding, and with binary64's thresholds, or with
+/// ones that follow its working precision, two 128-bit boxes of a 32,600-row
+/// sweep took the other chart and lost 4.2e-7 and 1.7e-6 (28 and 22 tracked
+/// bits), where 09b2c74 kept 4.5e-9 and 1.1e-16.
 fn tfun_chart(x: [&Atom; 31]) -> Atom {
     let [beta1, w1, beta2, w2, use_first] = [x[26], x[27], x[28], x[29], x[30]];
     let [b, c, g, h, d, e, f, j, dpe] = [x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9]];
@@ -1354,8 +1444,13 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         )
     };
     let [data1, data2] = [data(beta1, w1), data(beta2, w2)];
+    let scale = |beta: &Atom| norm(g) + norm(&(beta * h));
+    // The arithmetic: binary64 and `DoubleFloat` test the charts with
+    // binary64's fixed thresholds, `Float` takes the selected one.
+    let binary64 = rounds_like_binary64(&grouped(&(1 + scale(beta1))));
+    let float = (1 - &binary64) * (1 - double_double(use_first));
     let flat = |data: &BetaData, beta: &Atom| {
-        negligible(Atom::num(8) * norm(&data.a) / (norm(g) + norm(&(beta * h))))
+        if_nonzero_else(&float, Atom::num(0), below(56, &norm(&data.a), &scale(beta)))
     };
     let near = |data: &BetaData| {
         let within = |y: &Continued| less(&norm(&y.value), &Atom::num(1 << 14));
@@ -1367,22 +1462,94 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         &flat1 * (1 - &flat2) * near(&data2),
         &flat2 * (1 - &flat1) * near(&data1),
     );
-    let chart = |first: &Atom| {
+    // The chart of the contour `first`: as selected (`Chart::Plain`); with
+    // the line's g moved to `g (1 + 2^-52)` and its sums by the same exact
+    // `delta`, as grouped values, so that every route rounds the same moved
+    // line (`Chart::MovedLine`); or with K at the rounding level of its
+    // terms, `2^-52 (|b a1| + |h b1|)` (`Chart::RoundingK`).
+    #[derive(Clone, Copy, PartialEq)]
+    enum Chart {
+        Plain,
+        MovedLine,
+        RoundingK,
+    }
+    let chart = |first: &Atom, kind: Chart| {
         let beta = if_nonzero_else(first, beta1.clone(), beta2.clone());
         let w = if_nonzero_else(first, w1.clone(), w2.clone());
-        let k = chart_k(&beta, &w, b, c, g, h, d, e, f, j, dpe);
+        let [g, gh, gj, ghj] = if kind == Chart::MovedLine {
+            let shifted = grouped(&(g * Atom::num((1u64 << 52) + 1) / Atom::num(1u64 << 52)));
+            let delta = grouped(&(&shifted - g));
+            let sum = |value: &Atom| grouped(&(value + &delta));
+            [shifted, sum(x[23]), sum(x[24]), sum(x[25])]
+        } else {
+            [g, x[23], x[24], x[25]].map(Clone::clone)
+        };
+        let k = if kind == Chart::RoundingK {
+            let [a1, b1, ..] = beta_polynomial(&beta, &w, b, c, &g, h, d, e, f, j, dpe);
+            let magnitude = |z: &Atom| Symbol::ABS.call((re(z),)) + Symbol::ABS.call((im(z),));
+            (magnitude(&(b * &a1)) + magnitude(&(h * &b1))) / Atom::num(1u64 << 52)
+        } else {
+            chart_k(&beta, &w, b, c, &g, h, d, e, f, j, dpe)
+        };
         call(
             "tfun_selected",
             [
-                x[0], b, c, g, h, d, e, f, j, dpe, x[10], &beta, &w, dd, de, df, dj, ddpe, x[16],
-                x[17], x[18], x[19], x[20], x[21], x[22], x[23], x[24], x[25], &k,
+                x[0], b, c, &g, h, d, e, f, j, dpe, x[10], &beta, &w, dd, de, df, dj, ddpe, x[16],
+                x[17], x[18], x[19], x[20], x[21], x[22], &gh, &gj, &ghj, &k,
             ],
         )
     };
-    let value = chart(use_first);
-    let other = chart(&(1 - use_first));
-    let agree = negligible(norm(&(&value - &other)) / (Atom::num(2) * norm(&other)));
-    if_nonzero_else(&check, if_nonzero_else(&agree, value.clone(), other), value)
+    let value = chart(use_first, Chart::Plain);
+    // The chart used (`first`, its value `used`), tested in binary64: where
+    // `flat`, NaN unless the chart of the moved line keeps 10 bits of it;
+    // where `zero` (its K rounds to zero), NaN unless the chart with K at its
+    // rounding level keeps 13 bits.
+    let tested = |first: &Atom, used: &Atom, flat: &Atom, zero: &Atom| {
+        let keeps = |kind: Chart, bits: u32| {
+            let moved = chart(first, kind);
+            finite(&moved) * close(bits, used, &moved)
+        };
+        let line = if_nonzero_else(flat, keeps(Chart::MovedLine, 10), Atom::num(1));
+        let k = if_nonzero_else(zero, keeps(Chart::RoundingK, 13), Atom::num(1));
+        if_nonzero_else(&(line * k), used.clone(), undetermined(used))
+    };
+    let zero_k = |data: &BetaData| &binary64 * if_nonzero_else(&data.k, Atom::num(0), Atom::num(1));
+    let [zero1, zero2] = [zero_k(&data1), zero_k(&data2)];
+    let either = |p: &Atom, q: &Atom| 1 - (1 - p) * (1 - q);
+    let none = Atom::num(0);
+    // check: the other chart, taken unless the two agree (or it is not
+    // finite). The other chart used is tested as one whose K rounds to zero
+    // (its K is `b a1` of the flat selected chart, at most 24 bits), a
+    // selected chart that it does not confirm (a non-finite other) as below.
+    let other_first = 1 - use_first;
+    let other = chart(&other_first, Chart::Plain);
+    let take_other = finite(&other) * (1 - finite(&value) * agree(&value, &other));
+    let zero_selected = if_nonzero_else(use_first, zero1.clone(), zero2.clone());
+    let checked = if_nonzero_else(
+        &take_other,
+        if_nonzero_else(
+            &binary64,
+            tested(&other_first, &other, &none, &binary64),
+            other.clone(),
+        ),
+        if_nonzero_else(
+            &finite(&other),
+            value.clone(),
+            tested(use_first, &value, &binary64, &zero_selected),
+        ),
+    );
+    // Otherwise a flat selected chart (no regular alternative) and one whose
+    // K rounds to zero are tested.
+    let flat_selected = &binary64 * if_nonzero_else(use_first, flat1.clone(), flat2.clone());
+    if_nonzero_else(
+        &check,
+        checked,
+        if_nonzero_else(
+            &either(&flat_selected, &zero_selected),
+            tested(use_first, &value, &flat_selected, &zero_selected),
+            value.clone(),
+        ),
+    )
 }
 
 fn tfun(
@@ -1470,11 +1637,13 @@ fn tfun(
     // tests/data/contour_gram_rounding.txt). The other chart has a pole at infinity
     // ([chart_k]) and is regular where its other pole stays within 2^7 of the
     // triangle (with both poles far, K and L vanish together and its terms
-    // cancel). Where the selected contour's a1 keeps fewer than half the
-    // working precision (`8 |a1|²/(|g|² + |beta h|²)` [negligible]: 24 bits in
-    // binary64), the other's does not and the other has a pole within 2^7,
-    // [tfun_chart] evaluates both charts and keeps the selected one only if
-    // the two agree to half the working precision.
+    // cancel). Where the selected contour's a1 keeps fewer than 24 bits
+    // (`2^56 |a1|² < |g|² + |beta h|²`), the other's does not and the other
+    // has a pole within 2^7, [tfun_chart] evaluates both charts and keeps the
+    // selected one only if the two agree to 2^-26; in binary64 it returns
+    // NaN where the chart used, flat without a regular alternative or with a
+    // K that rounds to zero, does not keep 10 bits under a move of its line
+    // or of its K within their rounding.
     let use_first = if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1));
     let general = call(
         "tfun_chart",
@@ -1643,15 +1812,15 @@ fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     let at_00 = in_order(&[m[0] - m[1], p[5].clone(), -p[3]]);
     // Not into a chart whose conic has a double contour direction: the
     // discriminant `c² - 4 a b` of `b beta² + c beta + a` (a Källén function
-    // of three of the invariants) within half the working precision of its
-    // terms (2^-26 in binary64, [negligible]). There the two
+    // of three of the invariants) within 2^-26 of its terms (binary64's half
+    // precision, on every route; [below]). There the two
     // contours nearly coincide and the chart is singular: reflected, a box
     // with the Gram determinant at the rounding level kept 2.4e-6 where it
     // keeps 2.3e-9 unreflected (row 2 of tests/data/contour_gram_rounding.txt),
     // and another 1.9e-7 where it keeps 2.7e-9.
     let distinct = |a: &Atom, b: &Atom, c: Atom| {
         let [cc, ab] = [&c * &c, Atom::num(4) * a * b];
-        1 - negligible(norm(&(&cc - &ab)) / (Atom::num(2) * (norm(&cc) + norm(&ab))))
+        1 - below(52, &norm(&(&cc - &ab)), &(norm(&cc) + norm(&ab)))
     };
     let reflect = if_nonzero_else(
         m[2],
@@ -2107,7 +2276,22 @@ fn define(map: &mut FunctionMap, name: &str, arity: usize, build: impl FnOnce(&[
     .unwrap();
 }
 
+/// Registers [norm]. Inlined, so that the evaluators bind each operand once
+/// (as the written-out norm did); the definitions keep one copy of it per use.
+fn register_norm(map: &mut FunctionMap) {
+    let argument = symbolica::symbol!("__olo_boxc_arg_0");
+    map.add_function_with_options(
+        function("norm"),
+        vec![argument],
+        norm_body(&argument.to_atom()),
+        symbolica::evaluate::FunctionRegistrationOptions::new()
+            .inlining(symbolica::evaluate::InliningPolicy::Always),
+    )
+    .unwrap();
+}
+
 pub(crate) fn register(map: &mut FunctionMap) {
+    register_norm(map);
     define(map, "root_1", 3, |x| {
         root_bodies(&x[0], &x[1], &x[2])[0].clone()
     });
@@ -2228,6 +2412,8 @@ mod tests {
         ];
         let mut map = FunctionMap::new();
         sheet_exact::register(&mut map);
+        // `norm` is a registered function of this module.
+        register_norm(&mut map);
         let exact = Atom::evaluator_multiple(&outputs.each_ref().map(Atom::as_view), &x)
             .function_map(map.into())
             .direct_translation(true)
@@ -2309,6 +2495,7 @@ mod tests {
             .map(|name| symbolica::symbol!(name).to_atom());
         let mut map = FunctionMap::new();
         sheet_exact::register(&mut map);
+        register_norm(&mut map);
         define(&mut map, "root_1", 3, |x| {
             root_bodies(&x[0], &x[1], &x[2])[0].clone()
         });

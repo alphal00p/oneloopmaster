@@ -163,7 +163,28 @@ explicit resource limits; see [expression inspection](README.md#combining-integr
   agree to 2^-26; with both poles far (`K` and `L` vanish together) the other
   chart's terms cancel and the selected one is kept. Switching to the other
   contour unconditionally lost accuracy on more rows than it gained (the line
-  products keep the selected chart's digits down to a small `a1`). Nine
+  products keep the selected chart's digits down to a small `a1`). The
+  thresholds are fixed powers of two on every binary64 route and in
+  `DoubleFloat`, so that all of them take the same chart on binary64 inputs:
+  the earlier test that followed the working precision, `1 + x` rounding to
+  1, took other charts on the generated, interpreted and SymJIT routes, where
+  the norm `z conj(z)` of a composite `z` kept an imaginary residue (35% of
+  random vanishing-`a1` samples; v1 rows of the verifier's sweep lost up to
+  7e-9), and is never true in `DoubleFloat`, which keeps `1 + x` exactly.
+  `Float` takes the selected chart: at 128 bits the other chart lost two boxes
+  with exactly vanishing invariant combinations to 4.2e-7 and 1.7e-6 (28 and
+  22 tracked bits; 09b2c74 4.5e-9 and 1.1e-16). Where no chart is regular,
+  binary64 tests the chart it uses: a flat selected chart must keep 10 bits
+  when the line's `g` moves to `g (1 + 2^-52)` (its sums by the same exact
+  amount), and a chart whose `K` rounds to zero (or the other chart taken,
+  whose `K` is `b a1` of the flat one) 13 bits when `K` is set to its rounding
+  level `2^-52 (|b a1| + |h b1|)`; otherwise it returns NaN, which the caller
+  detects. Of the 26 boxes of the verifier's 32,600-row sweep that 09b2c74
+  returned as NaN and f2adce4 as finite wrong values (up to 2.8e2), 11 are
+  NaN again, 14 right and one within 10 times its input conditioning; 7
+  boxes that 09b2c74 already got wrong by more than 1e-6 are NaN, none that
+  it got right, and 23 boxes that f2adce4 got right (NaN or wrong at
+  09b2c74) are NaN again (`tests/data/contour_unresolved.txt`). Nine
   boxes with the Gram determinant at the rounding level, wrong by 1.4e-2 to
   140 times their value or non-finite at 09b2c74 and f2adce4, keep 1.5e-11
   (4.9e-9 one of them; `tests/data/contour_gram_rounding.txt`). The

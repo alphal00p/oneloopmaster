@@ -90,9 +90,15 @@ route (3.6e-11 before), and of 200 random such boxes all but one are within
 level, a contour whose `K` rounds to zero takes its far pole 2^52 beyond the
 near one, and where the selected contour's `g + beta h` keeps fewer than 24
 bits the other contour's chart is evaluated too and taken unless the two agree
-to half the working precision: nine such boxes, wrong by up to 140 times their
-value or non-finite at 09b2c74, keep 1.5e-11 (4.9e-9 one of them) in every
-relabelling (`tests/d0_contour_regressions.rs`). The
+to 2^-26: nine such boxes, wrong by up to 140 times their value or non-finite
+at 09b2c74, keep 1.5e-11 (4.9e-9 one of them) in every relabelling
+(`tests/d0_contour_regressions.rs`). Where no chart is regular, binary64
+returns NaN unless the chart it uses keeps 10 bits when the line moves by one
+rounding unit (a flat chart) or 13 bits with its `K` at the rounding level (a
+`K` that rounds to zero), so that such a box is non-finite, as at 09b2c74,
+rather than silently wrong (f2adce4: up to 1.9;
+`tests/data/contour_unresolved.txt`); `DoubleFloat` takes binary64's charts
+and `Float` the selected one, untested. The
 product is taken only where `g + beta h` itself cancels: where the conic
 nearly vanishes at the line's intersection with an edge, the line's and the
 conic's terms keep `y - z` from the same pole (three-mass boxes lost up to

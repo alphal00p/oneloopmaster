@@ -71,9 +71,11 @@ the contour direction, the zero-external labelling with a massless corner at
 the origin unless its chart has a double contour direction, the dilogarithms'
 complements from the poles, formed only where a dilogarithm takes
 `log(1 - x)` on a winding sheet or has an `x` that rounds to one, a far pole
-2^52 beyond the near one where `K` rounds to zero, and the other contour's
-chart where the selected one's `a1` keeps fewer than 24 bits, evaluated in a
-cold path only there and where `K` rounds to zero).
+2^52 beyond the near one where `K` rounds to zero, the other contour's chart
+where the selected one's `a1` keeps fewer than 24 bits, and the tests that
+return NaN where no chart is regular and the one used moves under its line's
+or its `K`'s rounding, evaluated in a cold path only there and where `K`
+rounds to zero).
 `tests/native_handwritten.rs` checks them
 against the generated expressions at 256 bits on randomized kinematics and on
 every distinct C0/D0 call of the recorded Ninja benchmark streams

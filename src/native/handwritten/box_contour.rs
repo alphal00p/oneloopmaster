@@ -50,10 +50,29 @@ pub(super) fn negative(x: f64) -> bool {
     x - x.abs() != 0.0
 }
 
-/// `box_complex::negligible`: `1 + x` rounds to 1 (`x <= 2^-53`).
+/// `box_complex::below`: `2^bits x < y` for squared norms (binary64's half
+/// precision for 52 and 56, as on every expression route).
 #[inline(always)]
-fn negligible(x: f64) -> bool {
-    (1.0 + x) - 1.0 == 0.0
+fn below(bits: i32, x: f64, y: f64) -> bool {
+    negative(2f64.powi(bits) * x - y)
+}
+
+/// `box_complex::agree`: `|v - w| < 2^-26 |w|`.
+#[inline(always)]
+fn agree(v: Z, w: Z) -> bool {
+    below(52, norm(v - w), norm(w))
+}
+
+/// `box_complex::close`: `|v - w| < 2^-bits |w|`.
+#[inline(always)]
+fn close(bits: i32, v: Z, w: Z) -> bool {
+    below(2 * bits, norm(v - w), norm(w))
+}
+
+/// Finite real and imaginary parts.
+#[inline(always)]
+fn finite(z: Z) -> bool {
+    z.re.is_finite() && z.im.is_finite()
 }
 
 /// `sign_nonnegative` of a real value.
@@ -842,6 +861,37 @@ fn beta_data(
     }
 }
 
+/// `beta_data` with `K` replaced by `kk` (`box_complex::tfun_chart`'s chart
+/// with K at its rounding level).
+#[cold]
+fn beta_data_with_k(
+    beta: Z, w: Z, b: Z, c: Z, g: Z, h: Z, d: Z, e: Z, f: Z, j: Z, dpe: Z, dd_: Z, de: Z, df: Z,
+    dj: Z, ddpe: Z, kk: Z,
+) -> BetaData {
+    let (a1, b1, c1, dc1) = if negative(norm(w) - norm(beta)) {
+        ((g + h) + w * h, (c + r(2.0) * b) + r(2.0) * w * b, dpe + w * e, ddpe + w * de)
+    } else {
+        (g + beta * h, c + r(2.0) * beta * b, d + beta * e, dd_ + beta * de)
+    };
+    let l = e * a1 - h * c1 - j * b1;
+    let n = f * a1 - j * c1;
+    let dl = de * a1 - h * dc1 - dj * b1;
+    let dn = df * a1 - dj * c1 - j * dc1;
+    let dn2 = -dj * dc1 - Z { re: 0.0, im: f.re.abs() } * a1;
+    let [r1_, r2_] = roots(kk, l, n);
+    BetaData {
+        a: a1,
+        b: b1,
+        c: c1,
+        dc: dc1,
+        k: kk,
+        y: [
+            continued_root(r1_, kk, l, dl, dn, dn2),
+            continued_root(r2_, kk, l, dl, dn, dn2),
+        ],
+    }
+}
+
 /// `real_intersections_absent`: real coefficients whose line and conic meet at
 /// complex conjugate points (`n^T adj(M) n > 0`).
 fn real_intersections_absent(coefficients: [Z; 9]) -> bool {
@@ -894,10 +944,15 @@ fn tfun_selected(
     dv(integral + residue, data.k)
 }
 
-/// The rare charts of `tfun`: the selected contour (`[beta, w]`, `data`)
-/// with a far pole where its K rounds to zero, and, where `check`, the other
-/// contour's chart too, taken unless the two agree to 2^-26
-/// (`box_complex::tfun_chart`).
+/// The rare charts of `tfun` (`box_complex::tfun_chart`): the selected
+/// contour (`[beta, w]`, `data`) with a far pole where its K rounds to zero;
+/// where `check`, the other contour's chart too, taken unless the two agree
+/// to 2^-26 (or it is not finite). The chart used is tested where it is the
+/// selected `flat` one without a regular chart that agrees with it (NaN
+/// unless the chart with the line's g moved to `g (1 + 2^-52)`, and its sums
+/// by the same exact amount, keeps 10 bits of it) and where its K rounds to
+/// zero or it is the other chart (whose K is `b a1` of the flat selected
+/// one): NaN unless the chart with K at its rounding level keeps 13 bits.
 #[cold]
 #[inline(never)]
 fn tfun_checked(
@@ -905,6 +960,7 @@ fn tfun_checked(
     [beta, w, other_beta, other_w]: [Z; 4],
     [data, other]: [&BetaData; 2],
     check: bool,
+    flat: bool,
     edges: [Z; 5],
     sums: [Z; 3],
     k: &Constants<f64>,
@@ -913,12 +969,37 @@ fn tfun_checked(
         let far = (!nz(data.k)).then(|| beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true));
         tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, far.as_ref().unwrap_or(data), dd_, de, df, dj, ddpe, ddpf, abc, edges, sums, k)
     };
+    let tested = |beta: Z, w: Z, data: &BetaData, used: Z, flat: bool, zero: bool| {
+        let keeps = |moved: Z, bits: i32| finite(moved) && close(bits, used, moved);
+        if flat {
+            let shifted = g * r(1.0 + f64::EPSILON);
+            let delta = shifted - g;
+            let moved = beta_data(beta, w, b, c, shifted, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true);
+            let moved = tfun_selected(a, b, c, shifted, h, d, e, f, j, dpe, dpf, beta, w, &moved, dd_, de, df, dj, ddpe, ddpf, abc, edges, sums.map(|sum| sum + delta), k);
+            if !keeps(moved, 10) {
+                return Z { re: f64::NAN, im: f64::NAN };
+            }
+        }
+        if zero {
+            let magnitude = |z: Z| z.re.abs() + z.im.abs();
+            let rounding = r((magnitude(b * data.a) + magnitude(h * data.b)) / 4503599627370496.0);
+            let probe = beta_data_with_k(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, rounding);
+            let moved = tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, &probe, dd_, de, df, dj, ddpe, ddpf, abc, edges, sums, k);
+            if !keeps(moved, 13) {
+                return Z { re: f64::NAN, im: f64::NAN };
+            }
+        }
+        used
+    };
     let value = chart(beta, w, data);
-    if !check {
-        return value;
+    if check {
+        let regular = chart(other_beta, other_w, other);
+        if finite(regular) && !(finite(value) && agree(value, regular)) {
+            return tested(other_beta, other_w, other, regular, false, true);
+        }
+        return if finite(regular) { value } else { tested(beta, w, data, value, true, !nz(data.k)) };
     }
-    let regular = chart(other_beta, other_w, other);
-    if negligible(norm(value - regular) / (2.0 * norm(regular))) { value } else { regular }
+    if flat || !nz(data.k) { tested(beta, w, data, value, flat, !nz(data.k)) } else { value }
 }
 
 /// `tfun`; `edges` holds `[λ_a, λ_abc, λ_bc, q10, q11]` (`edge_kallens` and
@@ -953,19 +1034,21 @@ fn tfun(
             let d1 = min(distance(beta1, &data1.y[0]), distance(beta1, &data1.y[1]));
             let d2 = min(distance(beta2, &data2.y[0]), distance(beta2, &data2.y[1]));
             // By default the first (`tfun`). Where the selected contour's a1
-            // keeps fewer than 24 bits (`8 |a1|²` negligible against
-            // `|g|² + |beta h|²`) and the other's does not, and the other has
-            // a pole within 2^7, the other chart is computed too and taken
-            // unless the two agree to 2^-26 (`tfun_chart`).
+            // keeps fewer than 24 bits (`2^56 |a1|² < |g|² + |beta h|²`): if
+            // the other's does not and the other has a pole within 2^7, the
+            // other chart is computed too and taken unless the two agree to
+            // 2^-26; otherwise the chart is tested against a1 moved by one
+            // rounding unit (`tfun_chart`).
             let use_first = if d1 - 1.0 != 0.0 { negative(d2 - d1) } else { true };
-            let flat = |data: &BetaData, beta: Z| negligible(8.0 * norm(data.a) / (norm(g) + norm(beta * h)));
+            let flat = |data: &BetaData, beta: Z| below(56, norm(data.a), norm(g) + norm(beta * h));
             let near = |data: &BetaData| negative(norm(data.y[0].v) - 16384.0) || negative(norm(data.y[1].v) - 16384.0);
             let ((beta, data), (other_beta, other)) = if use_first { ((beta1, &data1), (beta2, &data2)) } else { ((beta2, &data2), (beta1, &data1)) };
-            let check = flat(data, beta) && !flat(other, other_beta) && near(other);
-            if check || !nz(data.k) {
+            let flat_selected = flat(data, beta);
+            let check = flat_selected && !flat(other, other_beta) && near(other);
+            if flat_selected || !nz(data.k) {
                 let [w, other_w] = if use_first { [w1, w2] } else { [w2, w1] };
                 let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
-                return -(r(sj as f64) * tfun_checked(coefficients, [beta, w, other_beta, other_w], [data, other], check, edges, [gh, gj, ghj], k));
+                return -(r(sj as f64) * tfun_checked(coefficients, [beta, w, other_beta, other_w], [data, other], check, flat_selected, edges, [gh, gj, ghj], k));
             }
             let w = if use_first { w1 } else { w2 };
             tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, data, dd_, de, df, dj, ddpe, ddpf, abc, edges, [gh, gj, ghj], k)
@@ -1106,7 +1189,7 @@ fn opposite(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
 /// `zero_external`: `zero_external_chart` reflected where `m2` is massless,
 /// the line passes nearer the corner (1, 0) than (0, 0), and neither of the
 /// reflected chart's conics has a double contour direction (a discriminant
-/// `c² - 4 a b` within 2^-26 of its terms, `negligible`).
+/// `c² - 4 a b` within 2^-26 of its terms, `below`).
 fn zero_external(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     if !nz(m[2]) && nz(m[3]) && nz(p[1]) {
         let at_10 = m[0] - m[1] + p[1] - p[4];
@@ -1115,7 +1198,7 @@ fn zero_external(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
             let reflected = [p[0], p[3], p[2], p[1], p[5], p[4]];
             let distinct = |a: Z, b: Z, c: Z| {
                 let [cc, ab] = [c * c, r(4.0) * a * b];
-                !negligible(norm(cc - ab) / (2.0 * (norm(cc) + norm(ab))))
+                !below(52, norm(cc - ab), norm(cc) + norm(ab))
             };
             let [p0, p1, p2, p3, p4, p5] = reflected;
             if distinct(p2, p1, p5 - p1 - p2) && distinct(p2, p4 - p0, p3 - p4 - p2) {
