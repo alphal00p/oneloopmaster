@@ -142,7 +142,9 @@ pub(crate) fn box_series(p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeri
     // s12 or s23 vanishes. The finite sector formulas can divide by those
     // channels, so skipping this permutation can silently return zero.
     // Only the exact-zero case is selected here, not the reference's optional
-    // tolerance-based "hard kinematics" warning/coercion.
+    // tolerance-based "hard kinematics" warning/coercion. The handwritten
+    // binary64 dispatch mirrors this exchange (boxes.rs `hard_kinematics`) and
+    // leaves the soft-line exchange below to the generated code.
     let abs = p.map(|v| Symbol::ABS.call((v,)));
     let min = |a: &Atom, b: &Atom| {
         if_nonzero_else(&sheet_exact::negative(&(a - b)), a.clone(), b.clone())
@@ -155,14 +157,72 @@ pub(crate) fn box_series(p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeri
     let choose24 =
         sheet_exact::negative(&(&min13 - &min24)) * sheet_exact::negative(&(&min56 - &min24));
     let hard = if_nonzero(p[4], if_nonzero(p[5], Atom::num(1)));
+    // The sector formulas find the soft limits on the four external invariants
+    // only: a massless line i with two lines k on their mass shells,
+    // (q_i - q_k)^2 = m_k exactly, across its two legs. A relabelling of the
+    // same box can put such a pair with a massive k on a channel, where the
+    // finite formulas apply and miss the pole (the vanishing channel of a
+    // massless k is exchanged above). Then take the labelling, of the two
+    // others, whose channels are nonzero and hold no such pair, also instead
+    // of the vanishing-channel choice; other labellings are unchanged.
+    let pair = |i: usize, k: usize| match (i.min(k), i.max(k)) {
+        (0, 1) => p[0],
+        (1, 2) => p[1],
+        (2, 3) => p[2],
+        (0, 3) => p[3],
+        (0, 2) => p[4],
+        _ => p[5],
+    };
+    // Nonzero unless massless line i has its massive channel partner k and one
+    // of its leg partners j, l on shell.
+    let soft_free = |i: usize, k: usize, j: usize, l: usize| {
+        if_nonzero_else(
+            m[i],
+            Atom::num(1),
+            if_nonzero_else(
+                m[k],
+                if_nonzero_else(
+                    &(pair(i, k) - m[k]),
+                    Atom::num(1),
+                    if_nonzero(&(pair(i, j) - m[j]), pair(i, l) - m[l]),
+                ),
+                Atom::num(1),
+            ),
+        )
+    };
+    // Nonzero unless a channel of the labelling (a, b, c, d) holds such a pair.
+    let labelling_free = |[a, b, c, d]: [usize; 4]| {
+        if_nonzero(
+            &soft_free(a, c, b, d),
+            if_nonzero(
+                &soft_free(c, a, b, d),
+                if_nonzero(&soft_free(b, d, a, c), soft_free(d, b, a, c)),
+            ),
+        )
+    };
+    let regular = labelling_free([0, 1, 2, 3]);
+    let free13 = if_nonzero(p[0], if_nonzero(p[2], labelling_free([0, 2, 1, 3])));
+    let free24 = if_nonzero(p[3], if_nonzero(p[1], labelling_free([0, 1, 3, 2])));
+    // Nonzero for these exchanges. As the leading condition of every argument
+    // below it is decided once; the arguments, rather than three dispatches,
+    // are selected so that every sector is called once.
+    let soft = if_nonzero_else(
+        &regular,
+        Atom::num(0),
+        if_nonzero_else(&free13, Atom::num(1), free24),
+    );
     let select = |ordinary: &Atom, paired13: &Atom, paired24: &Atom| {
         if_nonzero_else(
-            &hard,
-            ordinary.clone(),
+            &soft,
+            if_nonzero_else(&free13, paired13.clone(), paired24.clone()),
             if_nonzero_else(
-                &choose13,
-                paired13.clone(),
-                if_nonzero_else(&choose24, paired24.clone(), ordinary.clone()),
+                &hard,
+                ordinary.clone(),
+                if_nonzero_else(
+                    &choose13,
+                    paired13.clone(),
+                    if_nonzero_else(&choose24, paired24.clone(), ordinary.clone()),
+                ),
             ),
         )
     };
