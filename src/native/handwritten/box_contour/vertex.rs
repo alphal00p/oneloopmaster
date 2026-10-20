@@ -66,21 +66,23 @@ fn tfun_vertex_suspicious(
     let data1 = beta_data(
         beta1, w1, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false,
     );
-    let data2 = beta_data(
-        beta2, w2, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false,
-    );
     let min = |x: f64, y: f64| if negative(x - y) { x } else { y };
     let d1 = min(distance(beta1, &data1.y[0]), distance(beta1, &data1.y[1]));
-    let d2 = min(distance(beta2, &data2.y[0]), distance(beta2, &data2.y[1]));
-    let use_first = if d1 - 1.0 != 0.0 {
-        negative(d2 - d1)
+    // The second contour is needed only where the first one encloses a pole
+    // (`d1` not 1), where `tfun` compares their distances.
+    let data2;
+    let (beta, data) = if d1 - 1.0 != 0.0 {
+        data2 = beta_data(
+            beta2, w2, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false,
+        );
+        let d2 = min(distance(beta2, &data2.y[0]), distance(beta2, &data2.y[1]));
+        if negative(d2 - d1) {
+            (beta1, &data1)
+        } else {
+            (beta2, &data2)
+        }
     } else {
-        true
-    };
-    let (beta, data) = if use_first {
         (beta1, &data1)
-    } else {
-        (beta2, &data2)
     };
     let size = |z: Z| norm(z).sqrt();
     let [a1, b1, c1] = [data.a, data.b, data.c];
