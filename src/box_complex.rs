@@ -1299,10 +1299,90 @@ fn real_intersections_absent(coefficients: [&Atom; 9]) -> Atom {
     real * negative(&grouped(&-delta))
 }
 
+/// Nonzero where the line edge `index` (x = 1, y = x, y = 0, as in
+/// [tfun_lines]) of a parallel chart takes its product: the arguments are
+/// `index`, the chart's poles, `beta, w, g, h, j`, the line's sums `gh, gj,
+/// ghj`, the three edges' products ([line_product]), `a1` and `scale =
+/// |g|² + |beta h|²`.
+///
+/// The products describe the poles' offsets from the line edges' roots
+/// where those offsets scale with `a1` (the line nearly parallel to the
+/// contour direction, next to a vanishing Gram determinant): there the
+/// rounded `y - z` of every edge loses digits to its own subtraction, while
+/// the products share the poles' `a1`. Elsewhere the products break the
+/// cancellations of the rounded pole that `y - z` keeps, and binary64 loses
+/// more with them than without (rows of the verifier's 32,600-row sweep at
+/// 1e-12 to 1e-5 where 09b2c74, `y - z` everywhere, kept 1.5e-13 to 7e-7).
+/// An edge whose nearer pole's `y - z` cancels by more than 64 (the edges
+/// that [r1_line] gives the product) is tested, and the chart takes no
+/// product where such an edge has none (its intersection with the line lies
+/// on the conic, [line_product], and keeps `y - z`: v1 5635, whose y = 0 edge
+/// lies within 4e-16 of its pole) or has an offset `|y - z|/|z|` more than
+/// 2^10 times `a1/sqrt(scale)` (an offset that `a1` does not account for:
+/// v1 8793 and 18833, 460 to 5700 times). An edge whose pole lies within 8
+/// offsets of an end of the edge (`min(|y|², |1 - y|²) < 64 |y - z|²`) keeps
+/// `y - z`: there [r1_line] also takes the pole's distance to that end from
+/// the rounded pole, which the product's offset no longer matches (v1 19829,
+/// 2.4e-7 from the corner where the edges x = 1 and y = x meet, with
+/// offsets 5.4e-8 and 5.6e-8; v1 1255, 13854 and g1 6075).
+///
+/// An `a1` within 16 units of its rounding (`2^96 |a1|² < scale`, the Gram
+/// determinant at the rounding level) has too few digits to compare the
+/// offsets with, and a product may replace a rounded `y - z` that vanishes
+/// (whose logarithms would be `log 0`, [tfun_lines]): there every product is
+/// kept (SymJIT lost v1 12721, whose flat charts have `a1` at 6e-18 to 6e-17
+/// of their terms, by its value without them, as at 09b2c74).
+fn products_kept(x: [&Atom; 16]) -> Atom {
+    let [index, y1, y2, beta, w, g, h, j, gh, gj, ghj] =
+        [x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9], x[10]];
+    let [a1, scale] = [x[14], x[15]];
+    let [zero, one] = [Atom::num(0), Atom::num(1)];
+    let [minus_w, minus_beta] = [-w, -beta];
+    let edges: [[&Atom; 5]; 3] = [
+        [beta, &one, h, gj, ghj],
+        [&zero, &minus_w, gh, j, ghj],
+        [&zero, &minus_beta, g, j, gj],
+    ];
+    let mut chart = Atom::num(1);
+    let mut corners = vec![];
+    let mut vanishing = Atom::num(1);
+    for ([d, e, b, c, far], product) in edges.into_iter().zip([x[11], x[12], x[13]]) {
+        let valid = if_nonzero(e, Atom::num(1)) * if_nonzero(b, Atom::num(1));
+        let [p1, p2] = [y1, y2].map(|y| (d + y) / e);
+        let z = if_nonzero_else(far, -c / b, Atom::num(1));
+        let [n1, n2] = [norm(&(&p1 - &z)), norm(&(&p2 - &z))];
+        let first = less(&n1, &n2);
+        let nearer = if_nonzero_else(&first, n1, n2);
+        let pole = if_nonzero_else(&first, p1.clone(), p2.clone());
+        let hzz = norm(&z);
+        let cancels = valid
+            * less(&(Atom::num(4096) * &nearer), &hzz)
+            * if_nonzero(&(&p1 - &p2), Atom::num(1));
+        let unscaled = less(&(Atom::num(1u64 << 20) * &hzz * norm(a1)), &(&nearer * scale));
+        let fails = &cancels * (1 - if_nonzero(product, Atom::num(1)) * (1 - unscaled));
+        chart = chart * (1 - fails);
+        vanishing = vanishing
+            * (1 - &cancels * if_nonzero_else(&nearer, Atom::num(0), Atom::num(1)) * if_nonzero(product, Atom::num(1)));
+        let end = min(&norm(&pole), &norm(&(&pole - 1)));
+        corners.push(cancels * less(&end, &(Atom::num(64) * nearer)));
+    }
+    let corner = if_nonzero_else(
+        index,
+        if_nonzero_else(&(index - 1), corners[2].clone(), corners[1].clone()),
+        corners[0].clone(),
+    );
+    // An `a1` within 16 units of its rounding, or a product where the
+    // rounded `y - z` vanishes, keeps every product.
+    let unresolved = less(&(Atom::num(symbolica::domains::integer::Integer::from(2).pow(96)) * norm(a1)), scale);
+    let all = 1 - (1 - unresolved) * vanishing;
+    if_nonzero_else(&all, Atom::num(1), chart * (1 - corner))
+}
+
 /// The chart of [tfun] for the contour `beta` (with `w = beta - 1` and the
 /// chart's `k`), with the line products only where `products` (and the line
-/// is nearly parallel to the contour direction) and the poles moved by
-/// `shift1`, `shift2` ([tfun_selected]).
+/// is nearly parallel to the contour direction; 1: those of [products_kept],
+/// 2: all of them) and the poles moved by `shift1`, `shift2`
+/// ([tfun_selected]).
 fn tfun_lines(
     [
         a,
@@ -1381,11 +1461,8 @@ fn tfun_lines(
     let conic_norm = [a, b, c, d, e, f]
         .into_iter()
         .fold(Atom::num(0), |sum, coefficient| sum + norm(coefficient));
-    let parallel = products
-        * less(
-            &(Atom::num(4096) * norm(&data.a)),
-            &(norm(g) + norm(&(beta * h))),
-        );
+    let scale = norm(g) + norm(&(beta * h));
+    let parallel = if_nonzero(products, Atom::num(1)) * less(&(Atom::num(4096) * norm(&data.a)), &scale);
     let a1 = if_nonzero_else(&data.a, data.a.clone(), g / Atom::num(1u64 << 52));
     let product = |line: [&Atom; 5], ratio: Atom| {
         if_nonzero_else(
@@ -1394,9 +1471,32 @@ fn tfun_lines(
             Atom::num(0),
         )
     };
-    let product_x1 = product([beta, &one, h, gj, ghj], Atom::num(-1));
-    let product_diagonal = product([&zero, &(-w), gh, j, ghj], if_nonzero(gh, j / gh));
-    let product_y0 = product([&zero, &(-beta), g, j, gj], if_nonzero(g, j / g));
+    let raw = [
+        product([beta, &one, h, gj, ghj], Atom::num(-1)),
+        product([&zero, &(-w), gh, j, ghj], if_nonzero(gh, j / gh)),
+        product([&zero, &(-beta), g, j, gj], if_nonzero(g, j / g)),
+    ];
+    // With `products` 1, in binary64, the products of a parallel chart only
+    // where [products_kept] keeps them; with 2 all of them, for the chart
+    // tests of [tfun_chart] (the inspection form, which is the complete
+    // expansion, takes them all: the variants are algebraically identical).
+    let binary64 = rounds_like_binary64(&grouped(&(1 + &scale)))
+        * if_nonzero(&(products - Atom::num(2)), Atom::num(1));
+    let kept = |index: usize| {
+        let arguments = [
+            &Atom::num(index as i64), &y1.value, &y2.value, beta, w, g, h, j, gh, gj, ghj, &raw[0],
+            &raw[1], &raw[2], &a1, &scale,
+        ];
+        Q::rounding_choice(
+            if_nonzero_else(
+                &(&binary64 * &parallel),
+                if_nonzero_else(&call("products_kept", arguments), raw[index].clone(), Atom::num(0)),
+                raw[index].clone(),
+            ),
+            raw[index].clone(),
+        )
+    };
+    let [product_x1, product_diagonal, product_y0] = [kept(0), kept(1), kept(2)];
     // 1 - beta is -w.
     let integral = s3_line_call(y1, y2, beta, &one, h, gj, dj, ghj, &product_x1)
         - s3_line_call(y1, y2, &zero, &(-w), gh, j, dj, ghj, &product_diagonal)
@@ -1520,8 +1620,21 @@ fn tfun_edge_probe(x: [&Atom; 31]) -> Atom {
     let eb = pick(h.clone(), gh.clone(), g.clone());
     let ec = pick(gj.clone(), j.clone(), j.clone());
     let efar = pick(ghj.clone(), ghj.clone(), gj.clone());
-    let ratio = pick(Atom::num(-1), if_nonzero(gh, j / gh), if_nonzero(g, j / g));
-    let product = line_product(&data, &a1, &conic_norm, [&ed, &ee, &eb, &ec, &efar], &ratio, [b, e, f]);
+    // The three edges' products, of which [products_kept] keeps this edge's.
+    let raw = [
+        line_product(&data, &a1, &conic_norm, [beta, &Atom::num(1), h, gj, ghj], &Atom::num(-1), [b, e, f]),
+        line_product(&data, &a1, &conic_norm, [&Atom::num(0), &(-w), gh, j, ghj], &if_nonzero(gh, j / gh), [b, e, f]),
+        line_product(&data, &a1, &conic_norm, [&Atom::num(0), &(-beta), g, j, gj], &if_nonzero(g, j / g), [b, e, f]),
+    ];
+    let scale = norm(g) + norm(&(beta * h));
+    let kept = call(
+        "products_kept",
+        [
+            index, &data.y[0].value, &data.y[1].value, beta, w, g, h, j, gh, gj, ghj, &raw[0], &raw[1],
+            &raw[2], &a1, &scale,
+        ],
+    );
+    let product = kept * pick(raw[0].clone(), raw[1].clone(), raw[2].clone());
     call(
         "tfun_edge_units",
         [&data.y[0].value, &data.y[1].value, &ed, &ee, &eb, &ec, &efar, &product, which],
@@ -1634,12 +1747,18 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
     // `delta`, as grouped values, so that every route rounds the same moved
     // line (`Chart::MovedLine`); or with K at the rounding level of its
     // terms, `2^-52 (|b a1| + |h b1|)` (`Chart::RoundingK`).
+    //
+    // These charts, which the tests and the agreement compare, take every line
+    // product (`products` 2, as before [products_kept]); the chart returned
+    // takes the kept ones (the probed selected chart, or the other chart as
+    // `Chart::Kept`).
     #[derive(Clone, Copy, PartialEq)]
     enum Chart {
         Plain,
         MovedLine,
         RoundingK,
         Probed,
+        Kept,
     }
     let chart = |first: &Atom, kind: Chart| {
         let beta = if_nonzero_else(first, beta1.clone(), beta2.clone());
@@ -1666,9 +1785,10 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         if kind == Chart::Probed {
             return call("tfun_selected", arguments);
         }
-        let [one, zero] = [Atom::num(1), Atom::num(0)];
+        let products = Atom::num(if kind == Chart::Kept { 1 } else { 2 });
+        let zero = Atom::num(0);
         let mut arguments: Vec<&Atom> = arguments.to_vec();
-        arguments.extend([&one, &zero, &zero]);
+        arguments.extend([&products, &zero, &zero]);
         call::<32>("tfun_lines", arguments.try_into().unwrap())
     };
     let value = chart(use_first, Chart::Plain);
@@ -1697,14 +1817,15 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
     // selected chart that it does not confirm (a non-finite other) as below.
     let other_first = 1 - use_first;
     let other = chart(&other_first, Chart::Plain);
+    let kept = chart(&other_first, Chart::Kept);
     let take_other = finite(&other) * (1 - finite(&value) * agree(&value, &other));
     let zero_selected = if_nonzero_else(use_first, zero1.clone(), zero2.clone());
     let checked = if_nonzero_else(
         &take_other,
         if_nonzero_else(
             &binary64,
-            tested(&other_first, &other, &other, &none, &binary64),
-            other.clone(),
+            tested(&other_first, &other, &kept, &none, &binary64),
+            kept.clone(),
         ),
         if_nonzero_else(
             &finite(&other),
@@ -2513,6 +2634,9 @@ pub(crate) fn register(map: &mut FunctionMap) {
     define(map, "t13", 26, |x| t13(core::array::from_fn(|idx| &x[idx])));
     define(map, "tfun_lines", 32, |x| {
         tfun_lines(core::array::from_fn(|idx| &x[idx]))
+    });
+    define(map, "products_kept", 16, |x| {
+        products_kept(core::array::from_fn(|idx| &x[idx]))
     });
     define(map, "tfun_edge_units", 9, |x| {
         tfun_edge_units(core::array::from_fn(|idx| &x[idx]))

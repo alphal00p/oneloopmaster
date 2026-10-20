@@ -747,6 +747,66 @@ impl LineProduct<'_> {
     }
 }
 
+/// The line edges of a parallel chart that take their product
+/// (`box_complex::products_kept`, `scale = |g|² + |beta h|²`). Every one for
+/// an `a1` within 16 units of its rounding (`2^96 |a1|² < scale`) or where a
+/// product replaces a rounded `y - z` that vanishes. Otherwise, among the
+/// edges whose nearer pole's `y - z` cancels by more than 64: none where one
+/// of them has no product or an offset more than 2^10 times `a1` relative to
+/// its root (`2^20 |z|² |a1|² < |y - z|² scale`), and else each but one whose
+/// pole lies within 8 offsets of an end of the edge (`min(|y|², |1 - y|²) <
+/// 64 |y - z|²`).
+#[cold]
+#[inline(never)]
+fn products_kept(lines: &[LineProduct; 3], data: &BetaData, scale: f64) -> [bool; 3] {
+    let mut kept = [true; 3];
+    // An a1 within 16 units of its rounding (`2^96 |a1|² < scale`) keeps them all.
+    if negative(79228162514264337593543950336.0 * norm(lines[0].a1) - scale) {
+        return kept;
+    }
+    let mut chart = true;
+    for (index, line) in lines.iter().enumerate() {
+        let [d, e, b, c, far] = line.line;
+        if !nz(e) || !nz(b) {
+            continue;
+        }
+        let inv_e = inverse(&e);
+        let [p1, p2] = data.y.map(|y| (d + y.v) * inv_e);
+        let z = if nz(far) { -dv(c, b) } else { ONE };
+        let [o1, o2] = [p1 - z, p2 - z];
+        let [n1, n2] = [norm(o1), norm(o2)];
+        let (pole, nearer, far_offset) = if negative(n1 - n2) { (p1, n1, o2) } else { (p2, n2, o1) };
+        let hzz = norm(z);
+        if !(negative(4096.0 * nearer - hzz) && nz(p1 - p2)) {
+            continue;
+        }
+        let product = line.over(far_offset);
+        // A product where the rounded `y - z` vanishes keeps them all.
+        if nearer == 0.0 && product.is_some() {
+            return [true; 3];
+        }
+        if product.is_none() || negative(1048576.0 * hzz * norm(line.a1) - nearer * scale) {
+            chart = false;
+        }
+        let [to_zero, to_one] = [norm(pole), norm(pole - ONE)];
+        let end = if negative(to_zero - to_one) { to_zero } else { to_one };
+        if negative(end - 64.0 * nearer) {
+            kept[index] = false;
+        }
+    }
+    if chart { kept } else { [false; 3] }
+}
+
+/// The line products of `tfun_lines`: none (`y - z` everywhere), those
+/// that `products_kept` keeps, or every one of a parallel chart (the chart
+/// tests of `tfun_checked`, `box_complex::tfun_chart`).
+#[derive(Clone, Copy, PartialEq)]
+enum Products {
+    None,
+    Kept,
+    All,
+}
+
 /// `t1`; `gh`, `gj`, `ghj` are the line's g + h, g + j, g + h + j.
 fn t1(
     [a, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, ac, lambda_ac, far_ac, lambda_a, far_a, gh, gj, ghj]: [Z; 22],
@@ -953,7 +1013,7 @@ fn tfun_selected(
 ) -> Z {
     let probe = Cell::new((0.0, 0, ZERO));
     let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
-    let value = tfun_lines(coefficients, beta, w, data, edges, sums, true, Some(&probe), k);
+    let value = tfun_lines(coefficients, beta, w, data, edges, sums, Products::Kept, Some(&probe), k);
     probed(coefficients, beta, w, data, edges, sums, value, probe.get(), k)
 }
 
@@ -990,22 +1050,22 @@ fn tfun_probed(
 ) -> Z {
     let mut moved = BetaData { y: data.y, ..*data };
     moved.y[index].v = moved.y[index].v + shift;
-    let lines = |data: &BetaData, products: bool| tfun_lines(coefficients, beta, w, data, edges, sums, products, None, k);
-    let moved_products = lines(&moved, true);
-    let direct = lines(data, false);
-    let moved_direct = lines(&moved, false);
+    let lines = |data: &BetaData, products: Products| tfun_lines(coefficients, beta, w, data, edges, sums, products, None, k);
+    let moved_products = lines(&moved, Products::Kept);
+    let direct = lines(data, Products::None);
+    let moved_direct = lines(&moved, Products::None);
     let finite_all = finite(moved_products) && finite(direct) && finite(moved_direct);
     if finite_all && !negative(norm(moved_products - value) - norm(moved_direct - direct)) { direct } else { value }
 }
 
 /// `tfun_lines`; the line products only where `products` (and the line is
-/// nearly parallel to the contour direction), recording their disagreement
-/// with `y - z` in `probe`.
+/// nearly parallel to the contour direction; `Products::Kept` those of
+/// `products_kept`), recording their disagreement with `y - z` in `probe`.
 fn tfun_lines(
     [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z; 18],
     beta: Z, w: Z, data: &BetaData,
     [lambda_a, lambda_abc, lambda_bc, q10, q11]: [Z; 5], [gh, gj, ghj]: [Z; 3],
-    products: bool, probe: Option<&Cell<Probe>>, k: &Constants<f64>,
+    products: Products, probe: Option<&Cell<Probe>>, k: &Constants<f64>,
 ) -> Z {
     let [y1, y2] = &data.y;
     let p1 = inside(beta, y1);
@@ -1017,12 +1077,22 @@ fn tfun_lines(
     // The products only for a line nearly parallel to the contour direction
     // (a1 = g + beta h cancels by more than 64), with an a1 that rounds to
     // zero at its rounding level 2^-52 g (`box_complex::tfun_selected`).
-    let parallel = products && negative(4096.0 * norm(data.a) - (norm(g) + norm(beta * h)));
+    let scale = norm(g) + norm(beta * h);
+    let parallel = products != Products::None && negative(4096.0 * norm(data.a) - scale);
     let a1 = if nz(data.a) { data.a } else { g * r(1.0 / 4503599627370496.0) };
     let line = |line: [Z; 5], ratio: [Z; 2]| LineProduct { line, ratio, conic: &conic, data, a1, probe };
-    let integral = s3_line(y1, y2, dj, &line([beta, ONE, h, gj, ghj], [r(-1.0), ONE]), parallel, k)
-        - s3_line(y1, y2, dj, &line([ZERO, -w, gh, j, ghj], [j, gh]), parallel, k)
-        + s3_line(y1, y2, dj, &line([ZERO, -beta, g, j, gj], [j, g]), parallel, k)
+    let lines = [
+        line([beta, ONE, h, gj, ghj], [r(-1.0), ONE]),
+        line([ZERO, -w, gh, j, ghj], [j, gh]),
+        line([ZERO, -beta, g, j, gj], [j, g]),
+    ];
+    let kept = match (parallel, products) {
+        (false, _) => [false; 3],
+        (true, Products::Kept) => products_kept(&lines, data, scale),
+        (true, _) => [true; 3],
+    };
+    let integral = s3_line(y1, y2, dj, &lines[0], kept[0], k) - s3_line(y1, y2, dj, &lines[1], kept[1], k)
+        + s3_line(y1, y2, dj, &lines[2], kept[2], k)
         - s3(y1, y2, beta, ONE, b, c + e, a + dpf, de, ddpf, [lambda_bc, b, q10, q11], k)
         + s3(y1, y2, ZERO, -w, sum, dpe, f, ddpe, df, [lambda_abc, abc, f, q11], k)
         - s3(y1, y2, ZERO, -beta, a, d, f, dd_, df, [lambda_a, a, f, q10], k);
@@ -1054,19 +1124,22 @@ fn tfun_checked(
     k: &Constants<f64>,
 ) -> Z {
     let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
-    let chart_with = |beta: Z, w: Z, data: &BetaData, probe: Option<&Cell<Probe>>| {
+    let chart_with = |beta: Z, w: Z, data: &BetaData, products: Products, probe: Option<&Cell<Probe>>| {
         let far = (!nz(data.k)).then(|| beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true));
         let data = far.unwrap_or(BetaData { y: data.y, ..*data });
-        (tfun_lines(coefficients, beta, w, &data, edges, sums, true, probe, k), data)
+        (tfun_lines(coefficients, beta, w, &data, edges, sums, products, probe, k), data)
     };
-    let chart = |beta: Z, w: Z, data: &BetaData| chart_with(beta, w, data, None).0;
-    let tested = |beta: Z, w: Z, data: &BetaData, used: Z, flat: bool, zero: bool| {
+    let chart = |beta: Z, w: Z, data: &BetaData, products: Products| chart_with(beta, w, data, products, None).0;
+    // The tests and the agreement compare the charts with every line product
+    // (`used`, `Products::All`); a chart they keep gives `result`, with the
+    // products that `products_kept` keeps.
+    let tested = |beta: Z, w: Z, data: &BetaData, used: Z, result: Z, flat: bool, zero: bool| {
         let keeps = |moved: Z, bits: i32| finite(moved) && close(bits, used, moved);
         if flat {
             let shifted = g * r(1.0 + f64::EPSILON);
             let delta = shifted - g;
             let moved = beta_data(beta, w, b, c, shifted, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true);
-            let moved = tfun_lines([a, b, c, shifted, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc], beta, w, &moved, edges, sums.map(|sum| sum + delta), true, None, k);
+            let moved = tfun_lines([a, b, c, shifted, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc], beta, w, &moved, edges, sums.map(|sum| sum + delta), Products::All, None, k);
             if !keeps(moved, 10) {
                 return Z { re: f64::NAN, im: f64::NAN };
             }
@@ -1075,17 +1148,18 @@ fn tfun_checked(
             let magnitude = |z: Z| z.re.abs() + z.im.abs();
             let rounding = r((magnitude(b * data.a) + magnitude(h * data.b)) / 4503599627370496.0);
             let probe = beta_data_with_k(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, rounding);
-            let moved = tfun_lines(coefficients, beta, w, &probe, edges, sums, true, None, k);
+            let moved = tfun_lines(coefficients, beta, w, &probe, edges, sums, Products::All, None, k);
             if !keeps(moved, 13) {
                 return Z { re: f64::NAN, im: f64::NAN };
             }
         }
-        used
+        result
     };
-    // The selected chart, tested as it is (with the line products); where the
-    // tests keep it, its value is probed as in `tfun_selected`.
+    // The selected chart, tested with every line product; where the tests keep
+    // it, its value (with the products kept) is probed as in `tfun_selected`.
     let probe = Cell::new((0.0, 0, ZERO));
-    let (value, used) = chart_with(beta, w, data, Some(&probe));
+    let (value, used) = chart_with(beta, w, data, Products::Kept, Some(&probe));
+    let all = chart(beta, w, data, Products::All);
     let probed = |result: Z| {
         if finite(value) && result.re.to_bits() == value.re.to_bits() && result.im.to_bits() == value.im.to_bits() {
             probed(coefficients, beta, w, &used, edges, sums, value, probe.get(), k)
@@ -1094,13 +1168,14 @@ fn tfun_checked(
         }
     };
     if check {
-        let regular = chart(other_beta, other_w, other);
-        if finite(regular) && !(finite(value) && agree(value, regular)) {
-            return tested(other_beta, other_w, other, regular, false, true);
+        let regular = chart(other_beta, other_w, other, Products::All);
+        if finite(regular) && !(finite(all) && agree(all, regular)) {
+            let kept = chart(other_beta, other_w, other, Products::Kept);
+            return tested(other_beta, other_w, other, regular, kept, false, true);
         }
-        return probed(if finite(regular) { value } else { tested(beta, w, data, value, true, !nz(data.k)) });
+        return probed(if finite(regular) { value } else { tested(beta, w, data, all, value, true, !nz(data.k)) });
     }
-    probed(if flat || !nz(data.k) { tested(beta, w, data, value, flat, !nz(data.k)) } else { value })
+    probed(if flat || !nz(data.k) { tested(beta, w, data, all, value, flat, !nz(data.k)) } else { value })
 }
 
 /// `tfun`; `edges` holds `[λ_a, λ_abc, λ_bc, q10, q11]` (`edge_kallens` and

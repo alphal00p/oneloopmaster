@@ -32,14 +32,19 @@
 //!   error and cancel it with `y - z`, which the product breaks; binary64
 //!   probes such a pole and keeps the variant that moves less
 //!   (`box_complex::tfun_selected`, tests/data/contour_pole_errors.txt).
+//! - The line products are kept only where the poles' offsets scale with
+//!   `a1` (no edge without a product, none more than 2^10 times `a1`), and not
+//!   on an edge whose pole lies within 8 offsets of an end of the edge: there
+//!   `y - z` keeps the rounded pole's cancellations that the products break
+//!   (`box_complex::products_kept`, tests/data/contour_line_products.txt).
 //! - The reflection of `zero_external` needs the line nearer (1, 0) than
 //!   (0, 0) by more than 1/128: where both corners are equally near it moves
 //!   no pole away from a corner, and its chart lost up to 1.2 times the value.
 //!
 //! References (tests/data/contour_regressions.txt,
 //! tests/data/contour_gram_rounding.txt, tests/data/contour_unresolved.txt,
-//! tests/data/contour_pole_errors.txt): COLLIER 1.2.9 in quadruple
-//! precision, independent of OneLOop and this crate.
+//! tests/data/contour_pole_errors.txt, tests/data/contour_line_products.txt):
+//! COLLIER 1.2.9 in quadruple precision, independent of OneLOop and this crate.
 #![cfg(feature = "generated-evaluators")]
 use oneloop::{
     EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral, evaluate_with_backend,
@@ -396,6 +401,26 @@ fn contour_boxes_with_inaccurate_poles_match_collier_in_binary64() {
         check_binary64(
             include_str!("data/contour_pole_errors.txt"),
             5,
+            BINARY64,
+            1e-14,
+            false,
+        )
+    });
+}
+
+/// Boxes whose line products lost to the rounded `y - z` where the poles'
+/// offsets from the line edges' roots do not scale with `a1`
+/// (tests/data/contour_line_products.txt, `box_complex::products_kept`):
+/// every binary64 route within the row's tolerance in all 24 relabellings,
+/// where cb5370d lost up to 1.3e-5 (about 10 times 09b2c74 on rows 2 to 7,
+/// see the data file); DoubleFloat within 1e-14. Row 8 keeps every product of
+/// its flat charts (SymJIT was wrong by 1.2 there without them).
+#[test]
+fn contour_boxes_with_unscaled_line_offsets_match_collier_in_binary64() {
+    on_stack(|| {
+        check_binary64(
+            include_str!("data/contour_line_products.txt"),
+            8,
             BINARY64,
             1e-14,
             false,
