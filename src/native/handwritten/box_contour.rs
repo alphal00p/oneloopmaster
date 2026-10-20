@@ -50,6 +50,12 @@ pub(super) fn negative(x: f64) -> bool {
     x - x.abs() != 0.0
 }
 
+/// `box_complex::negligible`: `1 + x` rounds to 1 (`x <= 2^-53`).
+#[inline(always)]
+fn negligible(x: f64) -> bool {
+    (1.0 + x) - 1.0 == 0.0
+}
+
 /// `sign_nonnegative` of a real value.
 #[inline(always)]
 fn sgn(x: f64) -> i32 {
@@ -797,9 +803,10 @@ struct BetaData {
 
 /// `beta_data`; `w` is beta - 1, and nearer 1 than 0 the coefficients are
 /// expanded about beta = 1 (`dpe` = d + e, `ddpe` = dd + de).
+#[inline(always)]
 fn beta_data(
     beta: Z, w: Z, b: Z, c: Z, g: Z, h: Z, d: Z, e: Z, f: Z, j: Z, dpe: Z, dd_: Z, de: Z, df: Z,
-    dj: Z, ddpe: Z,
+    dj: Z, ddpe: Z, far_pole: bool,
 ) -> BetaData {
     let (a1, b1, c1, dc1) = if negative(norm(w) - norm(beta)) {
         ((g + h) + w * h, (c + r(2.0) * b) + r(2.0) * w * b, dpe + w * e, ddpe + w * de)
@@ -809,6 +816,15 @@ fn beta_data(
     let kk = b * a1 - h * b1;
     let l = e * a1 - h * c1 - j * b1;
     let n = f * a1 - j * c1;
+    // In the chart (`far_pole`), a K that rounds to zero puts its far pole
+    // 2^52 (1 + |N/L|²) away (`box_complex::beta_data`).
+    let kk = if nz(kk) || !far_pole {
+        kk
+    } else if nz(l) {
+        -dv(l, r(4503599627370496.0 * (1.0 + norm(dv(n, l)))))
+    } else {
+        ZERO
+    };
     let dl = de * a1 - h * dc1 - dj * b1;
     let dn = df * a1 - dj * c1 - j * dc1;
     let dn2 = -dj * dc1 - Z { re: 0.0, im: f.re.abs() } * a1;
@@ -878,6 +894,33 @@ fn tfun_selected(
     dv(integral + residue, data.k)
 }
 
+/// The rare charts of `tfun`: the selected contour (`[beta, w]`, `data`)
+/// with a far pole where its K rounds to zero, and, where `check`, the other
+/// contour's chart too, taken unless the two agree to 2^-26
+/// (`box_complex::tfun_chart`).
+#[cold]
+#[inline(never)]
+fn tfun_checked(
+    [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z; 18],
+    [beta, w, other_beta, other_w]: [Z; 4],
+    [data, other]: [&BetaData; 2],
+    check: bool,
+    edges: [Z; 5],
+    sums: [Z; 3],
+    k: &Constants<f64>,
+) -> Z {
+    let chart = |beta: Z, w: Z, data: &BetaData| {
+        let far = (!nz(data.k)).then(|| beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true));
+        tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, far.as_ref().unwrap_or(data), dd_, de, df, dj, ddpe, ddpf, abc, edges, sums, k)
+    };
+    let value = chart(beta, w, data);
+    if !check {
+        return value;
+    }
+    let regular = chart(other_beta, other_w, other);
+    if negligible(norm(value - regular) / (2.0 * norm(regular))) { value } else { regular }
+}
+
 /// `tfun`; `edges` holds `[λ_a, λ_abc, λ_bc, q10, q11]` (`edge_kallens` and
 /// the conic's values at the corners (1, 0) and (1, 1)), `line_sums` the
 /// line's g + h, g + j and g + h + j from the invariants.
@@ -904,16 +947,28 @@ fn tfun(
             let w2 = if negative(norm(o2) - norm(o1)) { dv(abc, b * o1) } else { o2 };
             let swap = negative(norm(root2) - norm(root1));
             let ((beta1, w1), (beta2, w2)) = if swap { ((root2, w2), (root1, w1)) } else { ((root1, w1), (root2, w2)) };
-            let data1 = beta_data(beta1, w1, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe);
-            let data2 = beta_data(beta2, w2, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe);
+            let data1 = beta_data(beta1, w1, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false);
+            let data2 = beta_data(beta2, w2, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false);
             let min = |x: f64, y: f64| if negative(x - y) { x } else { y };
             let d1 = min(distance(beta1, &data1.y[0]), distance(beta1, &data1.y[1]));
             let d2 = min(distance(beta2, &data2.y[0]), distance(beta2, &data2.y[1]));
-            // By default the first; never a first contour whose K vanishes
-            // where the second's does not (`tfun`).
-            let use_first = (if d1 - 1.0 != 0.0 { negative(d2 - d1) } else { true }) && (nz(data1.k) || !nz(data2.k));
-            let (beta, w, data) = if use_first { (beta1, w1, data1) } else { (beta2, w2, data2) };
-            tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, &data, dd_, de, df, dj, ddpe, ddpf, abc, edges, [gh, gj, ghj], k)
+            // By default the first (`tfun`). Where the selected contour's a1
+            // keeps fewer than 24 bits (`8 |a1|²` negligible against
+            // `|g|² + |beta h|²`) and the other's does not, and the other has
+            // a pole within 2^7, the other chart is computed too and taken
+            // unless the two agree to 2^-26 (`tfun_chart`).
+            let use_first = if d1 - 1.0 != 0.0 { negative(d2 - d1) } else { true };
+            let flat = |data: &BetaData, beta: Z| negligible(8.0 * norm(data.a) / (norm(g) + norm(beta * h)));
+            let near = |data: &BetaData| negative(norm(data.y[0].v) - 16384.0) || negative(norm(data.y[1].v) - 16384.0);
+            let ((beta, data), (other_beta, other)) = if use_first { ((beta1, &data1), (beta2, &data2)) } else { ((beta2, &data2), (beta1, &data1)) };
+            let check = flat(data, beta) && !flat(other, other_beta) && near(other);
+            if check || !nz(data.k) {
+                let [w, other_w] = if use_first { [w1, w2] } else { [w2, w1] };
+                let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
+                return -(r(sj as f64) * tfun_checked(coefficients, [beta, w, other_beta, other_w], [data, other], check, edges, [gh, gj, ghj], k));
+            }
+            let w = if use_first { w1 } else { w2 };
+            tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, data, dd_, de, df, dj, ddpe, ddpf, abc, edges, [gh, gj, ghj], k)
         } else {
             // a = 0: b + c = abc, and the new a + c is b. The new conic takes
             // the values q11, q10 and f at the corners (0, 0), (1, 0), (1, 1),
@@ -1048,14 +1103,24 @@ fn opposite(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     opposite_chart(p, m, k)
 }
 
-/// `zero_external`: `zero_external_chart` reflected where `m2` is massless
-/// and the line passes nearer the corner (1, 0) than (0, 0).
+/// `zero_external`: `zero_external_chart` reflected where `m2` is massless,
+/// the line passes nearer the corner (1, 0) than (0, 0), and neither of the
+/// reflected chart's conics has a double contour direction (a discriminant
+/// `c² - 4 a b` within 2^-26 of its terms, `negligible`).
 fn zero_external(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     if !nz(m[2]) && nz(m[3]) && nz(p[1]) {
         let at_10 = m[0] - m[1] + p[1] - p[4];
         let at_00 = m[0] - m[1] + p[5] - p[3];
         if negative(norm(at_10) - norm(at_00)) {
-            return zero_external_chart([p[0], p[3], p[2], p[1], p[5], p[4]], [m[1], m[0], m[3], m[2]], k);
+            let reflected = [p[0], p[3], p[2], p[1], p[5], p[4]];
+            let distinct = |a: Z, b: Z, c: Z| {
+                let [cc, ab] = [c * c, r(4.0) * a * b];
+                !negligible(norm(cc - ab) / (2.0 * (norm(cc) + norm(ab))))
+            };
+            let [p0, p1, p2, p3, p4, p5] = reflected;
+            if distinct(p2, p1, p5 - p1 - p2) && distinct(p2, p4 - p0, p3 - p4 - p2) {
+                return zero_external_chart(reflected, [m[1], m[0], m[3], m[2]], k);
+            }
         }
     }
     zero_external_chart(p, m, k)

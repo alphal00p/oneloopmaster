@@ -34,6 +34,17 @@ fn min(a: &Atom, b: &Atom) -> Atom {
     if_nonzero_else(&less(a, b), a.clone(), b.clone())
 }
 
+/// Nonzero where the real part of `x >= 0` (a ratio of norms) is at most
+/// half an ulp of 1 at the working precision (`1 + x` rounds to 1):
+/// `x <= 2^-53` in binary64, and correspondingly smaller in `DoubleFloat` and
+/// `Float`, so that tests of half the working precision follow it (as
+/// [far_root]'s bound does). The norms' imaginary parts are rounding
+/// residues (a fused product of `z conj(z)` keeps one), so only the real part
+/// is tested.
+fn negligible(x: Atom) -> Atom {
+    if_nonzero_else(&(grouped(&(1 + re(&x))) - 1), Atom::num(0), Atom::num(1))
+}
+
 /// The sum of `terms`, added left to right as in OneLOop's `boxc`.
 ///
 /// Symbolica orders the terms of a sum canonically, so `m2 - m3 - p2` need
@@ -1039,6 +1050,8 @@ struct BetaData {
 /// (by 800 in a three-mass box with s23 = 0.0049 next to masses 0.013, which
 /// cost binary64 3e-11 in its poles). Nearer 1 than 0 the coefficients are
 /// therefore expanded about beta = 1.
+///
+/// `k`, where given, replaces `K = b a1 - h b1` ([chart_k]).
 fn beta_data(
     beta: &Atom,
     w: &Atom,
@@ -1056,18 +1069,12 @@ fn beta_data(
     df: &Atom,
     dj: &Atom,
     ddpe: &Atom,
+    k: Option<&Atom>,
 ) -> BetaData {
     let near_one = less(&norm(w), &norm(beta));
     let expanded = |at_one: Atom, at_zero: Atom| if_nonzero_else(&near_one, at_one, at_zero);
-    let a1 = expanded(grouped(&(g + h)) + w * h, g + beta * h);
-    let b1 = expanded(
-        grouped(&(c + Atom::num(2) * b)) + Atom::num(2) * w * b,
-        c + Atom::num(2) * beta * b,
-    );
-    let c1 = expanded(dpe + w * e, d + beta * e);
-    let k = b * &a1 - h * &b1;
-    let l = e * &a1 - h * &c1 - j * &b1;
-    let n = f * &a1 - j * &c1;
+    let [a1, b1, c1, l, n] = beta_polynomial(beta, w, b, c, g, h, d, e, f, j, dpe);
+    let k = k.cloned().unwrap_or_else(|| b * &a1 - h * &b1);
     let dc1 = expanded(ddpe + w * de, dd + beta * de);
     let dl = de * &a1 - h * &dc1 - dj * &b1;
     let dn = df * &a1 - dj * &c1 - j * &dc1;
@@ -1081,6 +1088,66 @@ fn beta_data(
         k,
         y,
     }
+}
+
+/// `[a1, b1, c1, L, N]` of [beta_data].
+fn beta_polynomial(
+    beta: &Atom,
+    w: &Atom,
+    b: &Atom,
+    c: &Atom,
+    g: &Atom,
+    h: &Atom,
+    d: &Atom,
+    e: &Atom,
+    f: &Atom,
+    j: &Atom,
+    dpe: &Atom,
+) -> [Atom; 5] {
+    let near_one = less(&norm(w), &norm(beta));
+    let expanded = |at_one: Atom, at_zero: Atom| if_nonzero_else(&near_one, at_one, at_zero);
+    let a1 = expanded(grouped(&(g + h)) + w * h, g + beta * h);
+    let b1 = expanded(
+        grouped(&(c + Atom::num(2) * b)) + Atom::num(2) * w * b,
+        c + Atom::num(2) * beta * b,
+    );
+    let c1 = expanded(dpe + w * e, d + beta * e);
+    let l = e * &a1 - h * &c1 - j * &b1;
+    let n = f * &a1 - j * &c1;
+    [a1, b1, c1, l, n]
+}
+
+/// The `K` of [tfun_selected]'s chart: `b a1 - h b1` of [beta_data], or,
+/// where that rounds to zero, the one that puts the far pole `-L/K` at
+/// `2^52 (1 + |N/L|²)`.
+///
+/// `K = b (g + beta' h)` with the other root `beta'` vanishes with the Gram
+/// determinant: one pole goes to infinity, and the chart's terms vanish with
+/// `K` (they are divided by it). A `K` that rounds to zero (0/0 and NaN at
+/// 09b2c74) is replaced so that the far pole lies 2^52 beyond the near pole
+/// `-N/L` and the triangle; the terms are then within O(2^-52) of their
+/// limit. The contour selection ([tfun]) takes the roots of the unreplaced
+/// `K`, where a vanishing `K` repeats the near pole.
+fn chart_k(
+    beta: &Atom,
+    w: &Atom,
+    b: &Atom,
+    c: &Atom,
+    g: &Atom,
+    h: &Atom,
+    d: &Atom,
+    e: &Atom,
+    f: &Atom,
+    j: &Atom,
+    dpe: &Atom,
+) -> Atom {
+    let [a1, b1, _, l, n] = beta_polynomial(beta, w, b, c, g, h, d, e, f, j, dpe);
+    let k = b * &a1 - h * &b1;
+    if_nonzero_else(
+        &k,
+        k.clone(),
+        if_nonzero(&l, -&l / (Atom::num(1u64 << 52) * (1 + norm(&(&n / &l))))),
+    )
 }
 
 /// The product `(Y1 - z)(Y2 - z)` of the offsets of the mapped poles
@@ -1190,9 +1257,10 @@ fn tfun_selected(
         gh,
         gj,
         ghj,
-    ]: [&Atom; 28],
+        k,
+    ]: [&Atom; 29],
 ) -> Atom {
-    let data = beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe);
+    let data = beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, Some(k));
     let [y1, y2] = &data.y;
     let zero = Atom::num(0);
     let one = Atom::num(1);
@@ -1264,6 +1332,52 @@ fn tfun_selected(
     (integral + if_nonzero_else(&less(&Atom::num(0), &im(beta)), -&residue, residue)) / data.k
 }
 
+/// [tfun_selected] with the contour `use_first` selects, or, where that
+/// contour's a1 keeps fewer than half the working precision and the other's
+/// does not and the other has a pole within 2^7 ([tfun]), with the other
+/// contour unless the two charts agree to half the working precision
+/// (2^-26 in binary64).
+fn tfun_chart(x: [&Atom; 31]) -> Atom {
+    let [beta1, w1, beta2, w2, use_first] = [x[26], x[27], x[28], x[29], x[30]];
+    let [b, c, g, h, d, e, f, j, dpe] = [x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9]];
+    let [dd, de, df, dj, ddpe] = [x[11], x[12], x[13], x[14], x[15]];
+    let data = |beta: &Atom, w: &Atom| {
+        beta_data(
+            beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, None,
+        )
+    };
+    let [data1, data2] = [data(beta1, w1), data(beta2, w2)];
+    let flat = |data: &BetaData, beta: &Atom| {
+        negligible(Atom::num(8) * norm(&data.a) / (norm(g) + norm(&(beta * h))))
+    };
+    let near = |data: &BetaData| {
+        let within = |y: &Continued| less(&norm(&y.value), &Atom::num(1 << 14));
+        1 - (1 - within(&data.y[0])) * (1 - within(&data.y[1]))
+    };
+    let [flat1, flat2] = [flat(&data1, beta1), flat(&data2, beta2)];
+    let check = if_nonzero_else(
+        use_first,
+        &flat1 * (1 - &flat2) * near(&data2),
+        &flat2 * (1 - &flat1) * near(&data1),
+    );
+    let chart = |first: &Atom| {
+        let beta = if_nonzero_else(first, beta1.clone(), beta2.clone());
+        let w = if_nonzero_else(first, w1.clone(), w2.clone());
+        let k = chart_k(&beta, &w, b, c, g, h, d, e, f, j, dpe);
+        call(
+            "tfun_selected",
+            [
+                x[0], b, c, g, h, d, e, f, j, dpe, x[10], &beta, &w, dd, de, df, dj, ddpe, x[16],
+                x[17], x[18], x[19], x[20], x[21], x[22], x[23], x[24], x[25], &k,
+            ],
+        )
+    };
+    let value = chart(use_first);
+    let other = chart(&(1 - use_first));
+    let agree = negligible(norm(&(&value - &other)) / (Atom::num(2) * norm(&other)));
+    if_nonzero_else(&check, if_nonzero_else(&agree, value.clone(), other), value)
+}
+
 fn tfun(
     [
         a,
@@ -1320,7 +1434,7 @@ fn tfun(
         if_nonzero_else(&swap, w1, w2),
     );
     let data = |beta: &Atom, w: &Atom| {
-        beta_data(beta, w, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe)
+        beta_data(beta, w, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, None)
     };
     let data1 = data(&beta1, &w1);
     let data2 = data(&beta2, &w2);
@@ -1336,26 +1450,30 @@ fn tfun(
     );
     // The contour opposite the pole nearest a boundary is used. If the first
     // contour encloses no pole, the first (smaller-magnitude) beta is
-    // selected. Either way not a first contour whose K vanishes where the
-    // second's does not: tfun_selected divides by K, and K of one beta is
-    // b (g + beta' h) with the other beta', which vanishes with the Gram
-    // determinant (the chart is singular there, 0/0; at a box with
-    // Gram/(p1² p2² p3²) at rounding level every binary64 route returned NaN).
-    // The second contour, whose own g + beta' h vanishes instead, takes the
-    // poles' offsets from the line edges' roots ([line_product]).
-    let first_allowed = if_nonzero_else(
-        &data1.k,
-        Atom::num(1),
-        if_nonzero_else(&data2.k, Atom::num(0), Atom::num(1)),
-    );
-    let use_first = if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1)) * first_allowed;
-    let beta = if_nonzero_else(&use_first, beta1, beta2);
-    let w = if_nonzero_else(&use_first, w1, w2);
+    // selected.
+    //
+    // Next to a vanishing Gram determinant one contour's a1 = g + beta h
+    // vanishes (the line is nearly parallel to its direction (1, beta)) and
+    // the other's K = b (g + beta' h) with it. With the line products
+    // ([line_product]) the first chart keeps its digits for a small a1, but
+    // as a1 approaches the rounding level of its terms its poles sit at the
+    // line edges' roots with lips decided by the rounding, and it can be
+    // wrong by O(1): by 35 times the value in all 24 relabellings of a box
+    // with the Gram determinant at the rounding level (row 1 of
+    // tests/data/contour_gram_rounding.txt). The other chart has a pole at infinity
+    // ([chart_k]) and is regular where its other pole stays within 2^7 of the
+    // triangle (with both poles far, K and L vanish together and its terms
+    // cancel). Where the selected contour's a1 keeps fewer than half the
+    // working precision (`8 |a1|²/(|g|² + |beta h|²)` [negligible]: 24 bits in
+    // binary64), the other's does not and the other has a pole within 2^7,
+    // [tfun_chart] evaluates both charts and keeps the selected one only if
+    // the two agree to half the working precision.
+    let use_first = if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1));
     let general = call(
-        "tfun_selected",
+        "tfun_chart",
         [
-            a, b, c, &g, &h, d, e, f, &j, dpe, dpf, &beta, &w, dd, de, df, &dj, ddpe, ddpf, abc,
-            lambda_a, lambda_abc, lambda_bc, q10, q11, &gh, &gj, &ghj,
+            a, b, c, &g, &h, d, e, f, &j, dpe, dpf, dd, de, df, &dj, ddpe, ddpf, abc, lambda_a,
+            lambda_abc, lambda_bc, q10, q11, &gh, &gj, &ghj, &beta1, &w1, &beta2, &w2, &use_first,
         ],
     );
     // b = 0: a + c = abc.
@@ -1516,12 +1634,30 @@ fn no_opposite_externals(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
 fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     let at_10 = in_order(&[m[0] - m[1], p[1].clone(), -p[4]]);
     let at_00 = in_order(&[m[0] - m[1], p[5].clone(), -p[3]]);
+    // Not into a chart whose conic has a double contour direction: the
+    // discriminant `c² - 4 a b` of `b beta² + c beta + a` (a Källén function
+    // of three of the invariants) within half the working precision of its
+    // terms (2^-26 in binary64, [negligible]). There the two
+    // contours nearly coincide and the chart is singular: reflected, a box
+    // with the Gram determinant at the rounding level kept 2.4e-6 where it
+    // keeps 2.3e-9 unreflected (row 2 of tests/data/contour_gram_rounding.txt),
+    // and another 1.9e-7 where it keeps 2.7e-9.
+    let distinct = |a: &Atom, b: &Atom, c: Atom| {
+        let [cc, ab] = [&c * &c, Atom::num(4) * a * b];
+        1 - negligible(norm(&(&cc - &ab)) / (Atom::num(2) * (norm(&cc) + norm(&ab))))
+    };
     let reflect = if_nonzero_else(
         m[2],
         Atom::num(0),
         if_nonzero_else(
             m[3],
-            if_nonzero_else(p[1], less(&norm(&at_10), &norm(&at_00)), Atom::num(0)),
+            if_nonzero_else(
+                p[1],
+                less(&norm(&at_10), &norm(&at_00))
+                    * distinct(p[2], p[3], p[4] - p[3] - p[2])
+                    * distinct(p[2], &(p[5] - p[0]), p[1] - p[5] - p[2]),
+                Atom::num(0),
+            ),
             Atom::num(0),
         ),
     );
@@ -1998,8 +2134,11 @@ pub(crate) fn register(map: &mut FunctionMap) {
     });
     define(map, "t1", 22, |x| t1(core::array::from_fn(|idx| &x[idx])));
     define(map, "t13", 26, |x| t13(core::array::from_fn(|idx| &x[idx])));
-    define(map, "tfun_selected", 28, |x| {
+    define(map, "tfun_selected", 29, |x| {
         tfun_selected(core::array::from_fn(|idx| &x[idx]))
+    });
+    define(map, "tfun_chart", 31, |x| {
+        tfun_chart(core::array::from_fn(|idx| &x[idx]))
     });
     define(map, "tfun", 26, |x| {
         tfun(core::array::from_fn(|idx| &x[idx]))
