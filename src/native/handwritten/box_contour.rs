@@ -1288,14 +1288,15 @@ fn opposite(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
 }
 
 /// `zero_external`: `zero_external_chart` reflected where `m2` is massless,
-/// the line passes nearer the corner (1, 0) than (0, 0), and neither of the
-/// reflected chart's conics has a double contour direction (a discriminant
-/// `c² - 4 a b` within 2^-26 of its terms, `below`).
+/// the line passes nearer the corner (1, 0) than (0, 0) by more than 1/128
+/// (`64 |at_10|² < 63 |at_00|²`, `box_complex::zero_external`), and neither
+/// of the reflected chart's conics has a double contour direction (a
+/// discriminant `c² - 4 a b` within 2^-26 of its terms, `below`).
 fn zero_external(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     if !nz(m[2]) && nz(m[3]) && nz(p[1]) {
         let at_10 = m[0] - m[1] + p[1] - p[4];
         let at_00 = m[0] - m[1] + p[5] - p[3];
-        if negative(norm(at_10) - norm(at_00)) {
+        if negative(64.0 * norm(at_10) - 63.0 * norm(at_00)) {
             let reflected = [p[0], p[3], p[2], p[1], p[5], p[4]];
             let distinct = |a: Z, b: Z, c: Z| {
                 let [cc, ab] = [c * c, r(4.0) * a * b];

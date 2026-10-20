@@ -1975,6 +1975,15 @@ fn no_opposite_externals(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
 /// (A - 1.3458e-4 i)`, `A = 0.0154585...` and `A'` one ulp below, was wrong by
 /// 44 to 128 times its value (and NaN with the line products), and with `A'`
 /// 1e-8 or 1e-4 below `A` by 0.4 and 6e-6; reflected, it keeps 2e-12.
+///
+/// The line must pass nearer (1, 0) by more than 1/128 (`64 |at_10|² < 63
+/// |at_00|²`): where the corners are equally near, the reflection moves no
+/// pole away from a corner, and of the verifier's 32,600 boxes two took a
+/// reflected chart that lost 1.2e-12 (v1 777, both corners equally near
+/// within 0.6 %) and 0.3 to 1.2 times the value (v1 15934, equally near
+/// within rounding), where the original orientation keeps 2.6e-14 and
+/// 5.4e-14. The nearest box that the reflection improves has the line 2 %
+/// nearer (1, 0) (v1 12400: 1.4e-6 unreflected, 1.2e-13 reflected).
 fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     let at_10 = in_order(&[m[0] - m[1], p[1].clone(), -p[4]]);
     let at_00 = in_order(&[m[0] - m[1], p[5].clone(), -p[3]]);
@@ -1997,7 +2006,10 @@ fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
             m[3],
             if_nonzero_else(
                 p[1],
-                less(&norm(&at_10), &norm(&at_00))
+                less(
+                    &(Atom::num(64) * norm(&at_10)),
+                    &(Atom::num(63) * norm(&at_00)),
+                )
                     * distinct(p[2], p[3], p[4] - p[3] - p[2])
                     * distinct(p[2], &(p[5] - p[0]), p[1] - p[5] - p[2]),
                 Atom::num(0),

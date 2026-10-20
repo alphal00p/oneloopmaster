@@ -32,6 +32,9 @@
 //!   error and cancel it with `y - z`, which the product breaks; binary64
 //!   probes such a pole and keeps the variant that moves less
 //!   (`box_complex::tfun_selected`, tests/data/contour_pole_errors.txt).
+//! - The reflection of `zero_external` needs the line nearer (1, 0) than
+//!   (0, 0) by more than 1/128: where both corners are equally near it moves
+//!   no pole away from a corner, and its chart lost up to 1.2 times the value.
 //!
 //! References (tests/data/contour_regressions.txt,
 //! tests/data/contour_gram_rounding.txt, tests/data/contour_unresolved.txt,
@@ -451,6 +454,75 @@ fn contour_box_with_a_double_real_pole_is_not_silently_wrong() {
                 if finite && !(error <= BINARY64) {
                     failures.push(format!(
                         "image {number} {route}: {value:?} vs {expected:?} ({error:e})"
+                    ));
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    });
+}
+
+/// Boxes of the verifier's sweep where `zero_external` may reflect the chart
+/// (a massless `m2` next to the line), in their own labelling (references:
+/// COLLIER 1.2.9 in quadruple precision, COLI and DD agreeing on the first,
+/// COLI and this crate's native 256-bit value on the others). In the first
+/// (v1 15934) the line passes the corners (0, 0) and (1, 0) equally near
+/// within rounding, and the reflected chart was wrong by 0.26 to 1.2 times the
+/// value on every binary64 route (82c87d1 to 5c996fb), where the original
+/// orientation keeps 5.4e-14 (09b2c74: 3.4e-6 to 0.37). In the others the line
+/// is 2 % and 3 % nearer (1, 0) (v1 12400, 12507), and the reflection keeps
+/// 1.3e-13 and 1.2e-15 where the original orientation loses 1.4e-6 and 2.3e-7.
+/// Every binary64 route within 1e-12, DoubleFloat within 1e-14.
+const REFLECTION_MARGIN: &str = "\
+4 1.0 -9.260750350034394 0.01332834072541728 0.01804580527802355 0.0 22.25741310392177 -31.4907142762668 2.652287073296478 -0.00027624146126022564 0.0 0.0 0.643732097409299 -0.0019642405295094835 2.652287073296478 -0.00027624146126022564 -0.00198082435694084673454364950341565646 0.0287927817444659747843837737425150650 0.0 0.0 0.0 0.0
+4 1.0 6.712461550561756 6.71246155001818 6.712461550562316 0.0 -0.019320419936932016 0.0909621142299991 6.712461550562316 0.0 0.0 0.0 6.712461550562316 0.0 6.712461550562316 0.0 0.526261206935409259760819801758524851 0.0 0.0 0.0 0.0 0.0
+4 1.0 0.0 0.5021464029637546 4.701945181048143 4.701945181048143 -177.2091619818234 187.00978766741036 1.322201366963372 0.0 0.5021464029637546 0.0 0.0 0.0 4.701945181048143 -3.130180320024094e-10 -0.00879197763498300466943027664188170128 0.00582470293409468688038602773748266245 0.0 0.0 0.0 0.0
+";
+
+#[test]
+fn zero_external_reflects_only_a_line_nearer_its_corner() {
+    on_stack(|| {
+        let mut native: Vec<_> = [true, false]
+            .map(|handwritten| {
+                let mut evaluator = NativeEvaluator::<f64>::new(ScalarIntegral::D0).unwrap();
+                evaluator.set_handwritten(handwritten);
+                (handwritten, evaluator)
+            })
+            .into();
+        let mut double = NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::D0).unwrap();
+        let mut failures = Vec::new();
+        for (line, (args, expected, _)) in rows(REFLECTION_MARGIN).iter().enumerate() {
+            let mut values = Vec::new();
+            for (handwritten, evaluator) in &mut native {
+                let mut output = [C::new(f64::NAN, f64::NAN); 3];
+                evaluator.evaluate(args, &mut output).unwrap();
+                values.push((format!("native (hand-written: {handwritten})"), output[0], 1e-12));
+            }
+            for backend in [EvaluationBackend::Expression, EvaluationBackend::SymJit] {
+                let mut output = [C::new(f64::NAN, f64::NAN); 3];
+                evaluate_with_backend(ScalarIntegral::D0, args, &mut output, backend).unwrap();
+                values.push((backend.name().to_string(), output[0], 1e-12));
+            }
+            let input: Vec<_> = args
+                .iter()
+                .map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im)))
+                .collect();
+            let zero = Complex::new(DoubleFloat::from(0.), DoubleFloat::from(0.));
+            let mut output = [zero; 3];
+            double.evaluate(&input, &mut output).unwrap();
+            let value = C::new(output[0].re.to_f64(), output[0].im.to_f64());
+            values.push(("DoubleFloat".to_string(), value, 1e-14));
+            for (route, value, tolerance) in values {
+                let error = relative(value, *expected);
+                if !(error <= tolerance) {
+                    failures.push(format!(
+                        "row {} {route}: {value:?} vs {expected:?} ({error:e})",
+                        line + 1
                     ));
                 }
             }
