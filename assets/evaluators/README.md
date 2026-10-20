@@ -44,6 +44,14 @@ contour box's dilogarithm complements from the poles;
 `tests/d0_contour_regressions.rs`, likewise) and the two-mass terms'
 mass-pair complements taken from the channels' complements next to the
 shells (`tests/d0_two_mass_width.rs`, `tests/data/two_mass_shell.txt`).
+D0 was rebuilt on 2026-10-20 with the exactly real contour norms and real
+sheet signs at mixed precision of alphal00p/oneloopmaster#9, the infrared
+chart reclassification of #10 and the contour box's chart tests for a Gram
+determinant at the rounding level (a vanishing K's far pole, the other
+contour where the selected one is flat, and NaN where binary64 cannot
+resolve the chart; `tests/d0_contour_regressions.rs` with
+`tests/data/contour_gram_rounding.txt` and `tests/data/contour_unresolved.txt`,
+likewise).
 
 Previous generations: 2026-09-29 with released Symbolica and Numerica 3.0.1 and
 SymJIT 2.26.0, and the C0 asset of 2026-09-22 (zero-root ordering of the finite
@@ -72,7 +80,7 @@ exhaustive analytic-region coverage.
 | B0 | 15,375 | `0730c8a390d31c508fbece0760186627dc851b8ccf2da787072f8c2788f50354` |
 | dB0 | 61,566 | `5f145ba984ffe2bdffb9355557a9272c3006d0a601e845cd48877d5d19ea4d77` |
 | C0 | 102,902 | `f8c7109ac1cb09158e53cd128f83c655577fd60edb91b2b645d7f4e2d453072d` |
-| D0 | 2,044,124 | `2a3edfc4ce3408088c02e8977a9d0e2e36bcd568f819a45f266427804ff3d940` |
+| D0 | 1,401,142 | `d22e97cbd31c92768a6d973d6b286c6c9d63b7f4f1a81da15c988fd87eecc54b` |
 
 The embedded files use the `oneloop-evaluator-v3` discriminator, which binds
 the Symbolica IR schema and strict compilation policy without claiming backend
