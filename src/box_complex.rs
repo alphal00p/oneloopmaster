@@ -1484,9 +1484,15 @@ fn tfun_selected(x: [&Atom; 29]) -> Atom {
     let scale = norm(g) + norm(&(beta * h));
     let parallel = less(&(Atom::num(4096) * norm(&a1)), &scale);
     let binary64 = rounds_like_binary64(&grouped(&(1 + &scale)));
-    if_nonzero_else(
-        &(binary64 * parallel),
-        if_nonzero_else(&less(&Atom::num(64), &largest), probe, value.clone()),
+    // The variants are algebraically identical: the inspection form takes the
+    // products without the probe (which made the complete expansion of D0
+    // exceed its node budget, tests/full_expansion.rs).
+    Q::rounding_choice(
+        if_nonzero_else(
+            &(binary64 * parallel),
+            if_nonzero_else(&less(&Atom::num(64), &largest), probe, value.clone()),
+            value.clone(),
+        ),
         value,
     )
 }
