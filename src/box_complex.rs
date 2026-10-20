@@ -1847,23 +1847,9 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
     )
 }
 
-/// The two contours of [tfun] (`beta1` the root of `b beta² + c beta + a`
-/// of smaller magnitude, `w = beta - 1`), their [beta_data] and the choice
-/// between them, from tfun's sign-adjusted `[a, b, c, g, h, d, e, f, j, dpe,
-/// dd, de, df, dj, ddpe, abc]`.
-struct Contours {
-    beta1: Atom,
-    w1: Atom,
-    beta2: Atom,
-    w2: Atom,
-    data1: BetaData,
-    data2: BetaData,
-    use_first: Atom,
-}
-
-fn tfun_contours(
-    [a, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, abc]: [&Atom; 16],
-) -> Contours {
+/// The two contours of [tfun]: the roots `beta1` (of smaller magnitude) and
+/// `beta2` of `b beta² + c beta + a` and their `w = beta - 1`.
+fn tfun_betas(a: &Atom, b: &Atom, c: &Atom, abc: &Atom) -> [Atom; 4] {
     let [root1, root2] = roots(b, c, a);
     // beta - 1: the root nearer 1 from (beta1 - 1)(beta2 - 1) = (a + b + c)/b.
     let [o1, o2] = [&root1 - 1, &root2 - 1];
@@ -1876,6 +1862,18 @@ fn tfun_contours(
         if_nonzero_else(&swap, w2.clone(), w1.clone()),
         if_nonzero_else(&swap, w1, w2),
     );
+    [beta1, w1, beta2, w2]
+}
+
+/// Nonzero where [tfun] takes its first contour, from tfun's sign-adjusted
+/// `[a, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, abc]`: the contour
+/// opposite the pole nearest a boundary, or the first where it encloses no
+/// pole. A registered function, so that [tfun] and [tfun_vertex_suspicious]
+/// share one copy of the poles it compares.
+fn tfun_contour_choice(
+    [a, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, abc]: [&Atom; 16],
+) -> Atom {
+    let [beta1, w1, beta2, w2] = tfun_betas(a, b, c, abc);
     let data = |beta: &Atom, w: &Atom| {
         beta_data(
             beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, None,
@@ -1893,27 +1891,16 @@ fn tfun_contours(
         &distance_y(&beta2, &data2.y[0]),
         &distance_y(&beta2, &data2.y[1]),
     );
-    let use_first = if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1));
-    Contours {
-        beta1,
-        w1,
-        beta2,
-        w2,
-        data1,
-        data2,
-        use_first,
-    }
+    if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1))
 }
 
 /// Nonzero where a pole `y` of the contour [tfun] selects lies next to the
 /// vertex `-beta` of its triangle `(0, -beta, 1 - beta)`, the image of the
 /// corner (1, 0), with an offset `y + beta` that the rounding resolves only
 /// to a factor 16 of itself (`max(|beta|, |y|) > 16 |y + beta|`), or, with the
-/// pole's own rounding, to 2^12 of itself (`|beta| + dy > 4096 |y + beta|`;
-/// `dy = (Kt |y|² + Lt |y| + Nt)/|2 K y + L|` is the root's sensitivity to the
-/// rounding of `K y² + L y + N`, with `Kt`, `Lt`, `Nt` the magnitudes of the
-/// products that form them). Zero for the `t1` branches (`a` or `b` zero).
-/// [zero_external] reflects the chart only there.
+/// pole's own rounding, to 2^12 of itself ([tfun_vertex_test]). Zero for the
+/// `t1` branches (`a` or `b` zero). [zero_external] reflects the chart only
+/// there.
 fn tfun_vertex_suspicious(
     [
         a,
@@ -1941,35 +1928,49 @@ fn tfun_vertex_suspicious(
     let h = -&sj * hin;
     let j = -&sj * jin;
     let dj = -&sj * djin;
-    let contours = tfun_contours([
-        a, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, abc,
-    ]);
+    let [beta1, w1, beta2, w2] = tfun_betas(a, b, c, abc);
+    let use_first = call(
+        "tfun_contour_choice",
+        [
+            a, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, abc,
+        ],
+    );
+    let test = |beta: &Atom, w: &Atom| {
+        call(
+            "tfun_vertex_test",
+            [beta, w, b, c, &g, &h, d, e, f, &j, dpe],
+        )
+    };
+    let selected = if_nonzero_else(&use_first, test(&beta1, &w1), test(&beta2, &w2));
+    if_nonzero_else(b, if_nonzero_else(a, selected, Atom::num(0)), Atom::num(0))
+}
+
+/// [tfun_vertex_suspicious]'s test of the contour `(beta, w)`, from
+/// `[beta, w, b, c, g, h, d, e, f, j, dpe]`: a pole `y` of `K y² + L y + N`
+/// ([beta_data]) with `max(|beta|, |y|) > 16 |y + beta|`, or with
+/// `|beta| + dy > 4096 |y + beta|`, where `dy = (Kt |y|² + Lt |y| + Nt)/|2 K y
+/// + L|` is the root's sensitivity to the rounding of the products that form
+/// `K = b a1 - h b1`, `L = e a1 - h c1 - j b1` and `N = f a1 - j c1` (`Kt`,
+/// `Lt`, `Nt` their magnitudes).
+fn tfun_vertex_test([beta, w, b, c, g, h, d, e, f, j, dpe]: [&Atom; 11]) -> Atom {
+    let [a1, b1, c1, l, n] = beta_polynomial(beta, w, b, c, g, h, d, e, f, j, dpe);
+    let k = b * &a1 - h * &b1;
     let size = |z: &Atom| Symbol::ABS.call((z,));
     let either = |p: &Atom, q: &Atom| 1 - (1 - p) * (1 - q);
-    let suspicious = |beta: &Atom, data: &BetaData| {
-        let [a1, b1, c1] = [&data.a, &data.b, &data.c];
-        let kt = size(b) * size(a1) + size(&h) * size(b1);
-        let lt = size(e) * size(a1) + size(&h) * size(c1) + size(&j) * size(b1);
-        let nt = size(f) * size(a1) + size(&j) * size(c1);
-        let l = e * a1 - &h * c1 - &j * b1;
-        let mb = size(beta);
-        let pole = |y: &Continued| {
-            let offset = size(&(&y.value + beta));
-            let my = size(&y.value);
-            let larger = if_nonzero_else(&less(&mb, &my), my.clone(), mb.clone());
-            let geometric = less(&(Atom::num(16) * &offset), &larger);
-            let dy = (&kt * &my * &my + &lt * &my + &nt)
-                / size(&(Atom::num(2) * &data.k * &y.value + &l));
-            either(&geometric, &less(&(Atom::num(4096) * &offset), &(&mb + dy)))
-        };
-        either(&pole(&data.y[0]), &pole(&data.y[1]))
+    let kt = size(b) * size(&a1) + size(h) * size(&b1);
+    let lt = size(e) * size(&a1) + size(h) * size(&c1) + size(j) * size(&b1);
+    let nt = size(f) * size(&a1) + size(j) * size(&c1);
+    let mb = size(beta);
+    let pole = |y: &Atom| {
+        let offset = size(&(y + beta));
+        let my = size(y);
+        let larger = if_nonzero_else(&less(&mb, &my), my.clone(), mb.clone());
+        let geometric = less(&(Atom::num(16) * &offset), &larger);
+        let dy = (&kt * &my * &my + &lt * &my + &nt) / size(&(Atom::num(2) * &k * y + &l));
+        either(&geometric, &less(&(Atom::num(4096) * &offset), &(&mb + dy)))
     };
-    let selected = if_nonzero_else(
-        &contours.use_first,
-        suspicious(&contours.beta1, &contours.data1),
-        suspicious(&contours.beta2, &contours.data2),
-    );
-    if_nonzero_else(b, if_nonzero_else(a, selected, Atom::num(0)), Atom::num(0))
+    let [y1, y2] = roots(&k, &l, &n);
+    either(&pole(&y1), &pole(&y2))
 }
 
 fn tfun(
@@ -2015,14 +2016,13 @@ fn tfun(
     let gh = -&sj * ghin;
     let gj = -&sj * gjin;
     let ghj = -&sj * ghjin;
-    let Contours {
-        beta1,
-        w1,
-        beta2,
-        w2,
-        use_first,
-        ..
-    } = tfun_contours([a, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, abc]);
+    let [beta1, w1, beta2, w2] = tfun_betas(a, b, c, abc);
+    let use_first = call(
+        "tfun_contour_choice",
+        [
+            a, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, abc,
+        ],
+    );
     // The contour opposite the pole nearest a boundary is used. If the first
     // contour encloses no pole, the first (smaller-magnitude) beta is
     // selected.
@@ -2796,8 +2796,14 @@ pub(crate) fn register(map: &mut FunctionMap) {
     define(map, "tfun", 26, |x| {
         tfun(core::array::from_fn(|idx| &x[idx]))
     });
+    define(map, "tfun_contour_choice", 16, |x| {
+        tfun_contour_choice(core::array::from_fn(|idx| &x[idx]))
+    });
     define(map, "tfun_vertex_suspicious", 18, |x| {
         tfun_vertex_suspicious(core::array::from_fn(|idx| &x[idx]))
+    });
+    define(map, "tfun_vertex_test", 11, |x| {
+        tfun_vertex_test(core::array::from_fn(|idx| &x[idx]))
     });
     define(map, "sort", 4, |x| {
         sort_four(core::array::from_fn(|idx| &x[idx]))
