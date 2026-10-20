@@ -500,9 +500,9 @@ fn r1(x: [&Atom; 10]) -> Atom {
 /// quotient and logarithm of the offset. Where the nearer pole's `y - z`
 /// cancels by more than 64 (`4096 |y - z|² < |z|²`), its offset is the product
 /// over the farther pole's; elsewhere, where the product vanishes (it is
-/// not given, [tfun_selected]) and at coincident poles, both are `y - z`, as
-/// in [r1]. At an exactly double real pole (`y1 = y2`, the product the square
-/// of one offset) the interpreted route (f2adce4) and the generated code
+/// not given, [tfun_lines]) and at coincident poles, both are `y - z`, as in
+/// [r1]. At an exactly double real pole (`y1 = y2`, the product the square of
+/// one offset) the interpreted route (f2adce4) and the generated code
 /// (82c87d1) returned 7.6e18 times the value of four relabellings of a box of
 /// the streams' sweep, where 09b2c74 and the other routes were non-finite.
 fn r1_line(x: [&Atom; 11]) -> Atom {
@@ -1299,7 +1299,11 @@ fn real_intersections_absent(coefficients: [&Atom; 9]) -> Atom {
     real * negative(&grouped(&-delta))
 }
 
-fn tfun_selected(
+/// The chart of [tfun] for the contour `beta` (with `w = beta - 1` and the
+/// chart's `k`), with the line products only where `products` (and the line
+/// is nearly parallel to the contour direction) and the poles moved by
+/// `shift1`, `shift2` ([tfun_selected]).
+fn tfun_lines(
     [
         a,
         b,
@@ -1330,9 +1334,15 @@ fn tfun_selected(
         gj,
         ghj,
         k,
-    ]: [&Atom; 29],
+        products,
+        shift1,
+        shift2,
+    ]: [&Atom; 32],
 ) -> Atom {
-    let data = beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, Some(k));
+    let mut data = beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, Some(k));
+    for (y, shift) in data.y.iter_mut().zip([shift1, shift2]) {
+        y.value = &y.value + shift;
+    }
     let [y1, y2] = &data.y;
     let zero = Atom::num(0);
     let one = Atom::num(1);
@@ -1371,10 +1381,11 @@ fn tfun_selected(
     let conic_norm = [a, b, c, d, e, f]
         .into_iter()
         .fold(Atom::num(0), |sum, coefficient| sum + norm(coefficient));
-    let parallel = less(
-        &(Atom::num(4096) * norm(&data.a)),
-        &(norm(g) + norm(&(beta * h))),
-    );
+    let parallel = products
+        * less(
+            &(Atom::num(4096) * norm(&data.a)),
+            &(norm(g) + norm(&(beta * h))),
+        );
     let a1 = if_nonzero_else(&data.a, data.a.clone(), g / Atom::num(1u64 << 52));
     let product = |line: [&Atom; 5], ratio: Atom| {
         if_nonzero_else(
@@ -1402,6 +1413,151 @@ fn tfun_selected(
         ],
     );
     (integral + if_nonzero_else(&less(&Atom::num(0), &im(beta)), -&residue, residue)) / data.k
+}
+
+/// The chart of [tfun] for the contour `beta`: [tfun_lines] with the line
+/// products, unless, in binary64, a product offset differs from the rounded
+/// `y - z` it replaces by more than 8 units of that subtraction's rounding
+/// `2^-52 |z|` (the pole itself is then that inaccurate). There the pole is
+/// moved by the shift `e (offset - (y - z))` that the product implies, and
+/// the variant whose value moves less is taken: the products, or `y - z`
+/// everywhere (as 09b2c74 took). Where the rounded pole carries the error,
+/// the line and conic terms of an edge share it and cancel it with `y - z`,
+/// which the products' exact offsets in the line terms alone break: with
+/// the products alone (f2adce4), eight boxes of the verifier's 32,600-row
+/// sweep lost 1e-12 to 1.3e-5 on some binary64 route where 09b2c74 kept
+/// 1.8e-14 to 1.3e-6 (v1 7832, 8793, 9431, 13198, 13274, 13881, 14824 and
+/// 15393; tests/data/contour_pole_errors.txt). The probe restores 09b2c74's
+/// level on all of them but 7832 on the hand-written and generated routes
+/// (a reflected chart, [zero_external]) and 8793 on the generated route.
+/// Where the subtraction alone loses the digits, `y - z` moves with the
+/// pole, and the products are kept (the near-threshold boxes of
+/// tests/data/near_threshold_boxes.txt). The hand-written kernel records
+/// the same disagreement in `r1_with`.
+fn tfun_selected(x: [&Atom; 29]) -> Atom {
+    let [g, h, beta, w] = [x[3], x[4], x[11], x[12]];
+    let zero = Atom::num(0);
+    let lines = |products: i64, [shift1, shift2]: [&Atom; 2]| {
+        let products = Atom::num(products);
+        let mut arguments: Vec<&Atom> = x.to_vec();
+        arguments.extend([&products, shift1, shift2]);
+        call::<32>("tfun_lines", arguments.try_into().unwrap())
+    };
+    let value = lines(1, [&zero, &zero]);
+    // [tfun_edge_probe] of the line edge `index`: the disagreement in units
+    // (`which` 0) or the shift of pole 1 or 2 (`which` 1, 2).
+    let edge = |index: i64, which: i64| {
+        let [index, which] = [Atom::num(index), Atom::num(which)];
+        let mut arguments: Vec<&Atom> = x.to_vec();
+        arguments.extend([&index, &which]);
+        call::<31>("tfun_edge_probe", arguments.try_into().unwrap())
+    };
+    // The largest disagreement; the first edge where several are equal.
+    let units = [0, 1, 2].map(|index| edge(index, 0));
+    let second = less(&units[0], &units[1]);
+    let best = if_nonzero_else(&second, units[1].clone(), units[0].clone());
+    let third = less(&best, &units[2]);
+    let largest = if_nonzero_else(&third, units[2].clone(), best);
+    let shift = |which: i64| {
+        if_nonzero_else(
+            &third,
+            edge(2, which),
+            if_nonzero_else(&second, edge(1, which), edge(0, which)),
+        )
+    };
+    let [shift1, shift2] = [shift(1), shift(2)];
+    let probe = {
+        let moved_products = lines(1, [&shift1, &shift2]);
+        let direct = lines(0, [&zero, &zero]);
+        let moved_direct = lines(0, [&shift1, &shift2]);
+        let take_direct = finite(&moved_products)
+            * finite(&direct)
+            * finite(&moved_direct)
+            * le(&norm(&(&moved_direct - &direct)), &norm(&(&moved_products - &value)));
+        if_nonzero_else(&take_direct, direct, value.clone())
+    };
+    // Only a binary64 chart whose line is nearly parallel to the contour
+    // direction takes the products ([tfun_lines]) and is probed; the test
+    // takes `a1` alone, so that the edges are evaluated only there.
+    let [b, c, d, e, f, j, dpe] = [x[1], x[2], x[5], x[6], x[7], x[8], x[9]];
+    let [a1, ..] = beta_polynomial(beta, w, b, c, g, h, d, e, f, j, dpe);
+    let scale = norm(g) + norm(&(beta * h));
+    let parallel = less(&(Atom::num(4096) * norm(&a1)), &scale);
+    let binary64 = rounds_like_binary64(&grouped(&(1 + &scale)));
+    if_nonzero_else(
+        &(binary64 * parallel),
+        if_nonzero_else(&less(&Atom::num(64), &largest), probe, value.clone()),
+        value,
+    )
+}
+
+/// One line edge of [tfun_selected]'s probe: the `[d, e, b, c, far]` and the
+/// ratio of the edge `index` (x = 1, y = x, y = 0, as in [tfun_lines]), its
+/// product ([line_product]) and [tfun_edge_units] with the chart's poles.
+/// The arguments are [tfun_selected]'s, then `index` and `which`.
+fn tfun_edge_probe(x: [&Atom; 31]) -> Atom {
+    let [a, b, c, g, h, d, e, f, j, dpe] = [x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9]];
+    let [beta, w, dd, de, df, dj, ddpe] = [x[11], x[12], x[13], x[14], x[15], x[16], x[17]];
+    let [gh, gj, ghj, k] = [x[25], x[26], x[27], x[28]];
+    let [index, which] = [x[29], x[30]];
+    let data = beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, Some(k));
+    let a1 = if_nonzero_else(&data.a, data.a.clone(), g / Atom::num(1u64 << 52));
+    let conic_norm = [a, b, c, d, e, f]
+        .into_iter()
+        .fold(Atom::num(0), |sum, coefficient| sum + norm(coefficient));
+    let [zero, one] = [Atom::num(0), Atom::num(1)];
+    let pick = |x1: Atom, diagonal: Atom, y0: Atom| {
+        if_nonzero_else(index, if_nonzero_else(&(index - 1), y0, diagonal), x1)
+    };
+    let ed = pick(beta.clone(), zero.clone(), zero);
+    let ee = pick(one, -w, -beta);
+    let eb = pick(h.clone(), gh.clone(), g.clone());
+    let ec = pick(gj.clone(), j.clone(), j.clone());
+    let efar = pick(ghj.clone(), ghj.clone(), gj.clone());
+    let ratio = pick(Atom::num(-1), if_nonzero(gh, j / gh), if_nonzero(g, j / g));
+    let product = line_product(&data, &a1, &conic_norm, [&ed, &ee, &eb, &ec, &efar], &ratio, [b, e, f]);
+    call(
+        "tfun_edge_units",
+        [&data.y[0].value, &data.y[1].value, &ed, &ee, &eb, &ec, &efar, &product, which],
+    )
+}
+
+/// [r1_line]'s offsets of a line edge `[d, e, b, c, far]` with its product,
+/// for the poles `y1`, `y2`: where the product is taken, its disagreement with
+/// the rounded `y - z` in units of `2^-52 |z|`, squared (`which` 0; zero where
+/// no product is taken), or the shift `e (offset - (y - z))` of pole 1 or 2
+/// (`which` 1 or 2; zero for the other pole).
+fn tfun_edge_units([y1, y2, d, e, b, c, far, product, which]: [&Atom; 9]) -> Atom {
+    let one = Atom::num(1);
+    let rounding = Atom::num(symbolica::domains::integer::Integer::from(2).pow(104));
+    let [p1, p2] = [y1, y2].map(|y| (d + y) / e);
+    let z = if_nonzero_else(far, -c / b, Atom::num(1));
+    let [o1, o2] = [&p1 - &z, &p2 - &z];
+    let [n1, n2] = [norm(&o1), norm(&o2)];
+    let first = less(&n1, &n2);
+    let near = if_nonzero_else(&first, o1.clone(), o2.clone());
+    let far_offset = if_nonzero_else(&first, o2, o1);
+    let nearer = if_nonzero_else(&first, n1, n2);
+    let hzz = norm(&z);
+    let taken = less(&(Atom::num(4096) * &nearer), &hzz)
+        * if_nonzero(product, one.clone())
+        * if_nonzero(&(&p1 - &p2), one.clone())
+        * if_nonzero(b, one.clone())
+        * if_nonzero(e, one);
+    let offset = if_nonzero(&far_offset, product / &far_offset);
+    let offset = if_nonzero_else(&im(&near), offset.clone(), re(&offset));
+    let difference = &offset - &near;
+    let units = taken
+        * if_nonzero(
+            &offset,
+            rounding * norm(&difference) * &nearer / (&hzz * norm(&offset)),
+        );
+    let shift = difference * e;
+    if_nonzero_else(
+        which,
+        if_nonzero_else(&(which - 1), (1 - &first) * &shift, &first * shift),
+        units,
+    )
 }
 
 /// [tfun_selected] with the contour `use_first` selects ([tfun]), except
@@ -1477,6 +1633,7 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         Plain,
         MovedLine,
         RoundingK,
+        Probed,
     }
     let chart = |first: &Atom, kind: Chart| {
         let beta = if_nonzero_else(first, beta1.clone(), beta2.clone());
@@ -1496,27 +1653,33 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         } else {
             chart_k(&beta, &w, b, c, &g, h, d, e, f, j, dpe)
         };
-        call(
-            "tfun_selected",
-            [
-                x[0], b, c, &g, h, d, e, f, j, dpe, x[10], &beta, &w, dd, de, df, dj, ddpe, x[16],
-                x[17], x[18], x[19], x[20], x[21], x[22], &gh, &gj, &ghj, &k,
-            ],
-        )
+        let arguments = [
+            x[0], b, c, &g, h, d, e, f, j, dpe, x[10], &beta, &w, dd, de, df, dj, ddpe, x[16],
+            x[17], x[18], x[19], x[20], x[21], x[22], &gh, &gj, &ghj, &k,
+        ];
+        if kind == Chart::Probed {
+            return call("tfun_selected", arguments);
+        }
+        let [one, zero] = [Atom::num(1), Atom::num(0)];
+        let mut arguments: Vec<&Atom> = arguments.to_vec();
+        arguments.extend([&one, &zero, &zero]);
+        call::<32>("tfun_lines", arguments.try_into().unwrap())
     };
     let value = chart(use_first, Chart::Plain);
+    // The selected chart's value where the tests keep it ([tfun_selected]).
+    let probed = chart(use_first, Chart::Probed);
     // The chart used (`first`, its value `used`), tested in binary64: where
     // `flat`, NaN unless the chart of the moved line keeps 10 bits of it;
     // where `zero` (its K rounds to zero), NaN unless the chart with K at its
     // rounding level keeps 13 bits.
-    let tested = |first: &Atom, used: &Atom, flat: &Atom, zero: &Atom| {
+    let tested = |first: &Atom, used: &Atom, result: &Atom, flat: &Atom, zero: &Atom| {
         let keeps = |kind: Chart, bits: u32| {
             let moved = chart(first, kind);
             finite(&moved) * close(bits, used, &moved)
         };
         let line = if_nonzero_else(flat, keeps(Chart::MovedLine, 10), Atom::num(1));
         let k = if_nonzero_else(zero, keeps(Chart::RoundingK, 13), Atom::num(1));
-        if_nonzero_else(&(line * k), used.clone(), undetermined(used))
+        if_nonzero_else(&(line * k), result.clone(), undetermined(used))
     };
     let zero_k = |data: &BetaData| &binary64 * if_nonzero_else(&data.k, Atom::num(0), Atom::num(1));
     let [zero1, zero2] = [zero_k(&data1), zero_k(&data2)];
@@ -1534,13 +1697,13 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         &take_other,
         if_nonzero_else(
             &binary64,
-            tested(&other_first, &other, &none, &binary64),
+            tested(&other_first, &other, &other, &none, &binary64),
             other.clone(),
         ),
         if_nonzero_else(
             &finite(&other),
-            value.clone(),
-            tested(use_first, &value, &binary64, &zero_selected),
+            probed.clone(),
+            tested(use_first, &value, &probed, &binary64, &zero_selected),
         ),
     );
     // Otherwise a flat selected chart (no regular alternative) and one whose
@@ -1551,8 +1714,8 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
         checked,
         if_nonzero_else(
             &either(&flat_selected, &zero_selected),
-            tested(use_first, &value, &flat_selected, &zero_selected),
-            value.clone(),
+            tested(use_first, &value, &probed, &flat_selected, &zero_selected),
+            probed.clone(),
         ),
     )
 }
@@ -2330,6 +2493,15 @@ pub(crate) fn register(map: &mut FunctionMap) {
     });
     define(map, "t1", 22, |x| t1(core::array::from_fn(|idx| &x[idx])));
     define(map, "t13", 26, |x| t13(core::array::from_fn(|idx| &x[idx])));
+    define(map, "tfun_lines", 32, |x| {
+        tfun_lines(core::array::from_fn(|idx| &x[idx]))
+    });
+    define(map, "tfun_edge_units", 9, |x| {
+        tfun_edge_units(core::array::from_fn(|idx| &x[idx]))
+    });
+    define(map, "tfun_edge_probe", 31, |x| {
+        tfun_edge_probe(core::array::from_fn(|idx| &x[idx]))
+    });
     define(map, "tfun_selected", 29, |x| {
         tfun_selected(core::array::from_fn(|idx| &x[idx]))
     });

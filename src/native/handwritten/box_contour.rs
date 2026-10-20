@@ -9,6 +9,7 @@
 use super::super::primitives::{C, NativeFloat, inverse};
 use super::Constants;
 use super::sheet::{Sheet, dd, dd_given};
+use core::cell::Cell;
 
 pub(super) type Z = C<f64>;
 
@@ -364,11 +365,13 @@ fn r1_with(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, line: Option<&LineProduct>,
             };
             if nearer_first {
                 if let Some(offset) = over(yz1, yz2) {
+                    line.record(0, offset, yz1, nearer, hzz);
                     yz1 = offset;
                     hz1 = norm(yz1);
                     given[0] = true;
                 }
             } else if let Some(offset) = over(yz2, yz1) {
+                line.record(1, offset, yz2, nearer, hzz);
                 yz2 = offset;
                 hz2 = norm(yz2);
                 given[1] = true;
@@ -689,9 +692,31 @@ struct LineProduct<'a> {
     conic: &'a [Z; 6],
     data: &'a BetaData,
     a1: Z,
+    probe: Option<&'a Cell<Probe>>,
 }
 
+/// The largest disagreement of a product offset with the `y - z` it
+/// replaces, in units of that subtraction's rounding `2^-52 |z|` (squared),
+/// with its pole and the pole's shift `e (offset - (y - z))` that the
+/// product implies (`tfun_selected`).
+type Probe = (f64, usize, Z);
+
 impl LineProduct<'_> {
+    /// Records the product `offset` that replaces the rounded `y - z`
+    /// (`direct`, with `nearer = |y - z|²` and `hzz = |z|²`) of pole `index`.
+    fn record(&self, index: usize, offset: Z, direct: Z, nearer: f64, hzz: f64) {
+        if let Some(probe) = self.probe
+            && nz(offset)
+        {
+            let difference = offset - direct;
+            let units = norm(difference) * nearer
+                / (f64::EPSILON * f64::EPSILON * hzz * norm(offset));
+            if negative(probe.get().0 - units) {
+                probe.set((units, index, difference * self.line[1]));
+            }
+        }
+    }
+
     /// The product over the farther pole's offset `far` (zero for `far = 0`),
     /// or `None` where the product vanishes or the line's intersection with
     /// the edge lies on the conic to within the square root of the rounding
@@ -913,12 +938,74 @@ fn real_intersections_absent(coefficients: [Z; 9]) -> bool {
     negative(-delta)
 }
 
-/// `tfun_selected`; `w` is beta - 1 and `line` the line's g + h, g + j and
-/// g + h + j.
+/// `tfun_selected` (`box_complex::tfun_selected`): `tfun_lines` with the
+/// line products, unless a product offset differs from the rounded `y - z`
+/// it replaces by more than 8 units of that subtraction's rounding
+/// `2^-52 |z|` (the pole itself is then that inaccurate). There the pole is
+/// moved by the shift the product implies, and the variant (the products, or
+/// `y - z` everywhere as 09b2c74 took) whose value moves less is taken
+/// (`tfun_probed`). `w` is beta - 1 and the sums are the line's g + h,
+/// g + j and g + h + j.
 fn tfun_selected(
     a: Z, b: Z, c: Z, g: Z, h: Z, d: Z, e: Z, f: Z, j: Z, dpe: Z, dpf: Z, beta: Z, w: Z,
     data: &BetaData, dd_: Z, de: Z, df: Z, dj: Z, ddpe: Z, ddpf: Z, abc: Z,
-    [lambda_a, lambda_abc, lambda_bc, q10, q11]: [Z; 5], [gh, gj, ghj]: [Z; 3], k: &Constants<f64>,
+    edges: [Z; 5], sums: [Z; 3], k: &Constants<f64>,
+) -> Z {
+    let probe = Cell::new((0.0, 0, ZERO));
+    let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
+    let value = tfun_lines(coefficients, beta, w, data, edges, sums, true, Some(&probe), k);
+    probed(coefficients, beta, w, data, edges, sums, value, probe.get(), k)
+}
+
+/// `value` (`tfun_lines` with the products), or where `probe` shows a pole
+/// that a product disagrees with by more than 8 units, `tfun_probed`.
+#[inline(always)]
+fn probed(
+    coefficients: [Z; 18], beta: Z, w: Z, data: &BetaData, edges: [Z; 5], sums: [Z; 3], value: Z,
+    (units, index, shift): Probe, k: &Constants<f64>,
+) -> Z {
+    if negative(64.0 - units) {
+        tfun_probed(coefficients, beta, w, data, edges, sums, value, index, shift, k)
+    } else {
+        value
+    }
+}
+
+/// The variant of a chart whose pole `index` the products show to be
+/// inaccurate: with the products (`value`) or with `y - z` everywhere,
+/// whichever changes less when that pole moves by `shift`. Where the
+/// rounded pole carries the error, the line and conic terms of an edge
+/// share it and cancel it with `y - z`, which the products' exact offsets
+/// in the line terms alone break: with the products alone, the
+/// hand-written route of v1 8793, 9431, 13198, 13274, 14824 and 15393 of
+/// the verifier's 32,600-row sweep lost 1e-12 to 7.4e-6 where 09b2c74 kept
+/// 6.1e-14 to 2e-8 (`box_complex::tfun_selected`). Where the subtraction alone
+/// loses the digits, `y - z` moves with the pole and the products are kept
+/// (the near-threshold boxes of tests/data/near_threshold_boxes.txt).
+#[cold]
+#[inline(never)]
+fn tfun_probed(
+    coefficients: [Z; 18], beta: Z, w: Z, data: &BetaData, edges: [Z; 5], sums: [Z; 3], value: Z,
+    index: usize, shift: Z, k: &Constants<f64>,
+) -> Z {
+    let mut moved = BetaData { y: data.y, ..*data };
+    moved.y[index].v = moved.y[index].v + shift;
+    let lines = |data: &BetaData, products: bool| tfun_lines(coefficients, beta, w, data, edges, sums, products, None, k);
+    let moved_products = lines(&moved, true);
+    let direct = lines(data, false);
+    let moved_direct = lines(&moved, false);
+    let finite_all = finite(moved_products) && finite(direct) && finite(moved_direct);
+    if finite_all && !negative(norm(moved_products - value) - norm(moved_direct - direct)) { direct } else { value }
+}
+
+/// `tfun_lines`; the line products only where `products` (and the line is
+/// nearly parallel to the contour direction), recording their disagreement
+/// with `y - z` in `probe`.
+fn tfun_lines(
+    [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z; 18],
+    beta: Z, w: Z, data: &BetaData,
+    [lambda_a, lambda_abc, lambda_bc, q10, q11]: [Z; 5], [gh, gj, ghj]: [Z; 3],
+    products: bool, probe: Option<&Cell<Probe>>, k: &Constants<f64>,
 ) -> Z {
     let [y1, y2] = &data.y;
     let p1 = inside(beta, y1);
@@ -930,9 +1017,9 @@ fn tfun_selected(
     // The products only for a line nearly parallel to the contour direction
     // (a1 = g + beta h cancels by more than 64), with an a1 that rounds to
     // zero at its rounding level 2^-52 g (`box_complex::tfun_selected`).
-    let parallel = negative(4096.0 * norm(data.a) - (norm(g) + norm(beta * h)));
+    let parallel = products && negative(4096.0 * norm(data.a) - (norm(g) + norm(beta * h)));
     let a1 = if nz(data.a) { data.a } else { g * r(1.0 / 4503599627370496.0) };
-    let line = |line: [Z; 5], ratio: [Z; 2]| LineProduct { line, ratio, conic: &conic, data, a1 };
+    let line = |line: [Z; 5], ratio: [Z; 2]| LineProduct { line, ratio, conic: &conic, data, a1, probe };
     let integral = s3_line(y1, y2, dj, &line([beta, ONE, h, gj, ghj], [r(-1.0), ONE]), parallel, k)
         - s3_line(y1, y2, dj, &line([ZERO, -w, gh, j, ghj], [j, gh]), parallel, k)
         + s3_line(y1, y2, dj, &line([ZERO, -beta, g, j, gj], [j, g]), parallel, k)
@@ -966,17 +1053,20 @@ fn tfun_checked(
     sums: [Z; 3],
     k: &Constants<f64>,
 ) -> Z {
-    let chart = |beta: Z, w: Z, data: &BetaData| {
+    let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
+    let chart_with = |beta: Z, w: Z, data: &BetaData, probe: Option<&Cell<Probe>>| {
         let far = (!nz(data.k)).then(|| beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true));
-        tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, far.as_ref().unwrap_or(data), dd_, de, df, dj, ddpe, ddpf, abc, edges, sums, k)
+        let data = far.unwrap_or(BetaData { y: data.y, ..*data });
+        (tfun_lines(coefficients, beta, w, &data, edges, sums, true, probe, k), data)
     };
+    let chart = |beta: Z, w: Z, data: &BetaData| chart_with(beta, w, data, None).0;
     let tested = |beta: Z, w: Z, data: &BetaData, used: Z, flat: bool, zero: bool| {
         let keeps = |moved: Z, bits: i32| finite(moved) && close(bits, used, moved);
         if flat {
             let shifted = g * r(1.0 + f64::EPSILON);
             let delta = shifted - g;
             let moved = beta_data(beta, w, b, c, shifted, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true);
-            let moved = tfun_selected(a, b, c, shifted, h, d, e, f, j, dpe, dpf, beta, w, &moved, dd_, de, df, dj, ddpe, ddpf, abc, edges, sums.map(|sum| sum + delta), k);
+            let moved = tfun_lines([a, b, c, shifted, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc], beta, w, &moved, edges, sums.map(|sum| sum + delta), true, None, k);
             if !keeps(moved, 10) {
                 return Z { re: f64::NAN, im: f64::NAN };
             }
@@ -985,22 +1075,32 @@ fn tfun_checked(
             let magnitude = |z: Z| z.re.abs() + z.im.abs();
             let rounding = r((magnitude(b * data.a) + magnitude(h * data.b)) / 4503599627370496.0);
             let probe = beta_data_with_k(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, rounding);
-            let moved = tfun_selected(a, b, c, g, h, d, e, f, j, dpe, dpf, beta, w, &probe, dd_, de, df, dj, ddpe, ddpf, abc, edges, sums, k);
+            let moved = tfun_lines(coefficients, beta, w, &probe, edges, sums, true, None, k);
             if !keeps(moved, 13) {
                 return Z { re: f64::NAN, im: f64::NAN };
             }
         }
         used
     };
-    let value = chart(beta, w, data);
+    // The selected chart, tested as it is (with the line products); where the
+    // tests keep it, its value is probed as in `tfun_selected`.
+    let probe = Cell::new((0.0, 0, ZERO));
+    let (value, used) = chart_with(beta, w, data, Some(&probe));
+    let probed = |result: Z| {
+        if finite(value) && result.re.to_bits() == value.re.to_bits() && result.im.to_bits() == value.im.to_bits() {
+            probed(coefficients, beta, w, &used, edges, sums, value, probe.get(), k)
+        } else {
+            result
+        }
+    };
     if check {
         let regular = chart(other_beta, other_w, other);
         if finite(regular) && !(finite(value) && agree(value, regular)) {
             return tested(other_beta, other_w, other, regular, false, true);
         }
-        return if finite(regular) { value } else { tested(beta, w, data, value, true, !nz(data.k)) };
+        return probed(if finite(regular) { value } else { tested(beta, w, data, value, true, !nz(data.k)) });
     }
-    if flat || !nz(data.k) { tested(beta, w, data, value, flat, !nz(data.k)) } else { value }
+    probed(if flat || !nz(data.k) { tested(beta, w, data, value, flat, !nz(data.k)) } else { value })
 }
 
 /// `tfun`; `edges` holds `[λ_a, λ_abc, λ_bc, q10, q11]` (`edge_kallens` and
@@ -1770,7 +1870,7 @@ mod expression_tests {
             let conic = [ZERO, ZERO, ONE, ZERO, ZERO, ZERO];
             let data = |product: Z| BetaData { a: product, b: ZERO, c: ZERO, dc: ZERO, k: ONE, y: [Cont { v: ZERO, f: ZERO, s: ZERO }; 2] };
             fn given<'a>(data: &'a BetaData, conic: &'a [Z; 6]) -> LineProduct<'a> {
-                LineProduct { line: [ZERO, ONE, ONE, ZERO, ONE], ratio: [ZERO, ONE], conic, data, a1: data.a }
+                LineProduct { line: [ZERO, ONE, ONE, ZERO, ONE], ratio: [ZERO, ONE], conic, data, a1: data.a, probe: None }
             }
             let near = |rng: &mut Rng, root: Z| root + Z { re: 1e-6 * rng.real(), im: 1e-6 * rng.real() };
             compare(

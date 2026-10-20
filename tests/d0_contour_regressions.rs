@@ -27,11 +27,16 @@
 //!   instead of a silently wrong value (tests/data/contour_unresolved.txt).
 //! - At an exactly double real pole of a line edge no line product is taken
 //!   (`box_complex::r1_line`).
+//! - Where a line product disagrees with the rounded offset of a pole that
+//!   carries the error itself, the line's and the conic's terms share that
+//!   error and cancel it with `y - z`, which the product breaks; binary64
+//!   probes such a pole and keeps the variant that moves less
+//!   (`box_complex::tfun_selected`, tests/data/contour_pole_errors.txt).
 //!
 //! References (tests/data/contour_regressions.txt,
-//! tests/data/contour_gram_rounding.txt, tests/data/contour_unresolved.txt):
-//! COLLIER 1.2.9 in quadruple precision, independent of OneLOop and this
-//! crate.
+//! tests/data/contour_gram_rounding.txt, tests/data/contour_unresolved.txt,
+//! tests/data/contour_pole_errors.txt): COLLIER 1.2.9 in quadruple
+//! precision, independent of OneLOop and this crate.
 #![cfg(feature = "generated-evaluators")]
 use oneloop::{
     EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral, evaluate_with_backend,
@@ -376,6 +381,23 @@ fn check_precise(data: &str, bounds: impl Fn(u32, usize) -> (f64, f64)) {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// Boxes whose line products disagree with the rounded offsets of a pole that
+/// carries the error itself (tests/data/contour_pole_errors.txt): every
+/// binary64 route within the row's tolerance in all 24 relabellings, where
+/// f2adce4 lost up to 1.2e-10 (see the data file); DoubleFloat within 1e-14.
+#[test]
+fn contour_boxes_with_inaccurate_poles_match_collier_in_binary64() {
+    on_stack(|| {
+        check_binary64(
+            include_str!("data/contour_pole_errors.txt"),
+            5,
+            BINARY64,
+            1e-14,
+            false,
+        )
+    });
 }
 
 /// A box of the NinjaRS streams' oracle sweep (reference: COLLIER 1.2.9 in
