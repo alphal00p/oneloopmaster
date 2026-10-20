@@ -1847,6 +1847,131 @@ fn tfun_chart(x: [&Atom; 31]) -> Atom {
     )
 }
 
+/// The two contours of [tfun] (`beta1` the root of `b beta² + c beta + a`
+/// of smaller magnitude, `w = beta - 1`), their [beta_data] and the choice
+/// between them, from tfun's sign-adjusted `[a, b, c, g, h, d, e, f, j, dpe,
+/// dd, de, df, dj, ddpe, abc]`.
+struct Contours {
+    beta1: Atom,
+    w1: Atom,
+    beta2: Atom,
+    w2: Atom,
+    data1: BetaData,
+    data2: BetaData,
+    use_first: Atom,
+}
+
+fn tfun_contours(
+    [a, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, abc]: [&Atom; 16],
+) -> Contours {
+    let [root1, root2] = roots(b, c, a);
+    // beta - 1: the root nearer 1 from (beta1 - 1)(beta2 - 1) = (a + b + c)/b.
+    let [o1, o2] = [&root1 - 1, &root2 - 1];
+    let w1 = if_nonzero_else(&less(&norm(&o1), &norm(&o2)), abc / (b * &o2), o1.clone());
+    let w2 = if_nonzero_else(&less(&norm(&o2), &norm(&o1)), abc / (b * &o1), o2);
+    let swap = less(&norm(&root2), &norm(&root1));
+    let beta1 = if_nonzero_else(&swap, root2.clone(), root1.clone());
+    let beta2 = if_nonzero_else(&swap, root1, root2);
+    let (w1, w2) = (
+        if_nonzero_else(&swap, w2.clone(), w1.clone()),
+        if_nonzero_else(&swap, w1, w2),
+    );
+    let data = |beta: &Atom, w: &Atom| {
+        beta_data(
+            beta, w, b, c, g, h, d, e, f, j, dpe, dd, de, df, dj, ddpe, None,
+        )
+    };
+    let data1 = data(&beta1, &w1);
+    let data2 = data(&beta2, &w2);
+    let distance_y =
+        |beta: &Atom, y: &Continued| call("distance", [beta, &y.value, &y.first, &y.second]);
+    let d1 = min(
+        &distance_y(&beta1, &data1.y[0]),
+        &distance_y(&beta1, &data1.y[1]),
+    );
+    let d2 = min(
+        &distance_y(&beta2, &data2.y[0]),
+        &distance_y(&beta2, &data2.y[1]),
+    );
+    let use_first = if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1));
+    Contours {
+        beta1,
+        w1,
+        beta2,
+        w2,
+        data1,
+        data2,
+        use_first,
+    }
+}
+
+/// Nonzero where a pole `y` of the contour [tfun] selects lies next to the
+/// vertex `-beta` of its triangle `(0, -beta, 1 - beta)`, the image of the
+/// corner (1, 0), with an offset `y + beta` that the rounding resolves only
+/// to a factor 16 of itself (`max(|beta|, |y|) > 16 |y + beta|`), or, with the
+/// pole's own rounding, to 2^12 of itself (`|beta| + dy > 4096 |y + beta|`;
+/// `dy = (Kt |y|² + Lt |y| + Nt)/|2 K y + L|` is the root's sensitivity to the
+/// rounding of `K y² + L y + N`, with `Kt`, `Lt`, `Nt` the magnitudes of the
+/// products that form them). Zero for the `t1` branches (`a` or `b` zero).
+/// [zero_external] reflects the chart only there.
+fn tfun_vertex_suspicious(
+    [
+        a,
+        b,
+        c,
+        gin,
+        hin,
+        d,
+        e,
+        f,
+        jin,
+        dpe,
+        _dpf,
+        dd,
+        de,
+        df,
+        djin,
+        ddpe,
+        _ddpf,
+        abc,
+    ]: [&Atom; 18],
+) -> Atom {
+    let sj = imaginary_sign(jin, &imaginary_sign(djin, &Atom::num(-1)));
+    let g = -&sj * gin;
+    let h = -&sj * hin;
+    let j = -&sj * jin;
+    let dj = -&sj * djin;
+    let contours = tfun_contours([
+        a, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, abc,
+    ]);
+    let size = |z: &Atom| Symbol::ABS.call((z,));
+    let either = |p: &Atom, q: &Atom| 1 - (1 - p) * (1 - q);
+    let suspicious = |beta: &Atom, data: &BetaData| {
+        let [a1, b1, c1] = [&data.a, &data.b, &data.c];
+        let kt = size(b) * size(a1) + size(&h) * size(b1);
+        let lt = size(e) * size(a1) + size(&h) * size(c1) + size(&j) * size(b1);
+        let nt = size(f) * size(a1) + size(&j) * size(c1);
+        let l = e * a1 - &h * c1 - &j * b1;
+        let mb = size(beta);
+        let pole = |y: &Continued| {
+            let offset = size(&(&y.value + beta));
+            let my = size(&y.value);
+            let larger = if_nonzero_else(&less(&mb, &my), my.clone(), mb.clone());
+            let geometric = less(&(Atom::num(16) * &offset), &larger);
+            let dy = (&kt * &my * &my + &lt * &my + &nt)
+                / size(&(Atom::num(2) * &data.k * &y.value + &l));
+            either(&geometric, &less(&(Atom::num(4096) * &offset), &(&mb + dy)))
+        };
+        either(&pole(&data.y[0]), &pole(&data.y[1]))
+    };
+    let selected = if_nonzero_else(
+        &contours.use_first,
+        suspicious(&contours.beta1, &contours.data1),
+        suspicious(&contours.beta2, &contours.data2),
+    );
+    if_nonzero_else(b, if_nonzero_else(a, selected, Atom::num(0)), Atom::num(0))
+}
+
 fn tfun(
     [
         a,
@@ -1890,33 +2015,14 @@ fn tfun(
     let gh = -&sj * ghin;
     let gj = -&sj * gjin;
     let ghj = -&sj * ghjin;
-    let [root1, root2] = roots(b, c, a);
-    // beta - 1: the root nearer 1 from (beta1 - 1)(beta2 - 1) = (a + b + c)/b.
-    let [o1, o2] = [&root1 - 1, &root2 - 1];
-    let w1 = if_nonzero_else(&less(&norm(&o1), &norm(&o2)), abc / (b * &o2), o1.clone());
-    let w2 = if_nonzero_else(&less(&norm(&o2), &norm(&o1)), abc / (b * &o1), o2);
-    let swap = less(&norm(&root2), &norm(&root1));
-    let beta1 = if_nonzero_else(&swap, root2.clone(), root1.clone());
-    let beta2 = if_nonzero_else(&swap, root1, root2);
-    let (w1, w2) = (
-        if_nonzero_else(&swap, w2.clone(), w1.clone()),
-        if_nonzero_else(&swap, w1, w2),
-    );
-    let data = |beta: &Atom, w: &Atom| {
-        beta_data(beta, w, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, None)
-    };
-    let data1 = data(&beta1, &w1);
-    let data2 = data(&beta2, &w2);
-    let distance_y =
-        |beta: &Atom, y: &Continued| call("distance", [beta, &y.value, &y.first, &y.second]);
-    let d1 = min(
-        &distance_y(&beta1, &data1.y[0]),
-        &distance_y(&beta1, &data1.y[1]),
-    );
-    let d2 = min(
-        &distance_y(&beta2, &data2.y[0]),
-        &distance_y(&beta2, &data2.y[1]),
-    );
+    let Contours {
+        beta1,
+        w1,
+        beta2,
+        w2,
+        use_first,
+        ..
+    } = tfun_contours([a, b, c, &g, &h, d, e, f, &j, dpe, dd, de, df, &dj, ddpe, abc]);
     // The contour opposite the pole nearest a boundary is used. If the first
     // contour encloses no pole, the first (smaller-magnitude) beta is
     // selected.
@@ -1939,7 +2045,6 @@ fn tfun(
     // NaN where the chart used, flat without a regular alternative or with a
     // K that rounds to zero, does not keep 10 bits under a move of its line
     // or of its K within their rounding.
-    let use_first = if_nonzero_else(&(&d1 - 1), less(&d2, &d1), Atom::num(1));
     let general = call(
         "tfun_chart",
         [
@@ -2111,6 +2216,24 @@ fn no_opposite_externals(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
 /// within rounding), where the original orientation keeps 2.6e-14 and
 /// 5.4e-14. The nearest box that the reflection improves has the line 2 %
 /// nearer (1, 0) (v1 12400: 1.4e-6 unreflected, 1.2e-13 reflected).
+///
+/// The line's distance alone does not tell whether a pole lies next to the
+/// corner: the reflection is taken only where one of the two [tfun] selects
+/// a contour with a pole that the rounding resolves poorly next to the
+/// corner's vertex `-beta` ([zero_external_suspicious],
+/// [tfun_vertex_suspicious]). Elsewhere the reflected chart has no such pole
+/// to gain and can lose to its own cancellations: a far pole of a nearly
+/// vanishing `b` (v1 1804 of the verifier's sweep), a line product (v1 7832)
+/// or a `K` that cancels by 2e3 and 400 (v1 16613, g1 10856). Reflected, these
+/// four lost 1.3e-12 to 1.0e-11 on their worst binary64 route; the original
+/// orientation keeps at most 8.2e-13. Of the 1,505 boxes where the line test
+/// holds (the verifier's v1, CT, MS, NR and g1 sets, the NinjaRS streams'
+/// sweep, the tests' rows in their 24 relabellings and the 22 benchmark
+/// streams), 739 keep the original orientation, and none that the
+/// reflection improves by more than 10x (above 1e-12) on any binary64 route;
+/// the nearest have a pole 20 times nearer the vertex than its size (SW 29392
+/// of the streams' sweep, 4.1e-12 unreflected) or one whose own rounding the
+/// offset from the vertex magnifies 1e4 times (v1 17278, 1.8e-11 unreflected).
 fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     let at_10 = in_order(&[m[0] - m[1], p[1].clone(), -p[4]]);
     let at_00 = in_order(&[m[0] - m[1], p[5].clone(), -p[3]]);
@@ -2146,6 +2269,12 @@ fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     );
     let reflected = [p[0], p[3], p[2], p[1], p[5], p[4], m[1], m[0], m[3], m[2]];
     let original = [p[0], p[1], p[2], p[3], p[4], p[5], m[0], m[1], m[2], m[3]];
+    // Only where the chart itself has a pole next to the corner (1, 0) that
+    // the rounding resolves poorly ([zero_external_suspicious]). The two
+    // orientations are algebraically identical: the inspection form keeps
+    // the test above alone.
+    let suspicious = call("zero_external_suspicious", original);
+    let reflect = Q::rounding_choice(if_nonzero_else(&reflect, suspicious, Atom::num(0)), reflect);
     let selected: [Atom; 10] = core::array::from_fn(|index| {
         if_nonzero_else(&reflect, reflected[index].clone(), original[index].clone())
     });
@@ -2153,6 +2282,22 @@ fn zero_external(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
 }
 
 fn zero_external_chart(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
+    let [first, second] = zero_external_tfun_arguments(p, m);
+    call("tfun", first.each_ref()) - call("tfun", second.each_ref())
+}
+
+/// Nonzero where one of the two [tfun] of [zero_external_chart] selects a
+/// contour with a pole next to the corner (1, 0) that the rounding resolves
+/// poorly ([tfun_vertex_suspicious]).
+fn zero_external_suspicious(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
+    let [first, second] = zero_external_tfun_arguments(p, m);
+    let flag =
+        |x: &[Atom; 26]| call::<18>("tfun_vertex_suspicious", core::array::from_fn(|i| &x[i]));
+    1 - (1 - flag(&first)) * (1 - flag(&second))
+}
+
+/// The arguments of the two [tfun] of [zero_external_chart].
+fn zero_external_tfun_arguments(p: [&Atom; 6], m: [&Atom; 4]) -> [[Atom; 26]; 2] {
     let dm = mass_directions(m);
     let a = p[2];
     let b = p[1];
@@ -2180,8 +2325,7 @@ fn zero_external_chart(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
         in_order(&[m[0] - m[1], p[1].clone(), -p[4]]),
         in_order(&[m[0] - m[1], -p[0]]),
     ];
-    call(
-        "tfun",
+    [
         [
             a,
             b,
@@ -2210,8 +2354,6 @@ fn zero_external_chart(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
             &line[1],
             &line[2],
         ],
-    ) - call(
-        "tfun",
         [
             a,
             &bj,
@@ -2240,7 +2382,8 @@ fn zero_external_chart(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
             &line[1],
             &line[2],
         ],
-    )
+    ]
+    .map(|arguments| arguments.map(Clone::clone))
 }
 
 fn ordered(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
@@ -2653,6 +2796,9 @@ pub(crate) fn register(map: &mut FunctionMap) {
     define(map, "tfun", 26, |x| {
         tfun(core::array::from_fn(|idx| &x[idx]))
     });
+    define(map, "tfun_vertex_suspicious", 18, |x| {
+        tfun_vertex_suspicious(core::array::from_fn(|idx| &x[idx]))
+    });
     define(map, "sort", 4, |x| {
         sort_four(core::array::from_fn(|idx| &x[idx]))
     });
@@ -2665,6 +2811,7 @@ pub(crate) fn register(map: &mut FunctionMap) {
         ("opposite", no_opposite_externals),
         ("zero_external", zero_external),
         ("zero_external_chart", zero_external_chart),
+        ("zero_external_suspicious", zero_external_suspicious),
         ("ordered", ordered),
         ("general", general),
         ("box", body),
