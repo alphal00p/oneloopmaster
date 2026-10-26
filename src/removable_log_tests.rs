@@ -1,6 +1,10 @@
 //! Independent Taylor controls use derivatives of the nonsingular numerator log.
 #![allow(clippy::suspicious_arithmetic_impl, clippy::suspicious_op_assign_impl)]
 
+#[path = "../tests/support/evaluate_rows.rs"]
+mod evaluate_rows;
+use evaluate_rows::EvaluateRows;
+
 use super::*;
 use symbolica::{
     create_hyperdual_from_depths,
@@ -226,8 +230,7 @@ fn log_ratio_mixed_transverse_lanes_and_lazy_branches() {
         .unwrap();
     let mut evaluator = exact
         .clone()
-        .map_coeff(&|v| c(v.re.to_f64(), v.im.to_f64()))
-        .into_batch_evaluator();
+        .map_coeff(&|v| c(v.re.to_f64(), v.im.to_f64()));
     let (t, u) = (
         symbolica::symbol!("removable_mixed_t"),
         symbolica::symbol!("removable_mixed_u"),
@@ -301,7 +304,7 @@ fn log_ratio_mixed_transverse_lanes_and_lazy_branches() {
             .collect();
         let mut outputs = vec![c(99., 99.); rows * shape.len()];
         evaluator
-            .evaluate_batch(&inputs, &mut outputs, rows)
+            .evaluate_rows(&inputs, &mut outputs, rows)
             .unwrap();
         for (row, output) in outputs.chunks(shape.len()).enumerate() {
             for (component, &actual) in output.iter().enumerate() {

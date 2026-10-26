@@ -192,7 +192,12 @@ fn run() {
     let mut jit = native.jit_compile(oneloop::jit_settings()).unwrap();
     let bytes = bincode::encode_to_vec(&native, bincode::config::standard()).unwrap();
     let (source, consumed): (ExpressionEvaluator<Complex<f64>>, usize) =
-        bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+        bincode::decode_from_slice_with_context(
+            &bytes,
+            bincode::config::standard(),
+            symbolica::state::StateMap::default(),
+        )
+        .unwrap();
     assert_eq!(consumed, bytes.len());
     let mut restored = source.jit_compile(oneloop::jit_settings()).unwrap();
     let mut failures = 0;

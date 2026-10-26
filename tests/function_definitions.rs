@@ -162,7 +162,12 @@ fn explicit_constants_preserve_nested_tagged_calls_and_inspection() {
     let (mut restored, consumed): (
         symbolica::evaluate::ExpressionEvaluator<Complex<f64>>,
         usize,
-    ) = bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+    ) = bincode::decode_from_slice_with_context(
+        &bytes,
+        bincode::config::standard(),
+        symbolica::state::StateMap::default(),
+    )
+    .unwrap();
     assert_eq!(consumed, bytes.len());
     assert_eq!(restored.get_input_len(), 1);
     assert_eq!(restored.get_output_len(), 1);
@@ -273,7 +278,12 @@ fn jit_lowering_preserves_complex_branches_in_nested_and_restored_evaluators() {
     let (restored, consumed): (
         symbolica::evaluate::ExpressionEvaluator<Complex<f64>>,
         usize,
-    ) = bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+    ) = bincode::decode_from_slice_with_context(
+        &bytes,
+        bincode::config::standard(),
+        symbolica::state::StateMap::default(),
+    )
+    .unwrap();
     assert_eq!(consumed, bytes.len());
     let inputs = [
         (4., 0.),

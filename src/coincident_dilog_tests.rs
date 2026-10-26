@@ -1,4 +1,8 @@
 //! Independent controls differentiate the defining logarithmic derivative.
+#[path = "../tests/support/evaluate_rows.rs"]
+mod evaluate_rows;
+use evaluate_rows::EvaluateRows;
+
 use super::*;
 use symbolica::{
     domains::{
@@ -99,7 +103,7 @@ fn coincident_sheet_dilog_preserves_independent_jets_and_primal() {
     let scalar = context.evaluator(&[expression], &[x, y]).unwrap();
     let f64_map =
         |v: &Complex<symbolica::domains::rational::Rational>| c(v.re.to_f64(), v.im.to_f64());
-    let mut actual = exact.clone().map_coeff(&f64_map).into_batch_evaluator();
+    let mut actual = exact.clone().map_coeff(&f64_map);
     let mut scalar = scalar.map_coeff(&f64_map);
     let points = [
         symbolica::parse!("2"),
@@ -123,7 +127,7 @@ fn coincident_sheet_dilog_preserves_independent_jets_and_primal() {
     }
     let mut output = vec![c(0., 0.); expected.len()];
     actual
-        .evaluate_batch(&inputs, &mut output, points.len())
+        .evaluate_rows(&inputs, &mut output, points.len())
         .unwrap();
     for (actual, expected) in output.chunks_exact(SHAPE.len()).zip(scalar_expected) {
         assert_eq!(
@@ -145,9 +149,7 @@ fn coincident_sheet_dilog_preserves_independent_jets_and_primal() {
             v.im.to_multi_prec_float(bits),
         )
     };
-    let mut actual = exact
-        .map_coeff_with_prec(&precise_map, bits)
-        .into_batch_evaluator();
+    let mut actual = exact.map_coeff_with_prec(&precise_map, bits);
     let mut inputs = Vec::new();
     let mut expected = Vec::new();
     let zero = Complex::new(Float::new(bits), Float::new(bits));
@@ -167,7 +169,7 @@ fn coincident_sheet_dilog_preserves_independent_jets_and_primal() {
     }
     let mut output = vec![zero; expected.len()];
     actual
-        .evaluate_batch(&inputs, &mut output, points.len())
+        .evaluate_rows(&inputs, &mut output, points.len())
         .unwrap();
     let tolerance = Float::with_val(bits, 2).pow(170).inv();
     for (actual, expected) in output.into_iter().zip(expected) {
@@ -186,8 +188,7 @@ fn incompatible_sheets_and_zero_do_not_get_removable_derivatives() {
     let mut actual = context
         .dual_evaluator(&[expression], &parameters, shape())
         .unwrap()
-        .map_coeff(&|v| c(v.re.to_f64(), v.im.to_f64()))
-        .into_batch_evaluator();
+        .map_coeff(&|v| c(v.re.to_f64(), v.im.to_f64()));
     let values = [
         [1., 0., 0., 1., 0., 0.],
         [0., 0., 0., 0., 0., 0.],
@@ -207,7 +208,7 @@ fn incompatible_sheets_and_zero_do_not_get_removable_derivatives() {
     }
     let mut output = vec![c(0., 0.); values.len() * SHAPE.len()];
     actual
-        .evaluate_batch(&input, &mut output, values.len())
+        .evaluate_rows(&input, &mut output, values.len())
         .unwrap();
     for (index, row) in output.chunks_exact(SHAPE.len()).enumerate() {
         if index == 0 || index >= 4 {
@@ -389,8 +390,7 @@ fn nonlinear_mixed_unit_seeds_match_native_polynomial_integral() {
     let mut output = vec![zero; 2 * SHAPE.len()];
     exact
         .map_coeff_with_prec(&map, bits)
-        .into_batch_evaluator()
-        .evaluate_batch(&inputs, &mut output, 2)
+        .evaluate_rows(&inputs, &mut output, 2)
         .unwrap();
     let tolerance = Float::with_val(bits, 2).pow(180).inv();
     for (actual, expected) in output[..SHAPE.len()].iter().zip(expected) {
