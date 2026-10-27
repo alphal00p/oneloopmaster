@@ -235,8 +235,12 @@ impl JitEvaluator {
         portable_environment()?;
         let (payload, inputs, outputs) = cache_payload(data)?;
         let (source, consumed): (ExpressionEvaluator<C>, usize) =
-            bincode::decode_from_slice(payload, bincode::config::standard())
-                .map_err(|error| error.to_string())?;
+            bincode::decode_from_slice_with_context(
+                payload,
+                bincode::config::standard(),
+                symbolica::state::StateMap::default(),
+            )
+            .map_err(|error| error.to_string())?;
         if consumed != payload.len() {
             return Err("trailing bytes in evaluator cache".into());
         }

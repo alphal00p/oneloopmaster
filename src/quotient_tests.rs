@@ -1,4 +1,8 @@
 //! Quotient and composed-log controls keep independent numerator/denominator jets.
+#[path = "../tests/support/evaluate_rows.rs"]
+mod evaluate_rows;
+use evaluate_rows::EvaluateRows;
+
 use super::*;
 use symbolica::{
     domains::{
@@ -39,8 +43,8 @@ fn equal_nonzero_sheet_arguments_keep_independent_mixed_jets() {
         .vectorize(&Dualizer::new(shape(), vec![]))
         .unwrap();
     let map = |v: &Complex<symbolica::domains::rational::Rational>| c(v.re.to_f64(), v.im.to_f64());
-    let mut actual = exact.clone().map_coeff(&map).into_batch_evaluator();
-    let mut expected = oracle.clone().map_coeff(&map).into_batch_evaluator();
+    let mut actual = exact.clone().map_coeff(&map);
+    let mut expected = oracle.clone().map_coeff(&map);
     let mut input = Vec::new();
     let primals = [(2., 0.), (-2., 0.), (3., 0.), (0.13, 0.71), (-0.13, -0.71)];
     let rows = primals.len();
@@ -66,9 +70,9 @@ fn equal_nonzero_sheet_arguments_keep_independent_mixed_jets() {
     }
     let mut output = vec![c(0., 0.); rows * 3 * SHAPE.len()];
     let mut reference = output.clone();
-    actual.evaluate_batch(&input, &mut output, rows).unwrap();
+    actual.evaluate_rows(&input, &mut output, rows).unwrap();
     expected
-        .evaluate_batch(&input, &mut reference, rows)
+        .evaluate_rows(&input, &mut reference, rows)
         .unwrap();
     for row in output.chunks(3 * SHAPE.len()) {
         assert_eq!(row[0], c(1., 0.), "quotient primal must stay exactly one");
@@ -86,8 +90,8 @@ fn equal_nonzero_sheet_arguments_keep_independent_mixed_jets() {
     let map = |v: &Complex<symbolica::domains::rational::Rational>| {
         Complex::new(v.re.to_multi_prec_float(256), v.im.to_multi_prec_float(256))
     };
-    let mut actual = exact.map_coeff_with_prec(&map, 256).into_batch_evaluator();
-    let mut expected = oracle.map_coeff_with_prec(&map, 256).into_batch_evaluator();
+    let mut actual = exact.map_coeff_with_prec(&map, 256);
+    let mut expected = oracle.map_coeff_with_prec(&map, 256);
     let inputs: Vec<_> = input
         .iter()
         .map(|v| Complex::new(Float::with_val(256, v.re), Float::with_val(256, v.im)))
@@ -95,9 +99,9 @@ fn equal_nonzero_sheet_arguments_keep_independent_mixed_jets() {
     let zero = Complex::new(Float::new(256), Float::new(256));
     let mut output = vec![zero.clone(); reference.len()];
     let mut reference = vec![zero; reference.len()];
-    actual.evaluate_batch(&inputs, &mut output, rows).unwrap();
+    actual.evaluate_rows(&inputs, &mut output, rows).unwrap();
     expected
-        .evaluate_batch(&inputs, &mut reference, rows)
+        .evaluate_rows(&inputs, &mut reference, rows)
         .unwrap();
     let tolerance = Float::with_val(256, 2).pow(180).inv();
     for (actual, expected) in output.into_iter().zip(reference) {

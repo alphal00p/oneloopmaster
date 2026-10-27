@@ -1,7 +1,8 @@
 #![cfg(feature = "rust-codegen")]
 //! Compile and execute the generated Rust against the real native runtime.
-//! This also compares Symbolica's independent batch interpreter and records the
-//! primitive visitation order; scalar equality alone cannot prove batching.
+//! This compares each row with Symbolica's independent scalar interpreter.
+//! Primitive visitation and allocation checks separately exercise generated batching;
+//! the fork-only Symbolica batch interpreter is not available upstream.
 use oneloop::rust_codegen::{EmitOptions, RustEmitter};
 use std::{path::Path, process::Command, time::Instant};
 use symbolica::{
@@ -250,6 +251,9 @@ fn generated_batch_numeric_precision_dual_trace_and_allocation_contracts() {
         )
         .unwrap();
     let mut source = String::from(PROBE);
+    source.push_str("\nmod evaluate_rows {\n");
+    source.push_str(include_str!("support/evaluate_rows.rs"));
+    source.push_str("\n}\n");
     for (name, module) in [
         ("correction", correction),
         ("ordinary", ordinary),
@@ -337,6 +341,7 @@ trait NativeFloat: RuntimeFloat + symbolica::domains::float::RealLike {}
 impl<T:RuntimeFloat + symbolica::domains::float::RealLike> NativeFloat for T {}
 use symbolica::{atom::{Atom, AtomCore}, domains::{dual::HyperDual, float::{Complex, DoubleFloat, Float, FloatLike, Real, RealLike, SingleFloat}, rational::Rational}, evaluate::{Dualizer, FunctionRegistrationOptions, InliningPolicy}};
 use std::sync::Mutex;
+use evaluate_rows::EvaluateRows;
 static TRACE: Mutex<Vec<(&str,f64)>> = Mutex::new(Vec::new());
 mod primitives {
     pub use oneloop::rust_codegen::runtime::primitives::*;
@@ -385,12 +390,12 @@ fn check<T: NativeFloat>(bits:u32) where C<T>: symbolica::evaluate::EvaluationDo
     let n=|value:i64| C::new(prototype.from_i64(value),prototype.zero());
     let ctx=Context::<T>::new(table::CONSTANTS,bits).unwrap();
     let mut workspace=BatchWorkspace::new(prototype.clone());
-    let mut oracle=exact().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits).into_batch_evaluator();
+    let mut oracle=exact().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits);
     for rows in [0,1,8,3,32,128,1024,17,2,1,0] {
         let input=(0..rows).flat_map(|i| [n((rows-i) as i64+1),C::new(prototype.from_i64(i as i64+2),prototype.from_i64(1))]).collect::<Vec<_>>();
         let mut output=vec![n(99);rows*3]; let mut interpreted=output.clone();
         ordinary::evaluate_batch(&input,&mut output,rows,&ctx,&mut workspace).unwrap();
-        oracle.evaluate_batch(&input,&mut interpreted,rows).unwrap();
+        oracle.evaluate_rows(&input,&mut interpreted,rows).unwrap();
         for row in 0..rows {
             let scalar=ordinary::evaluate(&input[row*2..row*2+2],&ctx);
             for j in 0..3 {
@@ -413,11 +418,11 @@ fn check<T: NativeFloat>(bits:u32) where C<T>: symbolica::evaluate::EvaluationDo
     if bits>53 { assert_ne!(values[0].re,prototype.from_i64(1)); }
     // Flattened higher/mixed Taylor components preserve Symbolica's exact order.
     let shape=vec![vec![0,0],vec![1,0],vec![0,1],vec![2,0],vec![1,1],vec![0,2]];
-    let mut oracle=exact().vectorize(&Dualizer::new(HyperDual::<Complex<Rational>>::new(shape),vec![])).unwrap().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits).into_batch_evaluator();
+    let mut oracle=exact().vectorize(&Dualizer::new(HyperDual::<Complex<Rational>>::new(shape),vec![])).unwrap().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits);
     for rows in [1,8,32,3] {
         let input=(0..rows).flat_map(|i| [n(i as i64+1),n(1),n(0),n(0),n(0),n(0),n(i as i64+2),n(0),n(1),n(0),n(0),n(0)]).collect::<Vec<_>>();
         let mut output=vec![n(99);rows*18];let mut expected=output.clone();
-        derivatives::evaluate_batch(&input,&mut output,rows,&ctx,&mut workspace).unwrap(); oracle.evaluate_batch(&input,&mut expected,rows).unwrap();
+        derivatives::evaluate_batch(&input,&mut output,rows,&ctx,&mut workspace).unwrap(); oracle.evaluate_rows(&input,&mut expected,rows).unwrap();
         for row in 0..rows { let scalar=derivatives::evaluate(&input[row*12..row*12+12],&ctx); assert_eq!(&output[row*18..row*18+18],&scalar); }
         for (actual,expected) in output.iter().zip(&expected) { let error=(actual.clone()-expected.clone()).norm().re.to_f64(); assert!(error/(1.0+expected.norm().re.to_f64()) < 2.0_f64.powi(-(bits as i32)+14)); }
         assert!(output[4].re != prototype.zero(),"mixed coefficient unexpectedly absent");
@@ -427,11 +432,11 @@ fn lazy_cases() -> [[i64;4];6] { [[1,1,4,0],[1,0,0,2],[0,1,0,0],[1,1,9,0],[1,0,0
 fn check_lazy<T:NativeFloat>(bits:u32) where C<T>:symbolica::evaluate::EvaluationDomain {
     let prototype=T::zero_at(bits);let n=|v:i64| C::new(prototype.from_i64(v),prototype.zero());
     let ctx=Context::<T>::new(table::CONSTANTS,bits).unwrap();let mut workspace=BatchWorkspace::new(prototype.clone());
-    let mut oracle=lazy_exact().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits).into_batch_evaluator();
+    let mut oracle=lazy_exact().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits);
     for rows in [0,1,8,32,128,1024,17,3,8,2,1,0] {
         let input=(0..rows).flat_map(|i|lazy_cases()[(i*5+rows)%6].map(n)).collect::<Vec<_>>();
         let mut actual=vec![n(99);rows*3];let mut expected=actual.clone();
-        lazy::evaluate_batch(&input,&mut actual,rows,&ctx,&mut workspace).unwrap();oracle.evaluate_batch(&input,&mut expected,rows).unwrap();
+        lazy::evaluate_batch(&input,&mut actual,rows,&ctx,&mut workspace).unwrap();oracle.evaluate_rows(&input,&mut expected,rows).unwrap();
         for row in 0..rows { let scalar=lazy::evaluate(&input[row*4..row*4+4],&ctx);assert_eq!(&actual[row*3..row*3+3],&scalar); }
         for (a,b) in actual.iter().zip(&expected) { let error=(a.clone()-b.clone()).norm().re.to_f64();assert!(error/(1.0+b.norm().re.to_f64()) < 2.0_f64.powi(-(bits as i32)+14),"lazy interpreter discrepancy {error}"); }
     }
@@ -439,11 +444,11 @@ fn check_lazy<T:NativeFloat>(bits:u32) where C<T>:symbolica::evaluate::Evaluatio
     let mut output=vec![n(99);6];let before=output.clone();
     for (input,rows) in [(vec![n(1)],2),(vec![],usize::MAX),(vec![],0)] { assert!(lazy::evaluate_batch(&input,&mut output,rows,&ctx,&mut workspace).is_err());assert_eq!(output,before); }
     let shape=vec![vec![0,0],vec![1,0],vec![0,1],vec![2,0],vec![1,1],vec![0,2]];
-    let mut oracle=lazy_exact().vectorize(&Dualizer::new(HyperDual::<Complex<Rational>>::new(shape),vec![])).unwrap().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits).into_batch_evaluator();
+    let mut oracle=lazy_exact().vectorize(&Dualizer::new(HyperDual::<Complex<Rational>>::new(shape),vec![])).unwrap().map_coeff_with_prec(&|c| C::new(prototype.from_rational(&c.re),prototype.from_rational(&c.im)),bits);
     for rows in [1,8,32,3] {
         let input=(0..rows).flat_map(|i| {let v=lazy_cases()[i%6]; [n(v[0]),n(0),n(0),n(0),n(0),n(0),n(v[1]),n(0),n(0),n(0),n(0),n(0),n(v[2]),n(1),n(0),n(0),n(0),n(0),n(v[3]),n(0),n(1),n(0),n(0),n(0)]}).collect::<Vec<_>>();
         let mut actual=vec![n(99);rows*18];let mut expected=actual.clone();
-        lazy_derivatives::evaluate_batch(&input,&mut actual,rows,&ctx,&mut workspace).unwrap();oracle.evaluate_batch(&input,&mut expected,rows).unwrap();
+        lazy_derivatives::evaluate_batch(&input,&mut actual,rows,&ctx,&mut workspace).unwrap();oracle.evaluate_rows(&input,&mut expected,rows).unwrap();
         for row in 0..rows { assert_eq!(&actual[row*18..row*18+18],&lazy_derivatives::evaluate(&input[row*24..row*24+24],&ctx)); }
         for (a,b) in actual.iter().zip(&expected) {let error=(a.clone()-b.clone()).norm().re.to_f64();assert!(error/(1.0+b.norm().re.to_f64()) < 2.0_f64.powi(-(bits as i32)+14),"lazy Dual discrepancy {error}");}
         // Independent control: g(x+y)=log(x+y)+sqrt(x+y) at x=4,y=0.
@@ -459,13 +464,13 @@ fn check_correction<T: NativeFloat>(bits: u32, from_f64: impl Fn(f64) -> T) {
     let mut workspace = BatchWorkspace::new(T::zero_at(bits));
     let expressions=[symbolica::parse!("d1^2/d0^3"),symbolica::parse!("c*d1^2/d0^3")];
     let mut oracle = Atom::evaluator_multiple(&expressions,&[symbolica::parse!("c"),symbolica::parse!("d1"),symbolica::parse!("d0")]).build().unwrap()
-        .map_coeff_with_prec(&|c| C::new(Float::new(256).from_rational(&c.re),Float::new(256).from_rational(&c.im)),256).into_batch_evaluator();
+        .map_coeff_with_prec(&|c| C::new(Float::new(256).from_rational(&c.re),Float::new(256).from_rational(&c.im)),256);
     for scale in [1.,1e20,4e102,8e102,1e110,-1e110] {
         for rows in [1,3] {
             let input=vec![C::new(from_f64(scale),from_f64(0.));rows*3];
             let exact_input=vec![C::new(Float::with_val(256,scale),Float::new(256));rows*3];
             let mut expected=vec![C::new(Float::new(256),Float::new(256));rows*2];
-            oracle.evaluate_batch(&exact_input,&mut expected,rows).unwrap();
+            oracle.evaluate_rows(&exact_input,&mut expected,rows).unwrap();
             let mut actual=vec![C::new(from_f64(99.),from_f64(0.));rows*2];
             correction::evaluate_batch(&input,&mut actual,rows,&context,&mut workspace).unwrap();
             for row in 0..rows {

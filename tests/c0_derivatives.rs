@@ -8,6 +8,10 @@
 //! difference stencil generator was found in Symbolica or FeynKit. Exact stencil
 //! weights below are therefore solved by Symbolica, never by a local solver.
 
+#[path = "support/evaluate_rows.rs"]
+mod evaluate_rows;
+use evaluate_rows::EvaluateRows;
+
 use oneloop::OneLoopExpressions;
 use symbolica::{
     atom::{Atom, AtomCore},
@@ -339,8 +343,8 @@ fn massive_spacelike_c0_higher_mixed_controls() {
         close(&scale_only[0], &primal, 240, "scale-only primal");
         assert!(scale_only[1..].iter().all(|v| v.is_zero()));
     }
-    let mut batch = evaluators.dual.clone().into_batch_evaluator();
-    batch.evaluate_batch(&[], &mut [], 0).unwrap();
+    let mut batch = evaluators.dual.clone();
+    batch.evaluate_rows(&[], &mut [], 0).unwrap();
     for order in [[0, 1, 2, 3], [3, 2, 1, 0], [0, 3, 1, 2]] {
         for indices in order.chunks(3) {
             let arguments: Vec<_> = indices
@@ -349,7 +353,7 @@ fn massive_spacelike_c0_higher_mixed_controls() {
                 .collect();
             let mut output = vec![c(0, 0); indices.len() * 3 * SHAPE.len()];
             batch
-                .evaluate_batch(&arguments, &mut output, indices.len())
+                .evaluate_rows(&arguments, &mut output, indices.len())
                 .unwrap();
             for (&row, values) in indices.iter().zip(output.chunks_exact(3 * SHAPE.len())) {
                 for (actual, expected) in values[..SHAPE.len()].iter().zip(&batch_expected[row]) {
@@ -506,8 +510,8 @@ fn c0_zero_hv_projective_parameter_higher_mixed_controls() {
             arguments.push(row);
         }
     }
-    let mut batch = evaluators.dual.into_batch_evaluator();
-    batch.evaluate_batch(&[], &mut [], 0).unwrap();
+    let mut batch = evaluators.dual;
+    batch.evaluate_rows(&[], &mut [], 0).unwrap();
     for order in [
         (0..arguments.len()).collect::<Vec<_>>(),
         (0..arguments.len()).rev().collect(),
@@ -519,7 +523,7 @@ fn c0_zero_hv_projective_parameter_higher_mixed_controls() {
                 .collect::<Vec<_>>();
             let mut result = vec![c(0, 0); rows.len() * 3 * SHAPE.len()];
             batch
-                .evaluate_batch(&input, &mut result, rows.len())
+                .evaluate_rows(&input, &mut result, rows.len())
                 .unwrap();
             for (&row, output) in rows.iter().zip(result.chunks_exact(3 * SHAPE.len())) {
                 for (a, b) in output[..SHAPE.len()].iter().zip(&expected[row]) {

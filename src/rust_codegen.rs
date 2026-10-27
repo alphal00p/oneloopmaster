@@ -22,7 +22,7 @@ use std::{
     fmt::Write,
 };
 use symbolica::{
-    atom::Symbol,
+    atom::{Atom, Symbol},
     domains::{
         float::{Complex, Float},
         rational::Rational,
@@ -167,13 +167,13 @@ struct Graph {
 struct ConstantFunction {
     index: usize,
     symbol: Symbol,
-    tags: Vec<String>,
+    tags: Vec<Atom>,
     fixed_args: Vec<Complex<Rational>>,
 }
 #[derive(Clone)]
 struct SubEvaluator {
     symbol: Symbol,
-    tags: Vec<String>,
+    tags: Vec<Atom>,
     instructions: Graph,
 }
 
@@ -255,7 +255,7 @@ fn export_checked(
 }
 
 type Environment = BTreeMap<Slot, String>;
-type Signature = (Symbol, Vec<String>);
+type Signature = (Symbol, Vec<Atom>);
 
 /// Exact, owned constant metadata; rational strings never pass through f64.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -306,7 +306,7 @@ impl Constants {
             {
                 ExactConstant::Pi
             } else if definition.symbol == symbolica::transcendental::polylog()
-                && definition.tags == ["2"]
+                && definition.tags == [Atom::num(2)]
                 && definition.fixed_args.len() == 1
             {
                 let value = &definition.fixed_args[0];
@@ -1145,7 +1145,7 @@ impl Emitter<'_, '_> {
 }
 
 // Keep primitive support and tagged-function matching identical in both emitters.
-fn primitive_name(symbol: Symbol, tags: &[String]) -> Result<&'static str, String> {
+fn primitive_name(symbol: Symbol, tags: &[Atom]) -> Result<&'static str, String> {
     if symbol == Symbol::LOG {
         Ok("log")
     } else if symbol == Symbol::SQRT {
@@ -1154,7 +1154,7 @@ fn primitive_name(symbol: Symbol, tags: &[String]) -> Result<&'static str, Strin
         Ok("abs")
     } else if symbol == Symbol::CONJ {
         Ok("conj")
-    } else if symbol == symbolica::transcendental::polylog() && tags == ["2"] {
+    } else if symbol == symbolica::transcendental::polylog() && tags == [Atom::num(2)] {
         Ok("polylog2")
     } else {
         Err(format!("unsupported native function {symbol} {tags:?}"))

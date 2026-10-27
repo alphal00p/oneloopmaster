@@ -187,31 +187,13 @@ of the finite-order evaluators documented below.
 ## Development dependency
 
 The direct Symbolica dependency remains versioned, but the Rust and both Python
-build roots pin Symbolica, Numerica and Graphica to one tested integration through
-`[patch.crates-io]`. The current integration is `9cdc2949` from
-[`alphal00p/symbolica`](https://github.com/alphal00p/symbolica), on
-`ninjars-pin`, the branch NinjaRS pins its Symbolica from (the same commit is
-`claude/oneloopmaster-integration-float-products` of
-[`ValentinHirschi/symbolica`](https://github.com/ValentinHirschi/symbolica)).
-It is the previous integration `e679e8c1`
-(`claude/oneloopmaster-integration-dilog`) plus
-single-rounded `Float` products and exact factors of ±1 from
-[PR97](https://github.com/symbolica-dev/symbolica/pull/97). Without them,
-exact branch tests in arbitrary precision took wrong branches (STATUS.md).
-`e679e8c1` is in turn `2c06f245` (`codex/oneloopmaster-integration`) plus the
-binary64 dilogarithm kernel of
-[PR89](https://github.com/symbolica-dev/symbolica/pull/89). Cargo fetches this
-source automatically; no sibling checkout is required for the standalone build.
-
-This integration combines the recursive shared-function Dual support and vector
-branch-scoping repairs with the native polylog-at-zero series needed for the
-coincident dilogarithm neighborhood. It also includes exact Dual constant-pool
-interning, temporary-stack reuse for shared evaluator bodies, and caching of
-completed conditionals within their existing branch scope. Conditional reuse
-does not reorder arithmetic or evaluate inactive branches. The version
-string `3.0.1` alone does not identify these unreleased fixes. The constructor/Dual and Rust-emitter validation
-must use this integration or a tested successor containing those changes. See the [combined conditional-cache/C0 validation](patches/conditional-cache-c0-pin-validation.md) for the current checks and the
-[shared-helper integration validation](patches/shared-helper-stack-pin-validation.md) for the preceding checkpoint.
+build roots pin Symbolica, Numerica and Graphica to one tested revision through
+`[patch.crates-io]`. The current revision is `f514a7fe` from the upstream
+[`symbolica-dev/symbolica` community branch](https://github.com/symbolica-dev/symbolica/tree/community).
+Cargo fetches this source automatically; no sibling checkout is required for the
+standalone build. This revision includes the shared-function, native emitter,
+dilogarithm and arbitrary-precision arithmetic fixes needed by OneLOop.
+The version string `3.0.1` alone does not identify these unreleased APIs.
 
 An embedding workspace controls its own `[patch.crates-io]` table: patches in a
 dependency's manifest do not propagate to the workspace root. Select compatible

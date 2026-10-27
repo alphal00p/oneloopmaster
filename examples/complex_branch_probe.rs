@@ -52,7 +52,12 @@ fn run() {
         let mut original = source.jit_compile(settings.clone()).unwrap();
         let bytes = bincode::encode_to_vec(&source, bincode::config::standard()).unwrap();
         let (source, consumed): (ExpressionEvaluator<Complex<f64>>, usize) =
-            bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+            bincode::decode_from_slice_with_context(
+                &bytes,
+                bincode::config::standard(),
+                symbolica::state::StateMap::default(),
+            )
+            .unwrap();
         assert_eq!(consumed, bytes.len());
         let mut restored = source.jit_compile(settings).unwrap();
         for (stage, compiled) in [("original", &mut original), ("restored", &mut restored)] {
