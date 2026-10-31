@@ -39,7 +39,7 @@ pub use inspection::{
     get_expression_shared_with_options, get_expression_with_options, master_arguments,
     select_branch_shared,
 };
-pub use native::{NativeEvaluator, NativeFloat, NativeTensorEvaluator, TensorIntegral};
+pub use native::{NativeEvaluator, NativeFloat, NativeTensorEvaluator, TensorIntegral, b0_momentum_shift};
 pub use precision::PrecisionEvaluator;
 pub use poles::{PoleCoefficient, PoleSelection};
 

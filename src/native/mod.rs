@@ -6,6 +6,8 @@
 pub mod batch;
 #[cfg_attr(not(feature = "generated-evaluators"), allow(dead_code))]
 pub mod primitives;
+mod small_momentum;
+pub use small_momentum::b0_momentum_shift;
 mod tensor;
 pub use tensor::{NativeTensorEvaluator, TensorIntegral};
 #[cfg(feature = "generated-evaluators")]
@@ -92,6 +94,9 @@ pub struct NativeEvaluator<T: NativeFloat> {
     context: Context<T>,
     arguments: Vec<C<T>>,
     handwritten: bool,
+    /// Relative accuracy target of the small-momentum B0 series (2^-(bits+4)).
+    tolerance: T,
+    small_momentum: bool,
 }
 
 #[cfg(feature = "generated-evaluators")]
@@ -126,6 +131,11 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             // types keep the generated expression code: their exact-zero tests
             // and precision bookkeeping follow the expression's own grouping.
             handwritten: T::FIXED_BITS == Some(53),
+            tolerance: {
+                let half = T::zero_at(bits).one() / T::zero_at(bits).from_i64(2);
+                (0..bits + 4).fold(T::zero_at(bits).one(), |acc, _| acc * &half)
+            },
+            small_momentum: true,
         })
     }
 
@@ -144,6 +154,13 @@ impl<T: NativeFloat> NativeEvaluator<T> {
     /// Working precision in bits (not decimal digits).
     pub fn binary_precision(&self) -> u32 {
         self.bits
+    }
+
+    /// Use the small-momentum B0 representation (the default) or the general
+    /// expression everywhere. For validation only.
+    #[doc(hidden)]
+    pub fn set_small_momentum(&mut self, enabled: bool) {
+        self.small_momentum = enabled;
     }
 
     /// Retain the chosen UV/IR poles, leaving the finite result unchanged.
@@ -210,7 +227,9 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             ScalarIntegral::B0 if input[..3].iter().all(|z| !truth(z)) => {
                 simple::zeros(&input[0].re)
             }
-            ScalarIntegral::B0 => generated_b0::evaluate(input, &self.context),
+            ScalarIntegral::B0 => self
+                .small_momentum_b0(input)
+                .unwrap_or_else(|| generated_b0::evaluate(input, &self.context)),
             ScalarIntegral::DB0 => generated_db0::evaluate(input, &self.context),
             ScalarIntegral::C0 => simple::massless_triangle(input, &self.context.simple)
                 .or_else(|| {
@@ -259,6 +278,21 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             ));
         }
         Ok(())
+    }
+
+    /// B0 for `0 < |p²| <= max(m²)/16`: the general expression cancels like
+    /// `max(m²)/p²` there, so evaluate it at `p² = 0` exactly and add the
+    /// cancellation-free momentum shift of `small_momentum`.
+    fn small_momentum_b0(&self, input: &[C<T>]) -> Option<[C<T>; 3]> {
+        if !self.small_momentum || !truth(&input[0]) {
+            return None;
+        }
+        let shift = small_momentum::b0_momentum_shift(&input[0], &input[1], &input[2], &self.tolerance)?;
+        let zero = C::new(input[0].re.zero(), input[0].re.zero());
+        let at_zero = [zero, input[1].clone(), input[2].clone(), input[3].clone()];
+        let mut values = generated_b0::evaluate(&at_zero, &self.context);
+        values[0] = add(&values[0], &shift);
+        Some(values)
     }
 
     fn validate_point(&self, input: &[C<T>]) -> Result<(), String> {
