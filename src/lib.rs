@@ -40,6 +40,8 @@ pub use inspection::{
     select_branch_shared,
 };
 pub use native::{NativeEvaluator, NativeFloat, NativeTensorEvaluator, TensorIntegral};
+#[doc(hidden)]
+pub use native::primitives::{double_dilog_via_float, symbolica_dilog_float};
 pub use precision::PrecisionEvaluator;
 pub use poles::{PoleCoefficient, PoleSelection};
 
