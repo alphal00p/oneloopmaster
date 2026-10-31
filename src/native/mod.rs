@@ -200,41 +200,43 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             }
             &self.arguments
         };
-        let mut values = match self.family {
-            ScalarIntegral::A0 if !truth(&input[0]) => {
-                let mut values = simple::zeros(&input[0].re);
-                values[1] = input[0].clone();
-                values
-            }
-            ScalarIntegral::A0 => generated_a0::evaluate(input, &self.context),
-            ScalarIntegral::B0 if input[..3].iter().all(|z| !truth(z)) => {
-                simple::zeros(&input[0].re)
-            }
-            ScalarIntegral::B0 => generated_b0::evaluate(input, &self.context),
-            ScalarIntegral::DB0 => generated_db0::evaluate(input, &self.context),
-            ScalarIntegral::C0 => simple::massless_triangle(input, &self.context.simple)
-                .or_else(|| {
-                    self.handwritten
-                        .then(|| handwritten::c0(input, &self.context.hand))
-                        .flatten()
-                })
-                .unwrap_or_else(|| generated_c0::evaluate(input, &self.context)),
-            // The hand-written sectors leave a soft line's on-shell pair on
-            // a channel to the generated code, which evaluates the labelling
-            // with both on the legs (crate::labelling).
-            ScalarIntegral::D0 => simple::massless_onshell_box(input, &self.context.simple)
-                .or_else(|| {
-                    self.handwritten
-                        .then(|| handwritten::d0(input, &self.context.hand))
-                        .flatten()
-                })
-                .unwrap_or_else(|| {
-                    let relabelled: Option<[C<T>; 11]> = crate::labelling::soft_order(input)
-                        .map(|order| core::array::from_fn(|k| input[order[k]].clone()));
-                    let input = relabelled.as_ref().map_or(input, |point| &point[..]);
-                    generated_d0::evaluate(input, &self.context)
-                }),
+        let mut values = self.family_values(input);
+        // A finite C0/D0 point whose kernels return NaN or infinity: invariants
+        // within 2^-30 of the largest argument are taken as exactly zero and
+        // the point is evaluated again (e.g. binary64 D0 with two opposite
+        // legs at p^2 ~ 1e-10 against m^2 = 3e4 and s ~ 1e6: both binary64
+        // kernels give NaN; the zero-invariant value agrees with 256 bits to
+        // 1e-15). The change is below 2^-30 of the scale.
+        let invariants = match self.family {
+            ScalarIntegral::C0 => 3,
+            ScalarIntegral::D0 => 6,
+            _ => 0,
         };
+        if invariants > 0 && values.iter().any(|z| !(z.re.is_finite() && z.im.is_finite())) {
+            let size = |z: &C<T>| z.re.clone() * &z.re + z.im.clone() * &z.im;
+            let mut scale = size(&input[0]);
+            for z in input.iter().skip(1) {
+                let value = size(z);
+                if value > scale {
+                    scale = value;
+                }
+            }
+            let limit = scale * &input[0].re.from_rational(&(1, 1u64 << 60).into());
+            let mut snapped = input.to_vec();
+            let mut changed = false;
+            for z in snapped.iter_mut().take(invariants) {
+                if truth(z) && size(z) <= limit {
+                    *z = C::new(z.re.zero(), z.re.zero());
+                    changed = true;
+                }
+            }
+            if changed {
+                let retry = self.family_values(&snapped);
+                if retry.iter().all(|z| z.re.is_finite() && z.im.is_finite()) {
+                    values = retry;
+                }
+            }
+        }
         // All finite terms have been calculated before separating the poles.
         if self.poles != crate::PoleSelection::BOTH
             && values.iter().all(|z| z.re.is_finite() && z.im.is_finite())
@@ -246,6 +248,45 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         for (out, value) in output.iter_mut().zip(values) {
             *out = value;
         }
+    }
+
+    /// The family's kernels for one point (no repair).
+    fn family_values(&self, input: &[C<T>]) -> [C<T>; 3] {
+        match self.family {
+        ScalarIntegral::A0 if !truth(&input[0]) => {
+            let mut values = simple::zeros(&input[0].re);
+            values[1] = input[0].clone();
+            values
+        }
+        ScalarIntegral::A0 => generated_a0::evaluate(input, &self.context),
+        ScalarIntegral::B0 if input[..3].iter().all(|z| !truth(z)) => {
+            simple::zeros(&input[0].re)
+        }
+        ScalarIntegral::B0 => generated_b0::evaluate(input, &self.context),
+        ScalarIntegral::DB0 => generated_db0::evaluate(input, &self.context),
+        ScalarIntegral::C0 => simple::massless_triangle(input, &self.context.simple)
+            .or_else(|| {
+                self.handwritten
+                    .then(|| handwritten::c0(input, &self.context.hand))
+                    .flatten()
+            })
+            .unwrap_or_else(|| generated_c0::evaluate(input, &self.context)),
+        // The hand-written sectors leave a soft line's on-shell pair on
+        // a channel to the generated code, which evaluates the labelling
+        // with both on the legs (crate::labelling).
+        ScalarIntegral::D0 => simple::massless_onshell_box(input, &self.context.simple)
+            .or_else(|| {
+                self.handwritten
+                    .then(|| handwritten::d0(input, &self.context.hand))
+                    .flatten()
+            })
+            .unwrap_or_else(|| {
+                let relabelled: Option<[C<T>; 11]> = crate::labelling::soft_order(input)
+                    .map(|order| core::array::from_fn(|k| input[order[k]].clone()));
+                let input = relabelled.as_ref().map_or(input, |point| &point[..]);
+                generated_d0::evaluate(input, &self.context)
+            }),
+    }
     }
 
     fn validate_shape(&self, inputs: usize, outputs: usize, rows: usize) -> Result<(), String> {
