@@ -2,6 +2,10 @@
 #[allow(dead_code)]
 #[path = "../src/native/primitives.rs"]
 mod primitives;
+// The native dilogarithm kernel that the primitives call.
+#[path = "../src/native/dilog.rs"]
+#[allow(dead_code)]
+mod dilog;
 #[path = "../src/native/simple.rs"]
 mod simple;
 
