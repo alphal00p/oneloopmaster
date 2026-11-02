@@ -6,6 +6,10 @@ mod primitives;
 #[path = "../src/native/dilog.rs"]
 #[allow(dead_code)]
 mod dilog;
+// The fused double-double kernels behind DoubleFloat::complex_mul.
+#[path = "../src/native/double_double.rs"]
+#[allow(dead_code)]
+mod double_double;
 #[path = "../src/native/simple.rs"]
 mod simple;
 
