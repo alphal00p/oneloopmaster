@@ -2,6 +2,10 @@
 
 #[path = "../src/native/primitives.rs"]
 mod primitives;
+// The native dilogarithm kernel that the primitives call.
+#[path = "../src/native/dilog.rs"]
+#[allow(dead_code)]
+mod dilog;
 
 use primitives::{C, NativeFloat};
 use symbolica::domains::float::{DoubleFloat, Float, FloatLike, Real, RealLike, SingleFloat};
