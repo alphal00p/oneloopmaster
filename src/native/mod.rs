@@ -6,6 +6,7 @@
 pub mod batch;
 #[cfg_attr(not(feature = "generated-evaluators"), allow(dead_code))]
 pub mod primitives;
+mod dilog;
 mod tensor;
 pub use tensor::{NativeTensorEvaluator, TensorIntegral};
 #[cfg(feature = "generated-evaluators")]
