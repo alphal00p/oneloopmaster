@@ -48,11 +48,12 @@ pub(crate) fn massless<T: NativeFloat>(p: [&C<T>; 3], c: &Constants<T>) -> C<T> 
     let r24 = neg(p3);
     let r34 = neg(p2);
     let a = mul(&r34, &r24);
-    let b = ordered_sum([&r24, &r34, p1]);
-    let discriminant = physical_sqrt(&massless_kallen(p, c));
+    let least = least_modulus(p);
+    let b = ordered_sum(least, [p1, &r34, &r24]);
+    let discriminant = physical_sqrt(&massless_kallen(least, p, c));
     let (root_1, root_2) = labelled_roots(&a, &neg(&b), &c.one_c, &discriminant, c);
-    let u = ordered_sum([p1, &r34, p3]);
-    let v = ordered_sum([p1, p2, &r24]);
+    let u = ordered_sum(least, [p1, &r34, p3]);
+    let v = ordered_sum(least, [p1, p2, &r24]);
     let (w1_34, w2_34) = labelled_roots(p3, &neg(&u), p1, &discriminant, c);
     let (w1_24, w2_24) = labelled_roots(p2, &neg(&v), p1, &discriminant, c);
     // The real-axis lips follow r23 = -p1 (trif0), not the root labels.
@@ -84,10 +85,11 @@ pub(crate) fn massless<T: NativeFloat>(p: [&C<T>; 3], c: &Constants<T>) -> C<T> 
     div(&finite, &a)
 }
 
-/// `triangle::least_modulus`: the index of the entry of least modulus (the
-/// first such).
-fn least_modulus<T: NativeFloat>(t: [&C<T>; 3]) -> usize {
-    let smaller = |i: usize, j: usize| negative(&(modulus(t[i]) - &modulus(t[j])));
+/// `triangle::at_least_modulus`: the index of the invariant of least modulus
+/// (the first such).
+fn least_modulus<T: NativeFloat>(p: [&C<T>; 3]) -> usize {
+    let size = p.map(modulus);
+    let smaller = |i: usize, j: usize| negative(&(size[i].clone() - &size[j]));
     if smaller(1, 0) {
         if smaller(2, 1) { 2 } else { 1 }
     } else if smaller(2, 0) {
@@ -97,25 +99,24 @@ fn least_modulus<T: NativeFloat>(t: [&C<T>; 3]) -> usize {
     }
 }
 
-/// `triangle::ordered_sum`: `t1 + t2 + t3` with the two terms of larger
-/// modulus added first. Where they cancel (`-p2 + p3` in `u` with `p2 ≈ p3`)
-/// their sum is exact and the small term keeps its digits; the other order
-/// rounds the small term into a large one first (relative error `eps/g` at a
-/// gap `g`). The same value for every order of `t` with distinct moduli.
-fn ordered_sum<T: NativeFloat>(t: [&C<T>; 3]) -> C<T> {
-    let i = least_modulus(t);
-    add(&add(t[(i + 1) % 3], t[(i + 2) % 3]), t[i])
+/// `triangle::ordered_sum`: `t1 + t2 + t3`, the term `ti` of each invariant
+/// `pi` ([least_modulus] `least`), with the two terms of the larger
+/// invariants added first. Where they cancel (`-p2 + p3` in `u` with
+/// `p2 ≈ p3`) their sum is exact and the small term keeps its digits; the
+/// other order rounds the small term into a large one first (relative error
+/// `eps/g` at a gap `g`). The same value for every order of the invariants
+/// with distinct moduli.
+fn ordered_sum<T: NativeFloat>(least: usize, t: [&C<T>; 3]) -> C<T> {
+    add(&add(t[(least + 1) % 3], t[(least + 2) % 3]), t[least])
 }
 
 /// `triangle::massless_kallen`: `λ(p1, p2, p3) = b² - 4a` of [massless] as
 /// `(pj - pk)² - pi (2 (pj + pk) - pi)`, where `pi` is the invariant of least
-/// modulus ([least_modulus]). `b² - 4a` cancels when the small invariant is
-/// `p1` and `p2 ≈ p3`; this form keeps the digits in every order (`pj - pk`
-/// is exact there) and is the same value for every order of `p` with
-/// distinct moduli.
-fn massless_kallen<T: NativeFloat>(p: [&C<T>; 3], c: &Constants<T>) -> C<T> {
-    let i = least_modulus(p);
-    let [x, y, z] = [p[i], p[(i + 1) % 3], p[(i + 2) % 3]];
+/// modulus (`least`). `b² - 4a` cancels when the small invariant is `p1` and
+/// `p2 ≈ p3`; this form keeps the digits in every order (`pj - pk` is exact
+/// there) and is the same value for every order of `p` with distinct moduli.
+fn massless_kallen<T: NativeFloat>(least: usize, p: [&C<T>; 3], c: &Constants<T>) -> C<T> {
+    let [x, y, z] = [p[least], p[(least + 1) % 3], p[(least + 2) % 3]];
     let difference = sub(y, z);
     sub(
         &mul(&difference, &difference),

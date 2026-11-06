@@ -505,12 +505,12 @@ pub(crate) fn triangle_ir_four(
     LaurentSeries::new(finite, -coefficient, Atom::num(0))
 }
 
-/// `f(i)` for the index `i` of the entry of least modulus in `t` (the first
-/// such), as nested exact sign tests.
-fn at_least_modulus(t: [&Atom; 3], f: impl Fn(usize) -> Atom) -> Atom {
-    // Nonzero iff |t_i| < |t_j|.
+/// `f(i)` for the index `i` of the invariant of least modulus in `p` (the
+/// first such), as nested exact sign tests.
+fn at_least_modulus(p: [&Atom; 3], f: impl Fn(usize) -> Atom) -> Atom {
+    // Nonzero iff |p_i| < |p_j|.
     let smaller = |i: usize, j: usize| {
-        let size_difference = grouped(&(Symbol::ABS.call((t[i],)) - Symbol::ABS.call((t[j],))));
+        let size_difference = grouped(&(Symbol::ABS.call((p[i],)) - Symbol::ABS.call((p[j],))));
         &size_difference - Symbol::ABS.call((&size_difference,))
     };
     if_nonzero_else(
@@ -520,14 +520,14 @@ fn at_least_modulus(t: [&Atom; 3], f: impl Fn(usize) -> Atom) -> Atom {
     )
 }
 
-/// `t1 + t2 + t3` with the two terms of larger modulus added first (grouped,
-/// so that the evaluator keeps the order). Where they cancel (`-p2 + p3` with
-/// `p2 ≈ p3`) their sum is exact and the small term keeps its digits; a sum
-/// that rounds the small term into a large one first has the relative error
-/// `eps/g` at a gap `g`. The same value for every order of `t` with distinct
-/// moduli.
-pub(crate) fn ordered_sum(t: [&Atom; 3]) -> Atom {
-    at_least_modulus(t, |i| grouped(&(t[(i + 1) % 3] + t[(i + 2) % 3])) + t[i])
+/// `t1 + t2 + t3`, the term `ti` of each invariant `pi`, with the two terms of
+/// the larger invariants added first (grouped, so that the evaluator keeps
+/// the order). Where they cancel (`-p2 + p3` in `u` with `p2 ≈ p3`) their sum
+/// is exact and the small term keeps its digits; a sum that rounds the small
+/// term into a large one first has the relative error `eps/g` at a gap `g`.
+/// The same value for every order of the invariants with distinct moduli.
+pub(crate) fn ordered_sum(p: [&Atom; 3], t: [&Atom; 3]) -> Atom {
+    at_least_modulus(p, |i| grouped(&(t[(i + 1) % 3] + t[(i + 2) % 3])) + t[i])
 }
 
 /// The Källén function `λ(p1, p2, p3) = b² - 4a` of the massless triangle
@@ -581,11 +581,12 @@ pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom 
     let r24 = -p3;
     let r34 = -p2;
     let a = &r34 * &r24;
-    let b = ordered_sum([&r24, &r34, p1]);
-    let discriminant = physical_sqrt(&massless_kallen([p1, p2, p3]));
+    let p = [p1, p2, p3];
+    let b = ordered_sum(p, [p1, &r34, &r24]);
+    let discriminant = physical_sqrt(&massless_kallen(p));
     let (root_1, root_2) = labelled_quadratic_roots(&a, &(-&b), &Atom::num(1), &discriminant);
-    let u = ordered_sum([p1, &r34, p3]);
-    let v = ordered_sum([p1, p2, &r24]);
+    let u = ordered_sum(p, [p1, &r34, p3]);
+    let v = ordered_sum(p, [p1, p2, &r24]);
     let (w1_34, w2_34) = labelled_quadratic_roots(p3, &(-u), p1, &discriminant);
     let (w1_24, w2_24) = labelled_quadratic_roots(p2, &(-v), p1, &discriminant);
     // The real-axis lips follow r23=-p1 (as in the original trif0
