@@ -505,6 +505,47 @@ pub(crate) fn triangle_ir_four(
     LaurentSeries::new(finite, -coefficient, Atom::num(0))
 }
 
+/// `f(i)` for the index `i` of the entry of least modulus in `t` (the first
+/// such), as nested exact sign tests.
+fn at_least_modulus(t: [&Atom; 3], f: impl Fn(usize) -> Atom) -> Atom {
+    // Nonzero iff |t_i| < |t_j|.
+    let smaller = |i: usize, j: usize| {
+        let size_difference = grouped(&(Symbol::ABS.call((t[i],)) - Symbol::ABS.call((t[j],))));
+        &size_difference - Symbol::ABS.call((&size_difference,))
+    };
+    if_nonzero_else(
+        &smaller(1, 0),
+        if_nonzero_else(&smaller(2, 1), f(2), f(1)),
+        if_nonzero_else(&smaller(2, 0), f(2), f(0)),
+    )
+}
+
+/// `t1 + t2 + t3` with the two terms of larger modulus added first (grouped,
+/// so that the evaluator keeps the order). Where they cancel (`-p2 + p3` with
+/// `p2 ≈ p3`) their sum is exact and the small term keeps its digits; a sum
+/// that rounds the small term into a large one first has the relative error
+/// `eps/g` at a gap `g`. The same value for every order of `t` with distinct
+/// moduli.
+pub(crate) fn ordered_sum(t: [&Atom; 3]) -> Atom {
+    at_least_modulus(t, |i| grouped(&(t[(i + 1) % 3] + t[(i + 2) % 3])) + t[i])
+}
+
+/// The Källén function `λ(p1, p2, p3) = b² - 4a` of the massless triangle
+/// (`a = p2 p3`, `b = p1 - p2 - p3`) as `(pj - pk)² - pi (2 (pj + pk) - pi)`,
+/// where `pi` is the invariant of least modulus (the first such in `p`).
+///
+/// `b² - 4a` cancels when the small invariant is `p1` and `p2 ≈ p3`, by the
+/// ratio of `(p2 + p3)²` to `(p2 - p3)²`; this form keeps the digits in every
+/// order (`pj - pk` is exact there) and is the same value for every order of
+/// `p` with distinct moduli.
+pub(crate) fn massless_kallen(p: [&Atom; 3]) -> Atom {
+    at_least_modulus(p, |i| {
+        let [x, y, z] = [p[i], p[(i + 1) % 3], p[(i + 2) % 3]];
+        let difference = y - z;
+        &difference * &difference - x * (Atom::num(2) * (y + z) - x)
+    })
+}
+
 /// OneLOop's trif0: the finite massless triangle with three nonzero momenta.
 ///
 /// Every input order gives the same integral, but next to a light-like leg
@@ -520,7 +561,15 @@ pub(crate) fn triangle_ir_four(
 ///   come from the kinematics instead: `1 + p2 X` and `1 + p3 X` are the roots
 ///   `(u ± d)/(2 p3)` of `p3 w² - u w + p1` (`u = p1 - p2 + p3`) and
 ///   `(v ± d)/(2 p2)` of `p2 w² - v w + p1` (`v = p1 + p2 - p3`), with the
-///   same discriminant `d² = λ(p1, p2, p3)` and the labels of `X`.
+///   same discriminant `d² = λ(p1, p2, p3)` ([massless_kallen]) and the
+///   labels of `X`;
+/// - with one invariant small against two nearly equal ones (gap `g`), `λ`,
+///   `b`, `u` and `v` lost `log10(1/g)` to `2 log10(1/g)` digits in the orders
+///   that cancel the large ones after rounding the small one into them:
+///   [massless_kallen] and [ordered_sum] keep them in every order, and the
+///   quotient of the roots `X1/X2` next to one takes its offset from the gap
+///   `d/a` (its winding term `i pi n/(1 - X1/X2)` amplified the rounding of
+///   `1 - X1/X2` by `1/g`).
 ///
 /// The direct forms were off by up to the whole value in double-double (and
 /// in binary64) for two binary64-rounded light-like legs, depending on which
@@ -532,11 +581,13 @@ pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom 
     let r24 = -p3;
     let r34 = -p2;
     let a = &r34 * &r24;
-    let b = &r24 + &r34 - &r23;
-    let discriminant = physical_sqrt(&(&b * &b - Atom::num(4) * &a));
+    let b = ordered_sum([&r24, &r34, p1]);
+    let discriminant = physical_sqrt(&massless_kallen([p1, p2, p3]));
     let (root_1, root_2) = labelled_quadratic_roots(&a, &(-&b), &Atom::num(1), &discriminant);
-    let (w1_34, w2_34) = labelled_quadratic_roots(p3, &(-(p1 - p2 + p3)), p1, &discriminant);
-    let (w1_24, w2_24) = labelled_quadratic_roots(p2, &(-(p1 + p2 - p3)), p1, &discriminant);
+    let u = ordered_sum([p1, &r34, p3]);
+    let v = ordered_sum([p1, p2, &r24]);
+    let (w1_34, w2_34) = labelled_quadratic_roots(p3, &(-u), p1, &discriminant);
+    let (w1_24, w2_24) = labelled_quadratic_roots(p2, &(-v), p1, &discriminant);
     // The real-axis lips follow r23=-p1 (as in the original trif0
     // continuation), rather than being tied to the quadratic root label.
     // This matters when the real roots swap order across mixed-sign sectors.
@@ -552,7 +603,16 @@ pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom 
     let x2_24 = &qx2 * &q24;
     let ratio = &qx1 / &qx2;
     let root_product = &qx1 * &qx2;
-    let log_ratio = ratio.log_over_one_minus();
+    // `X1/X2 - 1` from the roots' gap `X1 - X2 = d/a`: `1 - X1/X2` formed
+    // from the rounded quotient loses the gap's relative digits, which a
+    // winding term `i pi n/(1 - X1/X2)` amplifies (one small invariant next
+    // to two nearly equal ones, in the orders with the small one first).
+    let offset = &discriminant / (&a * &root_2);
+    let log_ratio = if_nonzero_else(
+        &offset,
+        ratio.log_given(&offset) / (-&offset),
+        ratio.log_over_one_minus(),
+    );
     (sheet_exact::complement_difference(&x1_34, &w1_34, &x2_34, &w2_34) * &r34
         + sheet_exact::complement_difference(&x1_24, &w1_24, &x2_24, &w2_24) * &r24
         - &log_ratio * root_product.log() / (Atom::num(2) * &root_2)
