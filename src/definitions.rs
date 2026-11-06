@@ -1,8 +1,14 @@
 //! Keep the exact definitions we register, independently of Symbolica internals.
-use std::{collections::HashMap, sync::OnceLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::OnceLock,
+};
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Indeterminate, Symbol},
-    evaluate::{EvaluationError, FunctionMap as SymbolicaFunctionMap, FunctionRegistrationOptions},
+    evaluate::{
+        EvaluationError, FunctionMap as SymbolicaFunctionMap, FunctionRegistrationOptions,
+        InliningPolicy,
+    },
 };
 
 #[path = "jit_primitives.rs"]
@@ -198,13 +204,35 @@ impl FunctionMap {
     /// Prepare algebraic grouping identities for arbitrary Dual directions.
     pub(crate) fn with_analytic_grouping(&self) -> Result<Self, String> {
         let mut map = Self::new();
+        let registered: HashSet<Symbol> =
+            self.definitions.keys().map(|(symbol, _)| *symbol).collect();
         for ((symbol, tags), (args, body, options)) in &self.definitions {
+            // Retained scalar helpers become one helper per Taylor component.
+            // Inline bounded leaves and pure forwarding aliases before Dualizer,
+            // so Symbolica can share/prune their arithmetic in the caller. Keep
+            // compound call graphs outlined to bound preparation and IR growth.
+            let leaf = body.as_view().get_byte_size() <= 256
+                && body
+                    .get_all_symbols(true)
+                    .iter()
+                    .all(|symbol| !registered.contains(symbol));
+            let forwarding = match body.as_view() {
+                AtomView::Fun(fun) if registered.contains(&fun.get_symbol()) => fun
+                    .iter()
+                    .all(|argument| matches!(argument, AtomView::Var(_) | AtomView::Num(_))),
+                _ => false,
+            };
+            let options = if leaf || forwarding {
+                options.clone().inlining(InliningPolicy::Always)
+            } else {
+                options.clone()
+            };
             map.add_tagged_function_with_options(
                 *symbol,
                 tags.clone(),
                 args.clone(),
                 analytic_grouping(body),
-                options.clone(),
+                options,
             )
             .map_err(|error| error.to_string())?;
         }
