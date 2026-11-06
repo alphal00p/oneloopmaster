@@ -1,24 +1,159 @@
 //! C0 with three nonzero internal masses (`register_triangles` sector 7).
-use super::super::primitives::{C, NativeFloat, inverse, mul};
+use super::super::primitives::{C, NativeFloat, inverse, mul, sqrt};
 use super::sheet::{Sheet, dd};
 use super::{
-    Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, r_function_real, real, scale, sub,
+    Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, r_function_real, real, scale,
+    sign_nonnegative, sub,
 };
 
 /// The finite part of sector 7, or `None` where the generated code is used.
+///
+/// A negative Källén function uses the generated code unless
+/// `negative_kallen` opts into [`hooft_veltman`] (off by default: its values
+/// differ from the generated code's by up to 2e-12 relative in binary64).
 pub(crate) fn three_masses<T: NativeFloat>(
     p: [&C<T>; 3],
     m: [&C<T>; 3],
     c: &Constants<T>,
+    negative_kallen: bool,
 ) -> Option<C<T>> {
     if p.iter().all(|z| is_zero(z)) {
         return None;
     }
     let lambda = kallen(p, c);
     if negative(&lambda) {
-        return None;
+        return negative_kallen.then(|| hooft_veltman(p, m, c));
     }
     Some(select(p, m, c))
+}
+
+/// Sign of the imaginary part of `z`, or `real_axis` when it vanishes.
+#[inline]
+fn im_sign<T: NativeFloat>(z: &C<T>, real_axis: i32) -> i32 {
+    if z.im.is_fully_zero() {
+        real_axis
+    } else {
+        sign_nonnegative(&z.im)
+    }
+}
+
+/// `eta(sa, sb, sc) / (i pi)` of `triangle_hv::eta`, an integer.
+#[inline]
+fn eta(sa: i32, sb: i32, sc: i32) -> i32 {
+    sc * (1 + sa * sb) * (1 - sa * sc) / 2
+}
+
+/// `triangle_hv::s3`: int_0^1 [log(a y'^2 + b y' + c) - log(a y^2 + b y + c)]/(y' - y)
+/// with b = m1 - m2 - a and c = m2, in the 't Hooft--Veltman form, with the
+/// same root lips and eta continuation terms as the exact expression.
+fn s3<T: NativeFloat>(a: &C<T>, m1: &C<T>, m2: &C<T>, y: &C<T>, z: &C<T>, c: &Constants<T>) -> C<T> {
+    let b = sub(&sub(m1, m2), a);
+    let disc = sqrt(&sub(&mul(&b, &b), &scale(&mul(a, m2), &c.four)));
+    let inverse_two_a = inverse(&scale(a, &c.two));
+    let roots = [
+        mul(&sub(&disc, &b), &inverse_two_a),
+        mul(&neg(&add(&b, &disc)), &inverse_two_a),
+    ];
+    let lips = [-1, 1];
+    let term = |r: &C<T>, lip: i32| {
+        let qy = Sheet::with_sign(sub(y, r), lip);
+        sub(
+            &Sheet::with_sign(neg(r), lip).div(&qy).dilog(c),
+            &Sheet::with_sign(sub(&c.one_c, r), lip).div(&qy).dilog(c),
+        )
+    };
+    let below_a = -sign_nonnegative(&a.re);
+    let z_sign = im_sign(z, below_a);
+    let m2_over_a = mul(m2, &inverse(a));
+    let correction = eta(
+        im_sign(&neg(&roots[0]), lips[0]),
+        im_sign(&neg(&roots[1]), lips[1]),
+        im_sign(&m2_over_a, below_a),
+    ) - eta(
+        im_sign(&sub(y, &roots[0]), lips[0]),
+        im_sign(&sub(y, &roots[1]), lips[1]),
+        z_sign,
+    ) - if negative(&a.re) { 1 - z_sign } else { 0 };
+    let mut result = add(&term(&roots[0], lips[0]), &term(&roots[1], lips[1]));
+    if correction != 0 {
+        let log = Sheet::upper(mul(&sub(y, &c.one_c), &inverse(y))).log(c);
+        let factor = c.pi.clone() * &c.from_int(correction);
+        result = add(&result, &C::new(-(log.im.clone() * &factor), log.re.clone() * &factor));
+    }
+    result
+}
+
+/// `triangle_hv::s3_call`, the root `i sqrt(-lambda)` on the upper lip.
+#[allow(clippy::too_many_arguments)] // The arguments of triangle_hv::s3_call.
+fn s3_call<T: NativeFloat>(
+    a: &C<T>,
+    m1: &C<T>,
+    m2: &C<T>,
+    t1: &C<T>,
+    t2: &C<T>,
+    lambda: &T,
+    lambda_root: &C<T>,
+    c: &Constants<T>,
+) -> C<T> {
+    let inverse_two_a = inverse(&scale(a, &c.two));
+    let alpha = mul(&add(&neg(t2), lambda_root), &inverse_two_a);
+    let b = sub(&sub(m1, m2), a);
+    let y = neg(&mul(&add(t1, &mul(&b, &alpha)), &inverse(lambda_root)));
+    let u = sub(t1, &mul(&mul(&b, t2), &inverse_two_a));
+    let inverse_a = inverse(a);
+    let z = sub(
+        &add(&scale(&mul(&u, &u), &(c.one.clone() / lambda)), &mul(m2, &inverse_a)),
+        &scale(&mul(&mul(&b, &b), &mul(&inverse_a, &inverse_a)), &(c.one.clone() / &c.four)),
+    );
+    s3(a, m1, m2, &y, &z, c)
+}
+
+/// `triangle_hv::expression`: the three-mass finite part for a negative
+/// Källén function, after the same edge sorting by squared invariants.
+fn hooft_veltman<T: NativeFloat>(p: [&C<T>; 3], m: [&C<T>; 3], c: &Constants<T>) -> C<T> {
+    let mut p = p.map(Clone::clone);
+    let mut m = m.map(Clone::clone);
+    for (a, b, cc, d) in [(0, 1, 0, 2), (1, 2, 0, 1), (0, 1, 0, 2)] {
+        let swap = negative(&(p[b].re.clone() * &p[b].re - p[a].re.clone() * &p[a].re));
+        if swap {
+            p.swap(a, b);
+            m.swap(cc, d);
+        }
+    }
+    let lambda = kallen([&p[0], &p[1], &p[2]], c);
+    let lambda_root = C::new(c.one.zero(), (-lambda.clone()).sqrt());
+    let mass_difference = sub(&m[0], &m[1]);
+    let first = s3_call(
+        &p[0],
+        &m[0],
+        &m[1],
+        &add(&sub(&m[1], &m[2]), &p[1]),
+        &sub(&sub(&p[2], &p[0]), &p[1]),
+        &lambda,
+        &lambda_root,
+        c,
+    );
+    let second = s3_call(
+        &p[2],
+        &m[0],
+        &m[2],
+        &sub(&sub(&p[2], &p[1]), &mass_difference),
+        &sub(&sub(&p[1], &p[0]), &p[2]),
+        &lambda,
+        &lambda_root,
+        c,
+    );
+    let third = s3_call(
+        &p[1],
+        &m[1],
+        &m[2],
+        &sub(&sub(&p[2], &p[1]), &mass_difference),
+        &sub(&add(&p[0], &p[1]), &p[2]),
+        &lambda,
+        &lambda_root,
+        c,
+    );
+    neg(&mul(&add(&sub(&first, &second), &third), &inverse(&lambda_root)))
 }
 
 /// Re[(p3-p1-p2)² - 4 p1 p2] for real momenta.

@@ -198,13 +198,19 @@ pub(crate) fn r_function_real<T: NativeFloat>(x: &T, discriminant: T, c: &Consta
 
 /// C0 `[finite, pole, double pole]` for the covered sectors: three massive
 /// propagators (`register_triangles` sector 7) with nonzero momenta and a
-/// nonnegative Källén function (OneLOop trif3).
+/// nonnegative Källén function (OneLOop trif3), and with `negative_kallen`
+/// also a negative one (the 't Hooft--Veltman form, `triangle::hooft_veltman`).
 #[inline]
-pub(crate) fn c0<T: NativeFloat>(a: &[C<T>], c: &Constants<T>) -> Option<[C<T>; 3]> {
+pub(crate) fn c0<T: NativeFloat>(
+    a: &[C<T>],
+    c: &Constants<T>,
+    negative_kallen: bool,
+) -> Option<[C<T>; 3]> {
     if a[3..6].iter().any(is_zero) {
         return None;
     }
-    let finite = triangle::three_masses([&a[0], &a[1], &a[2]], [&a[3], &a[4], &a[5]], c)?;
+    let finite =
+        triangle::three_masses([&a[0], &a[1], &a[2]], [&a[3], &a[4], &a[5]], c, negative_kallen)?;
     let zero = real(c.one.zero());
     Some([finite, zero.clone(), zero])
 }
