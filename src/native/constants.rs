@@ -10,6 +10,7 @@ use symbolica::domains::{integer::Integer, rational::Rational};
 pub enum ConstantSpec<'a> {
     Rational { re: &'a str, im: &'a str },
     Pi,
+    EulerGamma,
     Polylog2 { re: &'a str, im: &'a str },
 }
 
@@ -50,6 +51,7 @@ impl<T: NativeFloat> ConstantContext<T> {
                 Ok(match spec {
                     ConstantSpec::Rational { re, im } => C::new(rational(re)?, rational(im)?),
                     ConstantSpec::Pi => C::new(prototype.pi(), prototype.zero()),
+                    ConstantSpec::EulerGamma => C::new(prototype.euler(), prototype.zero()),
                     ConstantSpec::Polylog2 { re, im } => {
                         polylog2(&C::new(rational(re)?, rational(im)?))
                     }
@@ -105,5 +107,23 @@ mod tests {
         assert!(ConstantContext::<f64>::new(&[], 256).is_err());
         assert!(ConstantContext::<DoubleFloat>::new(&[], 53).is_err());
         assert!(ConstantContext::<Float>::new(&[], 256).is_ok());
+    }
+
+    #[test]
+    fn euler_gamma_uses_requested_precision() {
+        use symbolica::domains::float::Real;
+        let specs = [ConstantSpec::EulerGamma];
+        let double =
+            ConstantContext::<DoubleFloat>::new(&specs, DoubleFloat::DEFAULT_BITS).unwrap();
+        let wide = ConstantContext::<Float>::new(&specs, 256).unwrap();
+        let machine = ConstantContext::<f64>::new(&specs, 53).unwrap();
+        assert_eq!(double.constant(0).re, DoubleFloat::from(0.0).euler());
+        assert_eq!(wide.constant(0).re, Float::new(256).euler());
+        assert_eq!(wide.constant(0).re.get_precision(), 256);
+        assert_ne!(
+            wide.constant(0).re,
+            Float::with_val(256, machine.constant(0).re)
+        );
+        assert_eq!(wide.constant(0).im, Float::with_val(256, 0));
     }
 }
