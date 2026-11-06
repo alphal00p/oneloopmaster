@@ -2551,6 +2551,32 @@ fn zero_external_tfun_arguments(p: [&Atom; 6], m: [&Atom; 4]) -> [[Atom; 26]; 2]
 }
 
 fn ordered(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
+    ordered_with_line_sum_policy(p, m, true)
+}
+
+// Keep the original body available for the existing Dual compiler. The
+// ordinary identity below does not supply transverse derivatives of the
+// constant-line branch, so Dual programs retain their prior formula/guards.
+#[allow(dead_code)] // Unused by the inspection copy (inspection_formulas.rs).
+pub(crate) fn with_legacy_ordered_for_dual(map: &FunctionMap) -> Result<FunctionMap, String> {
+    let arguments: Vec<_> = (0..10)
+        .map(|idx| symbolica::symbol!(format!("__olo_boxc_arg_{idx}")).to_atom())
+        .collect();
+    map.with_replaced_body(
+        function("ordered"),
+        ordered_with_line_sum_policy(
+            core::array::from_fn(|idx| &arguments[idx]),
+            core::array::from_fn(|idx| &arguments[idx + 6]),
+            false,
+        ),
+    )
+}
+
+fn ordered_with_line_sum_policy(
+    p: [&Atom; 6],
+    m: [&Atom; 4],
+    preserve_shared_line_sum: bool,
+) -> Atom {
     let dm = mass_directions(m);
     let a = p[2];
     let b = p[1];
@@ -2592,7 +2618,22 @@ fn ordered(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     let line1 = [&c + Atom::num(2) * b + (&h + &j) * &alpha, j1.clone(), e1.clone()];
     let line2 = [&c + &h * &alpha, &o1 * &j1, e1.clone()];
     let line3 = [&c + &h * &alpha, -&j1 * &alpha, e1.clone()];
-    let [sums1, sums2, sums3] = [&line1, &line2, &line3].map(sums);
+    let [mut sums1, mut sums2, sums3] = [&line1, &line2, &line3].map(sums);
+    if preserve_shared_line_sum {
+        // Both first lines have the same g+h. For line2 this uses alpha's
+        // defining equation g*alpha^2+j*alpha+b=0. Form its coefficients
+        // from invariants before multiplying alpha: an exactly zero edge
+        // coefficient must keep the constant branch rather than acquire a
+        // rounding residue and a spurious far root. The existing coefficient_sum
+        // retains the original grouped direct sum away from cancellation.
+        let constant = in_order(&[p[5].clone(), -p[2], p[4].clone(), -p[0]]);
+        let slope = in_order(&[p[3].clone(), -p[5], p[0].clone()]);
+        let shared_gh = in_order(&[constant, slope * &alpha]);
+        let first = grouped(&line1[0]);
+        let second = grouped(&line2[0]);
+        sums1[0] = coefficient_sum(&[&first, &line1[1]], &shared_gh);
+        sums2[0] = coefficient_sum(&[&second, &line2[1]], &shared_gh);
+    }
     -call(
         "tfun",
         [
@@ -3022,6 +3063,67 @@ pub(crate) fn supported_kinematics(p: [&Atom; 6]) -> Atom {
 mod tests {
     use super::*;
     use symbolica::prelude::{Complex, Float, RealLike};
+
+    #[test]
+    fn ordered_shared_line_sum_matches_root_relation_exactly() {
+        let [g, h, j, b, c, alpha] = ["g", "h", "j", "b", "c", "alpha"]
+            .map(|name| symbolica::symbol!(format!("ordered_gh_proof_{name}")).to_atom());
+        let first = &c + Atom::num(2) * &b + (&h + &j) * &alpha;
+        let first_h = &j + Atom::num(2) * &g * &alpha;
+        let second = &c + &h * &alpha;
+        let second_h: Atom = (Atom::num(1) - &alpha) * &first_h;
+        let shared = &c + Atom::num(2) * &b + &j
+            + (&h + &j + Atom::num(2) * &g) * &alpha;
+        let relation = &g * alpha.pow(2) + &j * &alpha + &b;
+        // Symbolica proves these exact polynomial identities. No numeric
+        // alpha, factorization, handwritten polynomial division or tolerance.
+        assert!((&first + &first_h - &shared).together().is_zero());
+        assert!((&second + &second_h - &shared + Atom::num(2) * relation).together().is_zero());
+
+        let p: [Atom; 6] = core::array::from_fn(|idx| {
+            symbolica::symbol!(format!("ordered_gh_invariant_{idx}")).to_atom()
+        });
+        let c = &p[5] - &p[1] - &p[2];
+        let h = &p[3] - &p[4] - &p[5] + &p[1];
+        let j = &p[4] - &p[0] - &p[1];
+        let from_coefficients = &c + Atom::num(2) * &p[1] + &j
+            + (&h + &j + Atom::num(2) * &p[0]) * &alpha;
+        let from_invariants = &p[5] - &p[2] + &p[4] - &p[0]
+            + (&p[3] - &p[5] + &p[0]) * &alpha;
+        assert!((from_coefficients - from_invariants).together().is_zero());
+    }
+
+    #[test]
+    fn orthogonal_box_line_sum_coefficients_vanish_exactly() {
+        // Ordered permutation 8 of the retained early failing D0 row.
+        let p: [Atom; 6] = [(1, 4), (-7, 4), (-3, 1), (-1, 1), (-2, 1), (-3, 4)]
+            .map(|q| Atom::num(symbolica::domains::rational::Rational::from(q)));
+        let constant = &p[5] - &p[2] + &p[4] - &p[0];
+        let slope = &p[3] - &p[5] + &p[0];
+        assert!(constant.together().is_zero());
+        assert!(slope.together().is_zero());
+    }
+
+    #[test]
+    fn dual_compiler_keeps_legacy_ordered_body() {
+        let context = crate::OneLoopExpressions::new();
+        let original = context.into_definitions();
+        let remapped = with_legacy_ordered_for_dual(original).unwrap();
+        let arguments: Vec<_> = (0..10)
+            .map(|idx| symbolica::symbol!(format!("__olo_boxc_arg_{idx}")).to_atom())
+            .collect();
+        let call = function("ordered").call(&arguments);
+        let (_, _, body) = remapped.get_definition(call.as_view()).unwrap();
+        let legacy = ordered_with_line_sum_policy(
+            core::array::from_fn(|idx| &arguments[idx]),
+            core::array::from_fn(|idx| &arguments[idx + 6]),
+            false,
+        );
+        assert_eq!(
+            body, &legacy,
+            "the Dual compiler must retain its previous expression body"
+        );
+    }
 
     #[test]
     fn composite_norms_keep_real_comparisons() {

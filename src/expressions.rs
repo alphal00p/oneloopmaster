@@ -253,7 +253,11 @@ fn compile_dual<D: DualNumberStructure>(
         .into_iter()
         .max()
         .ok_or("Dual shape is empty")?;
-    let map = sheet_exact::with_neighborhoods(map, order)?.with_analytic_grouping()?;
+    // The ordinary box line-sum identity is not an analytic neighborhood
+    // for invariant jets transverse to its zero constant-line branch.
+    // Preserve the prior Dual body until that neighborhood is qualified.
+    let map = crate::box_complex::with_legacy_ordered_for_dual(map)?;
+    let map = sheet_exact::with_neighborhoods(&map, order)?.with_analytic_grouping()?;
     let expressions = expressions
         .iter()
         .map(crate::definitions::analytic_grouping)
