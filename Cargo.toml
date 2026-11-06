@@ -2,9 +2,9 @@
 name = "oneloop"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "0BSD"
 description = "Exact Symbolica expressions for one-loop integrals"
-publish = false # Development snapshot: licensing approval remains open.
+publish = false # Development snapshot.
 
 [features]
 default = ["prebuilt"]

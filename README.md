@@ -1236,7 +1236,15 @@ Please credit the original work when using or building on these expressions:
 
 [Symbolica](https://symbolica.io/) supplies the symbolic expressions, function
 maps and numerical evaluation infrastructure. It has its own licensing terms.
-Permission for the intended distribution/relicensing of this transcription is
-being handled separately; it has not been recorded as granted here. The manifest's
-license identifier is provisional, not a grant of rights to the original code.
-Cargo publication is disabled pending permission and technical readiness.
+
+## License
+
+oneloopmaster is licensed under the BSD Zero Clause License (0BSD); see
+`LICENSE`. Andreas van Hameren gave his permission for the distribution and
+relicensing of this transcription of OneLOop; Valentin Hirschi received it by
+email (recorded 2026-11-06). Content taken from other projects keeps its own
+license: the diffs and archives under `patches/` and `reproducers/` that
+reproduce or modify Symbolica, Numerica, SymJIT or mimalloc sources remain
+subject to those projects' terms, and the dependencies (Symbolica included)
+retain their own licenses. Cargo publication is disabled pending technical
+readiness.

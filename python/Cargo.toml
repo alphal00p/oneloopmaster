@@ -3,6 +3,7 @@ name = "oneloop-python"
 version = "0.1.0"
 edition = "2024"
 description = "Thin numeric and shared-kernel community Python adapters for oneloop"
+license = "0BSD"
 publish = false
 
 [lib]
