@@ -667,3 +667,28 @@ fn native_binary64_reciprocal_and_norm_fast_paths_stay_accurate() {
         );
     }
 }
+
+/// `exact_rational` returns the exact represented value (no rounding through
+/// binary64), and `None` for nonfinite inputs.
+#[test]
+fn exact_rational_is_the_represented_value() {
+    use symbolica::domains::rational::Rational;
+    assert_eq!(0.5f64.exact_rational(), Some(Rational::from((1, 2))));
+    // binary64 0.1 is 3602879701896397 / 2^55, not 1/10.
+    assert_eq!(
+        0.1f64.exact_rational(),
+        Some(Rational::from((3602879701896397i64, 36028797018963968i64)))
+    );
+    assert_eq!(f64::NAN.exact_rational(), None);
+    assert_eq!(f64::INFINITY.exact_rational(), None);
+    // Both double-double limbs are kept: 1 + 2^-60.
+    let dd = DoubleFloat::from(1.0) + DoubleFloat::from(2f64.powi(-60));
+    assert_eq!(
+        dd.exact_rational(),
+        Some(Rational::from((1152921504606846977i64, 1152921504606846976i64)))
+    );
+    let third = Float::with_val(200, 1) / Float::with_val(200, 3);
+    let exact = third.exact_rational().unwrap();
+    assert_ne!(exact, Rational::from((1, 3)));
+    assert_eq!(third.from_rational(&exact), third);
+}
