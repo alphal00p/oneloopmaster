@@ -12,6 +12,33 @@ pub(crate) fn register_callbacks() {
     jit_primitives::register();
 }
 
+/// Opaque during Atom normalization, transparent during instruction lowering.
+/// Direct translation evaluates the argument into the caller's scope before
+/// inlining this identity; conjugation therefore uses the same rounded value.
+fn analytic_grouping_symbol() -> Symbol {
+    symbolica::symbol!("__olo_analytic_group")
+}
+
+/// Preserve grouping and every Taylor component at a zero primal, without
+/// introducing conditional scopes or duplicating the argument's instructions.
+pub(crate) fn analytic_grouping(expression: &Atom) -> Atom {
+    expression.replace_map_bottom_up(|view, _, out| {
+        let AtomView::Fun(fun) = view else {
+            return;
+        };
+        if fun.get_symbol() != Symbol::IF || fun.get_nargs() != 3 {
+            return;
+        }
+        let mut args = fun.iter();
+        let condition = args.next().unwrap();
+        let nonzero = args.next().unwrap();
+        let zero = args.next().unwrap();
+        if condition == nonzero && zero.is_zero() {
+            **out = analytic_grouping_symbol().call((condition,));
+        }
+    })
+}
+
 type Definition = (Vec<Indeterminate>, Atom, FunctionRegistrationOptions);
 
 #[derive(Clone, Debug, Default)]
@@ -166,6 +193,34 @@ impl FunctionMap {
             .collect();
         sizes.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         sizes
+    }
+
+    /// Prepare algebraic grouping identities for arbitrary Dual directions.
+    pub(crate) fn with_analytic_grouping(&self) -> Result<Self, String> {
+        let mut map = Self::new();
+        for ((symbol, tags), (args, body, options)) in &self.definitions {
+            map.add_tagged_function_with_options(
+                *symbol,
+                tags.clone(),
+                args.clone(),
+                analytic_grouping(body),
+                options.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        let group = analytic_grouping_symbol();
+        if !map.definitions.contains_key(&(group, Vec::new())) {
+            let argument = symbolica::symbol!("__olo_analytic_group_argument");
+            map.add_function_with_options(
+                group,
+                vec![argument],
+                argument.to_atom(),
+                FunctionRegistrationOptions::new()
+                    .inlining(symbolica::evaluate::InliningPolicy::Always),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(map)
     }
 
     /// Rebuild the recorded map with one untagged helper's body replaced.

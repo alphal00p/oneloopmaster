@@ -231,8 +231,12 @@ fn compile_dual<D: DualNumberStructure>(
         .into_iter()
         .max()
         .ok_or("Dual shape is empty")?;
-    let map = sheet_exact::with_neighborhoods(map, order)?;
-    compile(expressions, parameters, &map, false)
+    let map = sheet_exact::with_neighborhoods(map, order)?.with_analytic_grouping()?;
+    let expressions = expressions
+        .iter()
+        .map(crate::definitions::analytic_grouping)
+        .collect::<Vec<_>>();
+    compile(&expressions, parameters, &map, false)
         .map_err(|error| error.to_string())?
         .vectorize(&Dualizer::new(dual, Vec::new()))
 }
