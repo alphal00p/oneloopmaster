@@ -505,13 +505,38 @@ pub(crate) fn triangle_ir_four(
     LaurentSeries::new(finite, -coefficient, Atom::num(0))
 }
 
+/// OneLOop's trif0: the finite massless triangle with three nonzero momenta.
+///
+/// Every input order gives the same integral, but next to a light-like leg
+/// (an invariant small against the others, e.g. `k²` of a binary64 massless
+/// momentum) two quantities cancel in the direct forms:
+///
+/// - the root of `a X² - b X + 1` that is small against `b/a` cancels in
+///   `b ± d`; both roots come from [labelled_quadratic_roots] (the other one
+///   from Vieta's product `1/a`, OneLOop's `solabc`), with their labels;
+/// - an argument `x = -p X` of a dilogarithm pair lies next to one, on a sheet
+///   with windings, where `1 - x` formed from the rounded `x` loses the small
+///   invariant's relative digits (`complement_difference`). The complements
+///   come from the kinematics instead: `1 + p2 X` and `1 + p3 X` are the roots
+///   `(u ± d)/(2 p3)` of `p3 w² - u w + p1` (`u = p1 - p2 + p3`) and
+///   `(v ± d)/(2 p2)` of `p2 w² - v w + p1` (`v = p1 + p2 - p3`), with the
+///   same discriminant `d² = λ(p1, p2, p3)` and the labels of `X`.
+///
+/// The direct forms were off by up to the whole value in double-double (and
+/// in binary64) for two binary64-rounded light-like legs, depending on which
+/// slots the small invariants took (`tests/c0_massless_orders.rs`). Binary64
+/// and double-double evaluate this sector with its hand-written transcription
+/// (`native::handwritten::triangle::massless`).
 pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom {
     let r23 = -p1;
     let r24 = -p3;
     let r34 = -p2;
     let a = &r34 * &r24;
     let b = &r24 + &r34 - &r23;
-    let (root_1, root_2) = negative_quadratic_roots(&a, &b, &Atom::num(1));
+    let discriminant = physical_sqrt(&(&b * &b - Atom::num(4) * &a));
+    let (root_1, root_2) = labelled_quadratic_roots(&a, &(-&b), &Atom::num(1), &discriminant);
+    let (w1_34, w2_34) = labelled_quadratic_roots(p3, &(-(p1 - p2 + p3)), p1, &discriminant);
+    let (w1_24, w2_24) = labelled_quadratic_roots(p2, &(-(p1 + p2 - p3)), p1, &discriminant);
     // The real-axis lips follow r23=-p1 (as in the original trif0
     // continuation), rather than being tied to the quadratic root label.
     // This matters when the real roots swap order across mixed-sign sectors.
@@ -528,8 +553,8 @@ pub(crate) fn triangle_finite_massless(p1: &Atom, p2: &Atom, p3: &Atom) -> Atom 
     let ratio = &qx1 / &qx2;
     let root_product = &qx1 * &qx2;
     let log_ratio = ratio.log_over_one_minus();
-    (sheet_dilog_divided_difference(&x1_34, &x2_34) * &r34
-        + sheet_dilog_divided_difference(&x1_24, &x2_24) * &r24
+    (sheet_exact::complement_difference(&x1_34, &w1_34, &x2_34, &w2_34) * &r34
+        + sheet_exact::complement_difference(&x1_24, &w1_24, &x2_24, &w2_24) * &r24
         - &log_ratio * root_product.log() / (Atom::num(2) * &root_2)
         - log_ratio * q23.log() / root_2)
         / a
