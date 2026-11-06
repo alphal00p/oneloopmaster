@@ -2,6 +2,8 @@
 //! numerically lightlike legs (p^2 = 1.7e-10 and -2.6e-10 from binary64
 //! rounding, m^2 = 29929, s ~ 5e5); the evaluator now retries such a point
 //! with invariants within 2^-30 of the scale set to zero.
+#![cfg(feature = "generated-evaluators")]
+
 use oneloop::{NativeEvaluator, ScalarIntegral};
 use symbolica::domains::float::{Complex, Float, RealLike};
 
