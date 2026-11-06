@@ -4,6 +4,30 @@ This page preserves the September 8 development snapshot. See the
 [Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
 dependency setup and validation.
 
+## Massless finite triangle and the argument order (2026-11-06)
+
+C0 with three massless propagators and three nonzero invariants (OneLOop
+`trif0`) depended on the argument order next to light-like legs: with two
+binary64-rounded light-like legs, double-double and binary64 were off by up
+to the whole value in some orders. Fixed in the expression
+(`triangle::triangle_finite_massless`) and in a new hand-written binary64 and
+double-double kernel (`native::handwritten::triangle::massless`); checked by
+`tests/c0_massless_orders.rs` on every route but SymJIT. Open:
+
+- `src/native/generated_c0.rs` and `assets/evaluators/c0.bin` were not
+  regenerated: SymJIT, native `Float` and `set_handwritten(false)` keep the
+  direct forms of this sector (see NATIVE_BACKEND.md).
+- Residual conditioning: at a relative gap `g` between the two largest
+  invariants the representation's terms grow like `1/g` and cancel; the
+  error is up to a few `1e-15/g` in binary64 and `3e-31/g` in double-double,
+  in every order (2.4e-11 at `g = 1e-4`; main's generated code had the same
+  in the orders without the small invariant first). An expansion in the gap
+  would remove it.
+- At exactly `λ = 0` (coincident roots, e.g. `p = (-6, -1.5, -1.5)`) the
+  sector returns NaN on every route, as before.
+- C0 at `p = (0, 0, 0)` with one massless propagator (the vacuum triangle,
+  `-(ln m1 - ln m3)/(m1 - m3)`) is wrong on every route, as before.
+
 ## Adversarial sweeps and the remaining tail (landed 2026-10-21)
 
 `claude/olm-final-3` (3a322d0, the next section) lands on main as it

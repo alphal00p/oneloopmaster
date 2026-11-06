@@ -83,6 +83,29 @@ every distinct C0/D0 call of the recorded Ninja benchmark streams
 checks each contour-box definition against its registered expression. Timings:
 [performance/2026-10-17-claude-c0d0](performance/2026-10-17-claude-c0d0/README.md).
 
+The massless finite triangle (sector 0 with three nonzero invariants, OneLOop
+`trif0`) has a hand-written kernel too, for binary64 and `DoubleFloat`
+(`triangle::massless`, the default wherever the hand-written kernels run). It
+transcribes `triangle::triangle_finite_massless` with the conditioning fixes
+of `tests/c0_massless_orders.rs`, which next to light-like legs and next to
+nearly equal invariants made the value depend on the argument order: both
+roots from Vieta's product, the dilogarithms' complements `1 + p X` from the
+kinematics, the Källén function and the sums `b`, `u`, `v` with the small
+invariant last (`massless_kallen`, `ordered_sum`), and the offset of the
+roots' quotient from their gap `d/a`. Its residual error grows like `1/g` at a
+relative gap `g` between the two largest invariants (a few `1e-15/g` in
+binary64), as the generated code's did in the other orders.
+`generated_c0.rs` and the prebuilt SymJIT asset `assets/evaluators/c0.bin`
+were NOT regenerated with this expression (under the current Symbolica pin
+the generator's output changes every C0 sector), contrary to
+`assets/evaluators/README.md`'s rule to commit them together: until the next
+full regeneration, `EvaluationBackend::SymJit` (binary64), native `Float` and
+`set_handwritten(false)` still run the direct forms of sector 0. Next to
+light-like legs those are off by up to the whole value in binary64, SymJIT
+included, while native `Float` tracks the bits it loses. The interpreted
+expressions (`EvaluationBackend::Expression`, binary64 and `Float`) and
+evaluators built from the expressions at run time have the fix.
+
 This keeps the expression implementation as the mathematical source. The older
 dependency-free numerical port is not copied into production: its finite-width
 regulators and then-unrepaired sectors would undo repairs already made here.
