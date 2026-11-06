@@ -2,7 +2,8 @@
 //! mass sectors.
 //!
 //! Each kernel is a direct transcription of the exact expressions, branch for
-//! branch: the three-mass triangle of `triangle.rs` (OneLOop `trif3`), the
+//! branch: the three-mass triangle of `triangle.rs` (OneLOop `trif3`) and its
+//! massless finite triangle (`trif0`, three nonzero invariants), the
 //! contour box of `box_complex.rs` (`boxc`, used for three and four massive
 //! propagators where OneLOop selects it) and the four-mass Denner-Nierste-
 //! Scharf box of `box_integral.rs` (`boxf4`), with the same exact zero tests,
@@ -199,19 +200,28 @@ pub(crate) fn r_function_real<T: NativeFloat>(x: &T, discriminant: T, c: &Consta
 /// C0 `[finite, pole, double pole]` for the covered sectors: three massive
 /// propagators (`register_triangles` sector 7) with nonzero momenta and a
 /// nonnegative Källén function (OneLOop trif3), and with `negative_kallen`
-/// also a negative one (the 't Hooft--Veltman form, `triangle::hooft_veltman`).
+/// also a negative one (the 't Hooft--Veltman form, `triangle::hooft_veltman`);
+/// three massless propagators with three nonzero invariants (sector 0's finite
+/// branch, OneLOop trif0, `triangle::massless`).
 #[inline]
 pub(crate) fn c0<T: NativeFloat>(
     a: &[C<T>],
     c: &Constants<T>,
     negative_kallen: bool,
 ) -> Option<[C<T>; 3]> {
+    let zero = real(c.one.zero());
+    if a[3..6].iter().all(is_zero) {
+        if a[..3].iter().any(is_zero) {
+            return None;
+        }
+        let finite = triangle::massless([&a[0], &a[1], &a[2]], c);
+        return Some([finite, zero.clone(), zero]);
+    }
     if a[3..6].iter().any(is_zero) {
         return None;
     }
     let finite =
         triangle::three_masses([&a[0], &a[1], &a[2]], [&a[3], &a[4], &a[5]], c, negative_kallen)?;
-    let zero = real(c.one.zero());
     Some([finite, zero.clone(), zero])
 }
 
@@ -318,6 +328,28 @@ mod double_double_tests {
         p.extend(m);
         p.push(real(0.3 + rng.uniform()));
         p
+    }
+
+    /// [p1,p2,p3,0,0,0,mu2] with three nonzero invariants of either sign:
+    /// generic, with an equal pair, or with one invariant 1e-3 to 1e-16 times
+    /// the others (`tests/native_handwritten.rs`).
+    fn massless_triangle_point(rng: &mut Rng) -> Vec<C64> {
+        let nonzero = |rng: &mut Rng| loop {
+            let x = rng.nice(6.0);
+            if x != 0.0 {
+                break x;
+            }
+        };
+        let mut p: Vec<f64> = (0..3).map(|_| nonzero(rng)).collect();
+        match rng.below(4) {
+            0 => p[rng.below(3)] = p[rng.below(3)],
+            1 => p[rng.below(3)] *= 10f64.powf(-3.0 - 13.0 * rng.uniform()),
+            _ => {}
+        }
+        let mut point: Vec<C64> = p.into_iter().map(real).collect();
+        point.extend([real(0.0); 3]);
+        point.push(real(0.3 + rng.uniform()));
+        point
     }
 
     /// [p1..p4,s12,s23,m1..m4,mu2] with four or three nonzero masses
@@ -462,6 +494,13 @@ mod double_double_tests {
     fn double_double_c0_matches_generated_expressions() {
         let mut rng = Rng(0x9e3779b97f4a7c15);
         let points: Vec<_> = (0..count(3000, "HANDWRITTEN_POINTS")).map(|_| triangle_point(&mut rng)).collect();
+        run(ScalarIntegral::C0, &points);
+    }
+
+    #[test]
+    fn double_double_massless_c0_matches_generated_expressions() {
+        let mut rng = Rng(0x2545f4914f6cdd1d);
+        let points: Vec<_> = (0..count(3000, "HANDWRITTEN_POINTS")).map(|_| massless_triangle_point(&mut rng)).collect();
         run(ScalarIntegral::C0, &points);
     }
 

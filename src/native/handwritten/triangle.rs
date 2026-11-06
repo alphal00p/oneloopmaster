@@ -1,6 +1,7 @@
-//! C0 with three nonzero internal masses (`register_triangles` sector 7).
+//! C0 with three nonzero internal masses (`register_triangles` sector 7) and
+//! with three massless ones and three nonzero invariants (sector 0, trif0).
 use super::super::primitives::{C, NativeFloat, inverse, mul, sqrt};
-use super::sheet::{Sheet, dd};
+use super::sheet::{Sheet, dd, dd_complement};
 use super::{
     Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, r_function_real, real, scale,
     sign_nonnegative, sub,
@@ -25,6 +26,69 @@ pub(crate) fn three_masses<T: NativeFloat>(
         return negative_kallen.then(|| hooft_veltman(p, m, c));
     }
     Some(select(p, m, c))
+}
+
+/// `triangle::triangle_finite_massless` (OneLOop trif0): the finite part of
+/// sector 0 for three nonzero (real) invariants `p`, branch for branch.
+///
+/// Both roots of `a X² - b X + 1` come from [labelled_roots] (the one that
+/// cancels in `b ± d` from Vieta's product), and each dilogarithm pair takes
+/// the complements `1 - x` of its arguments from the kinematics: `1 + p2 X`
+/// and `1 + p3 X` are the labelled roots of `p3 w² - u w + p1` and
+/// `p2 w² - v w + p1` (`u = p1 - p2 + p3`, `v = p1 + p2 - p3`), with the same
+/// discriminant. Next to a light-like leg the direct forms lost every digit.
+pub(crate) fn massless<T: NativeFloat>(p: [&C<T>; 3], c: &Constants<T>) -> C<T> {
+    let [p1, p2, p3] = p;
+    let r23 = neg(p1);
+    let r24 = neg(p3);
+    let r34 = neg(p2);
+    let a = mul(&r34, &r24);
+    let b = sub(&add(&r24, &r34), &r23);
+    let discriminant = physical_sqrt(&sub(&mul(&b, &b), &scale(&a, &c.four)));
+    let (root_1, root_2) = labelled_roots(&a, &neg(&b), &c.one_c, &discriminant, c);
+    let (w1_34, w2_34) = labelled_roots(p3, &neg(&add(&sub(p1, p2), p3)), p1, &discriminant, c);
+    let (w1_24, w2_24) = labelled_roots(p2, &neg(&sub(&add(p1, p2), p3)), p1, &discriminant, c);
+    // The real-axis lips follow r23 = -p1 (trif0), not the root labels.
+    let r23_sign = sign_nonnegative(&r23.re);
+    let qx1 = Sheet::with_sign(root_1, -r23_sign);
+    let qx2 = Sheet::with_sign(root_2.clone(), r23_sign);
+    let q23 = Sheet::lower(r23);
+    let q24 = Sheet::lower(r24.clone());
+    let q34 = Sheet::lower(r34.clone());
+    let pair_34 = dd_complement(&qx1.mul(&q34), &w1_34, &qx2.mul(&q34), &w2_34, c);
+    let pair_24 = dd_complement(&qx1.mul(&q24), &w1_24, &qx2.mul(&q24), &w2_24, c);
+    let log_ratio = qx1.div(&qx2).log_over_one_minus(c);
+    let product_log = qx1.mul(&qx2).log(c);
+    let finite = sub(
+        &sub(
+            &add(&mul(&pair_34, &r34), &mul(&pair_24, &r24)),
+            &div(&mul(&log_ratio, &product_log), &scale(&root_2, &c.two)),
+        ),
+        &div(&mul(&log_ratio, &q23.log(c)), &root_2),
+    );
+    div(&finite, &a)
+}
+
+/// `triangle::labelled_quadratic_roots`: the roots `(-b + d)/(2a)` and
+/// `(-b - d)/(2a)` of `a x² + b x + cc` (`d² = b² - 4 a cc`) with these
+/// labels, the one of larger magnitude evaluated directly and the other from
+/// Vieta's product `cc/a`. Requires `a cc ≠ 0`.
+fn labelled_roots<T: NativeFloat>(
+    a: &C<T>,
+    b: &C<T>,
+    cc: &C<T>,
+    d: &C<T>,
+    c: &Constants<T>,
+) -> (C<T>, C<T>) {
+    let plus = sub(d, b);
+    let minus = sub(&neg(b), d);
+    let two_a = scale(a, &c.two);
+    let two_c = scale(cc, &c.two);
+    if negative(&(modulus(&plus) - &modulus(&minus))) {
+        (div(&two_c, &minus), div(&minus, &two_a))
+    } else {
+        (div(&plus, &two_a), div(&two_c, &plus))
+    }
 }
 
 /// Sign of the imaginary part of `z`, or `real_axis` when it vanishes.

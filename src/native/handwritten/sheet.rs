@@ -216,6 +216,67 @@ impl<T: NativeFloat> Sheet<T> {
         }
     }
 
+    /// `dilog_body` with a complement, branch for branch: the continued
+    /// `Li2(1-x)` given `w = 1 - x` of the physical value, which here also
+    /// decides the inversion (`1 - |1 - w|² < 0`) and, above half, replaces
+    /// `1 - x` (`-w/x` inverted). [`Self::dilog_given`] decides the inversion
+    /// from the rounded value instead and takes `w` only on winding sheets,
+    /// as the box kernels transcribe it; next to `x = 1` a value that rounds
+    /// across the unit circle then takes the other half-plane's logarithm of
+    /// `1 - x` (the massless triangle, `triangle::massless`, in binary64).
+    pub(crate) fn dilog_complement(&self, w: &C<T>, c: &Constants<T>) -> C<T> {
+        if is_zero(&self.v) {
+            return C::new(c.pi2_6.clone(), c.one.zero());
+        }
+        if is_zero(w) {
+            return C::new(c.one.zero(), c.one.zero());
+        }
+        let argument = self.value();
+        let odd = self.odd as i32;
+        let even = self.phase - odd;
+        let inverted = negative(&(c.two.clone() * &w.re - &norm(w)));
+        let (normalized, given, logarithm, even, odd) = if inverted {
+            let normalized = inverse(&argument);
+            let given = neg(&mul(w, &normalized));
+            (normalized, given, neg(&log(&self.v)), -even, -odd)
+        } else {
+            (argument, w.clone(), log(&self.v), even, odd)
+        };
+        let mut sheet_logarithm = logarithm;
+        if even + odd != 0 {
+            sheet_logarithm.im += c.pi.clone() * &c.from_int(even + odd);
+        }
+        let below_half = negative(&(c.two.clone() * &normalized.re - &c.one));
+        let one_minus = if below_half {
+            sub(&c.one_c, &normalized)
+        } else {
+            given
+        };
+        let log_one_minus = log(&one_minus);
+        let base = if below_half {
+            let mut value = neg(&polylog2(&normalized));
+            value.re += &c.pi2_6;
+            sub(&value, &mul(&log_one_minus, &sheet_logarithm))
+        } else {
+            let value = polylog2(&one_minus);
+            if even != 0 {
+                let f = c.pi.clone() * &c.from_int(even);
+                sub(
+                    &value,
+                    &C::new(-(log_one_minus.im.clone() * &f), log_one_minus.re.clone() * &f),
+                )
+            } else {
+                value
+            }
+        };
+        if inverted {
+            let square = mul(&sheet_logarithm, &sheet_logarithm);
+            sub(&neg(&base), &scale(&square, &c.half))
+        } else {
+            base
+        }
+    }
+
     #[inline]
     pub(crate) fn mul(&self, right: &Self) -> Self {
         let raw = mul(&self.v, &right.v);
@@ -267,6 +328,36 @@ pub(crate) fn dd_given<T: NativeFloat>(
     c: &Constants<T>,
 ) -> C<T> {
     dd_with(first, second, |s: &Sheet<T>| s.dilog_given(w1, c), |s: &Sheet<T>| s.dilog_given(w2, c), c)
+}
+
+/// `complement_difference` (`difference_body` with complements), branch for
+/// branch: the dilogarithms of [`Sheet::dilog_complement`], and the gap
+/// `w2 - w1` where both arguments lie within 1/2 of one, else `x1 - x2`.
+pub(crate) fn dd_complement<T: NativeFloat>(
+    first: &Sheet<T>,
+    w1: &C<T>,
+    second: &Sheet<T>,
+    w2: &C<T>,
+    c: &Constants<T>,
+) -> C<T> {
+    let difference = sub(&first.value(), &second.value());
+    if is_zero(&difference) {
+        return first.plain_log_over_one_minus(c);
+    }
+    let upper = first.dilog_complement(w1, c);
+    let numerator = sub(&upper, &second.dilog_complement(w2, c));
+    if c.two_fifty_six.clone() * &norm(&numerator) < norm(&upper) {
+        if let Some(value) = near_difference(first, second, c) {
+            return value;
+        }
+    }
+    let near_one = |w: &C<T>| negative(&(c.four.clone() * &norm(w) - &c.one));
+    let gap = if near_one(w1) && near_one(w2) {
+        sub(w2, w1)
+    } else {
+        difference
+    };
+    mul(&numerator, &inverse(&gap))
 }
 
 #[inline(always)]
