@@ -3,6 +3,7 @@
 use symbolica::domains::float::{
     Complex, DoubleFloat, Float, FloatLike, Real, RealLike, SingleFloat,
 };
+use symbolica::domains::rational::Rational;
 
 pub type C<T> = Complex<T>;
 
@@ -58,6 +59,14 @@ pub trait NativeFloat: Real + RealLike + SingleFloat + PartialOrd + Send + Sync 
     fn hypot(&self, other: &Self) -> Self;
     fn dilog(z: &C<Self>) -> C<Self>;
 
+    /// The exact represented value, for certified algebraic branch predicates.
+    /// No rounding or binary64 intermediary is permitted. Custom numeric
+    /// domains may leave this unsupported; callers must then fail explicitly
+    /// when an exact predicate is required. Nonfinite values return `None`.
+    fn exact_rational(&self) -> Option<Rational> {
+        None
+    }
+
     // Keep ordinary machine arithmetic inline, while allowing larger numeric
     // domains to share these operations across the generated expression DAG.
     #[doc(hidden)]
@@ -91,6 +100,10 @@ const F64_SAFE_MAX: f64 = 3.273390607896142e150; // 2^500
 impl NativeFloat for f64 {
     const FIXED_BITS: Option<u32> = Some(53);
     const DEFAULT_BITS: u32 = 53;
+
+    fn exact_rational(&self) -> Option<Rational> {
+        Float::with_val(53, *self).try_to_rational()
+    }
 
     #[inline]
     fn zero_at(_: u32) -> Self {
@@ -201,6 +214,14 @@ impl NativeFloat for DoubleFloat {
     const FIXED_BITS: Option<u32> = Some(106);
     const DEFAULT_BITS: u32 = 106;
 
+    fn exact_rational(&self) -> Option<Rational> {
+        let pair = self.into_inner();
+        Some(
+            Float::with_val(53, pair.hi()).try_to_rational()?
+                + Float::with_val(53, pair.lo()).try_to_rational()?,
+        )
+    }
+
     fn zero_at(_: u32) -> Self {
         0.0.into()
     }
@@ -249,6 +270,10 @@ impl NativeFloat for DoubleFloat {
 impl NativeFloat for Float {
     const FIXED_BITS: Option<u32> = None;
     const DEFAULT_BITS: u32 = 128;
+
+    fn exact_rational(&self) -> Option<Rational> {
+        self.try_to_rational()
+    }
 
     fn zero_at(bits: u32) -> Self {
         Float::new(bits)

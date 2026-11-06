@@ -262,6 +262,7 @@ type Signature = (Symbol, Vec<Atom>);
 pub enum ExactConstant {
     Rational(String, String),
     Pi,
+    EulerGamma,
     Polylog2(String, String),
 }
 
@@ -271,6 +272,7 @@ impl ExactConstant {
         match self {
             Self::Rational(re, im) => runtime::ConstantSpec::Rational { re, im },
             Self::Pi => runtime::ConstantSpec::Pi,
+            Self::EulerGamma => runtime::ConstantSpec::EulerGamma,
             Self::Polylog2(re, im) => runtime::ConstantSpec::Polylog2 { re, im },
         }
     }
@@ -305,6 +307,11 @@ impl Constants {
                 && definition.fixed_args.is_empty()
             {
                 ExactConstant::Pi
+            } else if definition.symbol == symbolica::transcendental::euler_gamma()
+                && definition.tags.is_empty()
+                && definition.fixed_args.is_empty()
+            {
+                ExactConstant::EulerGamma
             } else if definition.symbol == symbolica::transcendental::polylog()
                 && definition.tags == [Atom::num(2)]
                 && definition.fixed_args.len() == 1
@@ -337,6 +344,7 @@ impl Constants {
                 )
                 .unwrap(),
                 ExactConstant::Pi => output.push_str("    ConstantSpec::Pi,\n"),
+                ExactConstant::EulerGamma => output.push_str("    ConstantSpec::EulerGamma,\n"),
                 ExactConstant::Polylog2(re, im) => writeln!(
                     output,
                     "    ConstantSpec::Polylog2 {{ re: {re:?}, im: {im:?} }},"
@@ -1336,17 +1344,23 @@ fn powi<T: NativeFloat>(a: &T, exponent: i64, _: bool) -> T {
             .stack_size(128 * 1024 * 1024)
             .spawn(|| {
                 crate::initialization::ensure_symbolica_state();
-                let expressions = [Symbol::PI.to_atom(), Atom::num((1, 2)).polylog(2)];
+                let expressions = [
+                    Symbol::PI.to_atom(),
+                    Atom::num((1, 2)).polylog(2),
+                    Atom::from(symbolica::transcendental::euler_gamma()),
+                ];
                 let evaluator = Atom::evaluator_multiple(&expressions, &[] as &[Atom])
                     .direct_translation(true)
                     .build()
                     .unwrap();
                 let graph = export_checked(evaluator).unwrap();
                 assert_eq!(graph.input_count, 0);
-                assert_eq!(graph.constant_functions.len(), 2);
+                assert_eq!(graph.constant_functions.len(), 3);
                 let mut constants = Constants::default();
                 constants.graph_constants(&graph).unwrap();
                 assert!(constants.values.contains(&ExactConstant::Pi));
+                assert!(constants.values.contains(&ExactConstant::EulerGamma));
+                assert!(constants.source().contains("ConstantSpec::EulerGamma"));
                 assert!(
                     constants
                         .values

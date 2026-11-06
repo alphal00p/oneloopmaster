@@ -181,9 +181,14 @@ fn scaled_difference(a: &[C], b: &[C]) -> f64 {
 /// expressions at 256 (or 512) bits, compared with the generated binary64 code;
 /// and the kernels' logic at 256 bits against the same reference wherever both
 /// retain at least 120 tracked bits.
-fn run(family: ScalarIntegral, points: &[Vec<C>]) {
+///
+/// `negative_kallen` opts the hand-written C0 into three massive propagators
+/// with a negative Källén function (`set_handwritten_negative_kallen_c0`).
+fn run(family: ScalarIntegral, points: &[Vec<C>], negative_kallen: bool) {
     let mut fast = NativeEvaluator::<f64>::new(family).unwrap();
     let mut precise = NativeEvaluator::<Float>::with_binary_precision(family, 256).unwrap();
+    fast.set_handwritten_negative_kallen_c0(negative_kallen);
+    precise.set_handwritten_negative_kallen_c0(negative_kallen);
     let mut very_precise = NativeEvaluator::<Float>::with_binary_precision(family, 512).unwrap();
     let mut failures = vec![];
     let (mut worst_hand, mut worst_generated, mut worst_logic) = (0.0f64, 0.0f64, 0.0f64);
@@ -267,7 +272,67 @@ fn handwritten_c0_matches_generated_expressions() {
     let mut rng = Rng(0x9e3779b97f4a7c15);
     let n = count(3000, "HANDWRITTEN_POINTS");
     let points: Vec<_> = (0..n).map(|_| triangle_point(&mut rng)).collect();
-    run(ScalarIntegral::C0, &points);
+    run(ScalarIntegral::C0, &points, false);
+}
+
+/// Re[(p3-p1-p2)² - 4 p1 p2], as the hand-written triangle forms it.
+fn kallen(p: &[C]) -> f64 {
+    let d = p[2].re - p[0].re - p[1].re;
+    d * d - 4.0 * p[0].re * p[1].re
+}
+
+/// Triangle points with three nonzero masses, a nonzero momentum and a
+/// negative Källén function (the sector of the 't Hooft--Veltman kernel).
+fn negative_kallen_points(rng: &mut Rng, n: usize) -> Vec<Vec<C>> {
+    let mut points = Vec::with_capacity(n);
+    while points.len() < n {
+        let p = triangle_point(rng);
+        let massive = p[3..6].iter().all(|m| m.re != 0.0 || m.im != 0.0);
+        if massive && p[..3].iter().any(|x| x.re != 0.0) && kallen(&p) < 0.0 {
+            points.push(p);
+        }
+    }
+    points
+}
+
+/// By default a negative Källén function keeps the generated code bit for
+/// bit, in binary64 and in double-double (the hand-written default of both).
+#[test]
+fn negative_kallen_c0_defaults_to_generated_code() {
+    use symbolica::domains::float::DoubleFloat;
+    let mut rng = Rng(0x51af_d7ed_558c_cd01);
+    let points = negative_kallen_points(&mut rng, count(500, "HANDWRITTEN_HV_POINTS"));
+    let mut default = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
+    let mut generated = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
+    generated.set_handwritten(false);
+    let mut default_dd = NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap();
+    let mut generated_dd = NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap();
+    generated_dd.set_handwritten(false);
+    let bits = |v: &[C]| v.iter().map(|z| (z.re.to_bits(), z.im.to_bits())).collect::<Vec<_>>();
+    for input in &points {
+        let (mut a, mut b) = ([C::new(0.0, 0.0); 3], [C::new(0.0, 0.0); 3]);
+        default.evaluate(input, &mut a).unwrap();
+        generated.evaluate(input, &mut b).unwrap();
+        assert_eq!(bits(&a), bits(&b), "binary64 {input:?}");
+        let dd: Vec<Complex<DoubleFloat>> = input
+            .iter()
+            .map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im)))
+            .collect();
+        let zero = Complex::new(DoubleFloat::from(0.0), DoubleFloat::from(0.0));
+        let (mut a, mut b) = (vec![zero; 3], vec![zero; 3]);
+        default_dd.evaluate(&dd, &mut a).unwrap();
+        generated_dd.evaluate(&dd, &mut b).unwrap();
+        assert_eq!(a, b, "double-double {input:?}");
+    }
+}
+
+/// The opt-in 't Hooft--Veltman kernel against the generated expressions at
+/// 256 bits, with the criteria of the other hand-written kernels.
+#[test]
+fn handwritten_negative_kallen_c0_matches_generated_expressions() {
+    let mut rng = Rng(0x6a09_e667_f3bc_c909);
+    let points = negative_kallen_points(&mut rng, count(1000, "HANDWRITTEN_HV_POINTS"));
+    run(ScalarIntegral::C0, &points, true);
 }
 
 #[test]
@@ -275,7 +340,7 @@ fn handwritten_d0_matches_generated_expressions() {
     let mut rng = Rng(0x2545f4914f6cdd1d);
     let n = count(600, "HANDWRITTEN_BOX_POINTS");
     let points: Vec<_> = (0..n).map(|i| box_point(&mut rng, i % 3 == 0)).collect();
-    run(ScalarIntegral::D0, &points);
+    run(ScalarIntegral::D0, &points, false);
 }
 
 /// Every distinct C0/D0 call of the recorded Ninja benchmark streams

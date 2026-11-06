@@ -97,6 +97,9 @@ pub struct NativeEvaluator<T: NativeFloat> {
     arguments: Vec<C<T>>,
     /// Whether the hand-written C0 and D0 sector kernels run.
     handwritten: [bool; 2],
+    /// Whether the hand-written C0 also takes three massive propagators with a
+    /// negative Källén function (opt-in, see `set_handwritten_negative_kallen_c0`).
+    negative_kallen_c0: bool,
     /// Relative accuracy target of the small-momentum B0 series (2^-(bits+4)).
     tolerance: T,
     small_momentum: bool,
@@ -134,6 +137,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             // `Float` keeps the generated expression code: its exact-zero tests
             // and precision bookkeeping follow the expression's own grouping.
             handwritten: [T::FIXED_BITS.is_some(); 2],
+            negative_kallen_c0: false,
             tolerance: {
                 let half = T::zero_at(bits).one() / T::zero_at(bits).from_i64(2);
                 (0..bits + 4).fold(T::zero_at(bits).one(), |acc, _| acc * &half)
@@ -148,6 +152,17 @@ impl<T: NativeFloat> NativeEvaluator<T> {
     #[doc(hidden)]
     pub fn set_handwritten(&mut self, enabled: bool) {
         self.handwritten = [enabled; 2];
+    }
+
+    /// Opt into the hand-written 't Hooft--Veltman C0 for three massive
+    /// propagators with a negative Källén function (off by default; it applies
+    /// wherever the hand-written C0 kernel runs). By default that sector uses
+    /// the generated expression code. In binary64 the two differ by up to
+    /// 2.0e-12 relative (80,000 points; against 128 bits the hand-written path
+    /// is 2.8e-12 in the worst class, the generated code 1.2e-12), and the
+    /// hand-written path is about 1.9x faster.
+    pub fn set_handwritten_negative_kallen_c0(&mut self, enabled: bool) {
+        self.negative_kallen_c0 = enabled;
     }
 
     /// Integral family represented by this implementation.
@@ -290,7 +305,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         ScalarIntegral::C0 => simple::massless_triangle(input, &self.context.simple)
             .or_else(|| {
                 self.handwritten[0]
-                    .then(|| handwritten::c0(input, &self.context.hand))
+                    .then(|| handwritten::c0(input, &self.context.hand, self.negative_kallen_c0))
                     .flatten()
             })
             .unwrap_or_else(|| generated_c0::evaluate(input, &self.context)),

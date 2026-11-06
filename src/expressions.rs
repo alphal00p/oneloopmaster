@@ -71,6 +71,28 @@ impl OneLoopExpressions {
         compile(expressions, parameters, self.map, false)
     }
 
+    /// Compile an ordinary evaluator with experimental root stack-slot reuse.
+    ///
+    /// This opt-in calls Symbolica's existing `optimize_stack` exactly once on
+    /// the freshly translated root. It preserves arithmetic order, shared
+    /// function bodies and lazy branch instructions; it performs no algebraic
+    /// transformation. The ordinary [`Self::evaluator`] remains unchanged.
+    ///
+    /// Do not apply stack allocation again to the returned evaluator. This
+    /// constructor is deliberately separate from [`Self::dual_evaluator`],
+    /// whose Dualizer already allocates its final instruction graph.
+    /// Numerical and performance qualification of this option is independent
+    /// from the default evaluator and should precede production adoption.
+    pub fn evaluator_with_stack_reuse(
+        &self,
+        expressions: &[Atom],
+        parameters: &[Atom],
+    ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
+        let mut evaluator = self.evaluator(expressions, parameters)?;
+        evaluator.optimize_stack();
+        Ok(evaluator)
+    }
+
     /// Compiles flattened Dual components after preparing removable helper neighborhoods.
     ///
     /// The maximum total derivative order comes from `dual`, so the generated
@@ -231,8 +253,16 @@ fn compile_dual<D: DualNumberStructure>(
         .into_iter()
         .max()
         .ok_or("Dual shape is empty")?;
-    let map = sheet_exact::with_neighborhoods(map, order)?;
-    compile(expressions, parameters, &map, false)
+    // The ordinary box line-sum identity is not an analytic neighborhood
+    // for invariant jets transverse to its zero constant-line branch.
+    // Preserve the prior Dual body until that neighborhood is qualified.
+    let map = crate::box_complex::with_legacy_ordered_for_dual(map)?;
+    let map = sheet_exact::with_neighborhoods(&map, order)?.with_analytic_grouping()?;
+    let expressions = expressions
+        .iter()
+        .map(crate::definitions::analytic_grouping)
+        .collect::<Vec<_>>();
+    compile(&expressions, parameters, &map, false)
         .map_err(|error| error.to_string())?
         .vectorize(&Dualizer::new(dual, Vec::new()))
 }
