@@ -71,6 +71,28 @@ impl OneLoopExpressions {
         compile(expressions, parameters, self.map, false)
     }
 
+    /// Compile an ordinary evaluator with experimental root stack-slot reuse.
+    ///
+    /// This opt-in calls Symbolica's existing `optimize_stack` exactly once on
+    /// the freshly translated root. It preserves arithmetic order, shared
+    /// function bodies and lazy branch instructions; it performs no algebraic
+    /// transformation. The ordinary [`Self::evaluator`] remains unchanged.
+    ///
+    /// Do not apply stack allocation again to the returned evaluator. This
+    /// constructor is deliberately separate from [`Self::dual_evaluator`],
+    /// whose Dualizer already allocates its final instruction graph.
+    /// Numerical and performance qualification of this option is independent
+    /// from the default evaluator and should precede production adoption.
+    pub fn evaluator_with_stack_reuse(
+        &self,
+        expressions: &[Atom],
+        parameters: &[Atom],
+    ) -> Result<ExpressionEvaluator<Complex<Rational>>, EvaluationError> {
+        let mut evaluator = self.evaluator(expressions, parameters)?;
+        evaluator.optimize_stack();
+        Ok(evaluator)
+    }
+
     /// Compiles flattened Dual components after preparing removable helper neighborhoods.
     ///
     /// The maximum total derivative order comes from `dual`, so the generated
