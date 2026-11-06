@@ -95,7 +95,8 @@ pub struct NativeEvaluator<T: NativeFloat> {
     bits: u32,
     context: Context<T>,
     arguments: Vec<C<T>>,
-    handwritten: bool,
+    /// Whether the hand-written C0 and D0 sector kernels run.
+    handwritten: [bool; 2],
     /// Relative accuracy target of the small-momentum B0 series (2^-(bits+4)).
     tolerance: T,
     small_momentum: bool,
@@ -129,10 +130,10 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             arguments: (0..family.arity())
                 .map(|_| C::new(T::zero_at(bits), T::zero_at(bits)))
                 .collect(),
-            // Binary64 uses the hand-written sector kernels. Tracked-precision
-            // types keep the generated expression code: their exact-zero tests
+            // Binary64 and double-double use the hand-written sector kernels.
+            // `Float` keeps the generated expression code: its exact-zero tests
             // and precision bookkeeping follow the expression's own grouping.
-            handwritten: T::FIXED_BITS == Some(53),
+            handwritten: [T::FIXED_BITS.is_some(); 2],
             tolerance: {
                 let half = T::zero_at(bits).one() / T::zero_at(bits).from_i64(2);
                 (0..bits + 4).fold(T::zero_at(bits).one(), |acc, _| acc * &half)
@@ -141,11 +142,12 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         })
     }
 
-    /// Select the hand-written sector kernels (the binary64 default) or the
-    /// generated expression code for every sector. For validation only.
+    /// Select the hand-written sector kernels (the binary64 and double-double
+    /// default) or the generated expression code for every sector. For
+    /// validation only.
     #[doc(hidden)]
     pub fn set_handwritten(&mut self, enabled: bool) {
-        self.handwritten = enabled;
+        self.handwritten = [enabled; 2];
     }
 
     /// Integral family represented by this implementation.
@@ -287,7 +289,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         ScalarIntegral::DB0 => generated_db0::evaluate(input, &self.context),
         ScalarIntegral::C0 => simple::massless_triangle(input, &self.context.simple)
             .or_else(|| {
-                self.handwritten
+                self.handwritten[0]
                     .then(|| handwritten::c0(input, &self.context.hand))
                     .flatten()
             })
@@ -297,7 +299,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         // with both on the legs (crate::labelling).
         ScalarIntegral::D0 => simple::massless_onshell_box(input, &self.context.simple)
             .or_else(|| {
-                self.handwritten
+                self.handwritten[1]
                     .then(|| handwritten::d0(input, &self.context.hand))
                     .flatten()
             })
