@@ -9,20 +9,39 @@
 //! double-double the value was off by up to the whole value (relative error
 //! 1.0) in some orders and by 1e-2 in all of them; binary64 likewise
 //! (`triangle::triangle_finite_massless`; binary64 and double-double run its
-//! hand-written transcription). The references are native `Float` at 512
-//! bits (the generated code, which keeps more than 400 bits here), which must
-//! agree in every order, and for Euclidean points the Usyukina-Davydychev
-//! closed form (60 digits, mpmath).
-#![cfg(feature = "generated-evaluators")]
-use oneloop::{NativeEvaluator, NativeFloat, ScalarIntegral};
-use symbolica::domains::float::{Complex, DoubleFloat, Float, Real, RealLike};
+//! hand-written transcription). With one invariant small against two nearly
+//! equal ones (gap `g`), the orders that put the small one first lost up to
+//! `30 eps/g²` relative: in `λ = b² - 4a`, in the sums `b`, `u`, `v`, and in
+//! the winding term `i pi n/(1 - X1/X2)` of the quotient of the roots
+//! (`triangle::massless_kallen`, `triangle::ordered_sum`).
+//!
+//! Every route is checked: native binary64 and double-double (the
+//! hand-written kernel), and the interpreted expressions
+//! (`EvaluationBackend::Expression`, the default without
+//! `generated-evaluators`) in binary64 and at 256 bits. The references are
+//! native `Float` at 512 bits (the generated code, which keeps more than 400
+//! bits here), which must agree in every order, and for Euclidean points the
+//! Usyukina-Davydychev closed form (60 digits, mpmath), which also runs
+//! without `generated-evaluators` (expression routes only). The prebuilt
+//! SymJIT C0 asset is not regenerated and keeps the direct forms.
+#[cfg(feature = "generated-evaluators")]
+use oneloop::NativeEvaluator;
+use oneloop::{
+    EvaluationBackend, NativeFloat, PrecisionEvaluator, ScalarIntegral, evaluate_with_backend,
+};
+#[cfg(feature = "generated-evaluators")]
+use symbolica::domains::float::DoubleFloat;
+use symbolica::domains::float::{Complex, Float, Real, RealLike};
 
+/// Precision of the exact invariants and of the native `Float` references.
 const BITS: u32 = 512;
-/// Working precision of the native `Float` references.
-const REFERENCE_BITS: u32 = 512;
+/// Working precision of the interpreted expressions' arbitrary-precision route.
+const EXPRESSION_BITS: u32 = 256;
 
+#[cfg(feature = "generated-evaluators")]
 struct Rng(u64);
 
+#[cfg(feature = "generated-evaluators")]
 impl Rng {
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
@@ -36,6 +55,7 @@ impl Rng {
 }
 
 /// A binary64 massless momentum: `E` is the rounded length of the spatial part.
+#[cfg(feature = "generated-evaluators")]
 fn massless(rng: &mut Rng) -> [f64; 4] {
     let p = [0, 1, 2].map(|_| 2.0 * rng.uniform() - 1.0);
     [
@@ -51,18 +71,21 @@ fn exact(value: f64) -> Float {
 }
 
 /// The exact Minkowski square of a sum of binary64 momenta.
+#[cfg(feature = "generated-evaluators")]
 fn square(vectors: &[[f64; 4]]) -> Float {
     let component = |i: usize| vectors.iter().fold(exact(0.0), |sum, v| sum + &exact(v[i]));
     let [e, x, y, z] = [0, 1, 2, 3].map(component);
     e.clone() * &e - x.clone() * &x - y.clone() * &y - z.clone() * &z
 }
 
+#[cfg(feature = "generated-evaluators")]
 fn wide(value: &DoubleFloat) -> Float {
     let pair = value.into_inner();
     exact(pair.hi()) + &exact(pair.lo())
 }
 
-/// The finite part of a massless C0 at `mu² = 1`.
+/// The finite part of a massless C0 at `mu² = 1`, native code.
+#[cfg(feature = "generated-evaluators")]
 fn finite<T: NativeFloat>(p: &[T; 3], bits: u32) -> Complex<T> {
     let mut evaluator =
         NativeEvaluator::<T>::with_binary_precision(ScalarIntegral::C0, bits).unwrap();
@@ -76,6 +99,38 @@ fn finite<T: NativeFloat>(p: &[T; 3], bits: u32) -> Complex<T> {
     let mut output = vec![Complex::new(zero.clone(), zero.clone()); 3];
     evaluator.evaluate(&input, &mut output).unwrap();
     output.swap_remove(0)
+}
+
+/// The finite part through the interpreted expressions in binary64.
+fn expression_binary64(p: &[f64; 3]) -> [Float; 2] {
+    let mut input: Vec<_> = p.iter().map(|&x| Complex::new(x, 0.0)).collect();
+    input.extend([Complex::new(0.0, 0.0); 3]);
+    input.push(Complex::new(1.0, 0.0));
+    let mut output = [Complex::new(0.0, 0.0); 3];
+    evaluate_with_backend(ScalarIntegral::C0, &input, &mut output, EvaluationBackend::Expression)
+        .unwrap();
+    [exact(output[0].re), exact(output[0].im)]
+}
+
+/// The interpreted expressions at [EXPRESSION_BITS].
+fn expression_evaluator() -> PrecisionEvaluator {
+    PrecisionEvaluator::with_binary_precision_and_backend(
+        ScalarIntegral::C0,
+        EXPRESSION_BITS,
+        EvaluationBackend::Expression,
+    )
+    .unwrap()
+}
+
+/// The finite part through `evaluator` at binary64 arguments.
+fn expression_precise(evaluator: &mut PrecisionEvaluator, p: &[f64; 3]) -> [Float; 2] {
+    let value = |x: f64| Complex::new(Float::with_val(EXPRESSION_BITS, x), Float::new(EXPRESSION_BITS));
+    let mut input: Vec<_> = p.iter().map(|&x| value(x)).collect();
+    input.extend([0.0, 0.0, 0.0, 1.0].map(value));
+    let mut output: Vec<_> = (0..3).map(|_| value(0.0)).collect();
+    evaluator.evaluate(&input, &mut output).unwrap();
+    let finite = output.swap_remove(0);
+    [finite.re, finite.im].map(|x| x.at_precision(BITS))
 }
 
 fn relative(value: &[Float; 2], reference: &[Float; 2]) -> f64 {
@@ -110,26 +165,77 @@ fn orders<V: Clone>(p: &[V; 3]) -> Vec<[V; 3]> {
     .to_vec()
 }
 
-/// Worst double-double and binary64 errors over the six orders of `p`, each
-/// against the 512-bit value at its own (rounded) arguments, or against
-/// `reference` where given. The 512-bit values must agree across the orders.
-fn worst_over_orders(p: &[Float; 3], reference: Option<&[Float; 2]>) -> (f64, f64) {
-    let (mut worst_dd, mut worst_binary64) = (0.0f64, 0.0f64);
+/// Worst relative errors over the six orders of a point, per route.
+#[derive(Default)]
+struct Worst {
+    double_double: f64,
+    binary64: f64,
+    expression: f64,
+    expression_precise: f64,
+}
+
+impl Worst {
+    #[cfg(feature = "generated-evaluators")]
+    fn max(&mut self, other: &Self) {
+        self.double_double = self.double_double.max(other.double_double);
+        self.binary64 = self.binary64.max(other.binary64);
+        self.expression = self.expression.max(other.expression);
+        self.expression_precise = self.expression_precise.max(other.expression_precise);
+    }
+
+    fn within(&self, bounds: &Self) -> bool {
+        self.double_double <= bounds.double_double
+            && self.binary64 <= bounds.binary64
+            && self.expression <= bounds.expression
+            && self.expression_precise <= bounds.expression_precise
+    }
+}
+
+impl std::fmt::Display for Worst {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if cfg!(feature = "generated-evaluators") {
+            write!(
+                f,
+                "double-double {:.2e}, binary64 {:.2e}, ",
+                self.double_double, self.binary64
+            )?;
+        }
+        write!(
+            f,
+            "expression binary64 {:.2e}, expression {EXPRESSION_BITS} bits {:.2e}",
+            self.expression, self.expression_precise
+        )
+    }
+}
+
+/// The 512-bit native value at the arguments `p`.
+#[cfg(feature = "generated-evaluators")]
+fn native_reference(p: &[Float; 3]) -> [Float; 2] {
+    let value = finite(&p.clone().map(|x| x.at_precision(BITS)), BITS);
+    [value.re, value.im]
+}
+
+/// Worst errors over the six orders of `p`, each against the 512-bit native
+/// value at its own (rounded) arguments, or against `reference` where given:
+/// double-double at the double-double arguments, the binary64 routes (native,
+/// expression in binary64 and at [EXPRESSION_BITS]) at the binary64 ones.
+/// The 512-bit values must agree across the orders.
+#[cfg(feature = "generated-evaluators")]
+fn worst_over_orders(
+    p: &[Float; 3],
+    reference: Option<&[Float; 2]>,
+    expression: &mut PrecisionEvaluator,
+) -> Worst {
+    let mut worst = Worst::default();
     let mut first: Option<[Float; 2]> = None;
     for order in orders(p) {
         let dd = order.clone().map(|x| x.to_double_float());
-        let dd_exact = dd.clone().map(|x| wide(&x));
-        let reference_value = finite(
-            &dd_exact.map(|x| x.at_precision(REFERENCE_BITS)),
-            REFERENCE_BITS,
-        );
-        let reference_value =
-            [reference_value.re, reference_value.im].map(|x| x.at_precision(BITS));
+        let reference_value = native_reference(&dd.clone().map(|x| wide(&x)));
         match &first {
             None => first = Some(reference_value.clone()),
             Some(first) => assert!(
                 relative(&reference_value, first) < 1e-60,
-                "{REFERENCE_BITS} bits disagree across orders at {:?}",
+                "{BITS} bits disagree across orders at {:?}",
                 p.clone().map(|x| x.to_f64())
             ),
         }
@@ -138,23 +244,38 @@ fn worst_over_orders(p: &[Float; 3], reference: Option<&[Float; 2]>) -> (f64, f6
             &[wide(&value.re), wide(&value.im)],
             reference.unwrap_or(&reference_value),
         );
-        worst_dd = worst_dd.max(error);
+        worst.double_double = worst.double_double.max(error);
 
         let binary64 = order.map(|x| x.to_f64());
-        let reference_value = finite(
-            &binary64.map(|x| Float::with_val(REFERENCE_BITS, x)),
-            REFERENCE_BITS,
-        );
-        let reference_value =
-            [reference_value.re, reference_value.im].map(|x| x.at_precision(BITS));
+        let reference_value = native_reference(&binary64.map(exact));
+        let reference_value = reference.unwrap_or(&reference_value);
         let value = finite(&binary64, 53);
-        let error = relative(
-            &[exact(value.re), exact(value.im)],
-            reference.unwrap_or(&reference_value),
-        );
-        worst_binary64 = worst_binary64.max(error);
+        let error = relative(&[exact(value.re), exact(value.im)], reference_value);
+        worst.binary64 = worst.binary64.max(error);
+        let error = relative(&expression_binary64(&binary64), reference_value);
+        worst.expression = worst.expression.max(error);
+        let error = relative(&expression_precise(expression, &binary64), reference_value);
+        worst.expression_precise = worst.expression_precise.max(error);
     }
-    (worst_dd, worst_binary64)
+    worst
+}
+
+/// The expression routes alone over the six orders of binary64 `p`, against
+/// `reference` (without `generated-evaluators`).
+#[cfg(not(feature = "generated-evaluators"))]
+fn expression_over_orders(
+    p: &[f64; 3],
+    reference: &[Float; 2],
+    expression: &mut PrecisionEvaluator,
+) -> Worst {
+    let mut worst = Worst::default();
+    for order in orders(p) {
+        let error = relative(&expression_binary64(&order), reference);
+        worst.expression = worst.expression.max(error);
+        let error = relative(&expression_precise(expression, &order), reference);
+        worst.expression_precise = worst.expression_precise.max(error);
+    }
+    worst
 }
 
 fn on_stack(action: impl FnOnce() + Send + 'static) {
@@ -166,31 +287,50 @@ fn on_stack(action: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-/// Double-double and binary64 bounds, far below the defect (1e-2 to 1.0 in
-/// double-double) and above the conditioning of the formula: with one
-/// light-like leg the `log² p1` terms cancel between the dilogarithms and
-/// the logarithms (three digits at `p1 ~ 1e-17 s`).
-const DOUBLE_DOUBLE: f64 = 1e-27;
-const BINARY64: f64 = 1e-12;
+/// Bounds far below the defect (1e-2 to 1.0 in double-double and binary64)
+/// and above the conditioning of the formula: with one light-like leg the
+/// `log² p1` terms cancel between the dilogarithms and the logarithms (three
+/// digits at `p1 ~ 1e-17 s`). The 256-bit expressions lost 30 to 50 digits
+/// before the fix.
+#[cfg(feature = "generated-evaluators")]
+const BOUNDS: Worst = Worst {
+    double_double: 1e-27,
+    binary64: 1e-12,
+    expression: 1e-12,
+    expression_precise: 1e-60,
+};
 
-fn check(label: &str, points: Vec<[Float; 3]>) {
-    let (mut worst_dd, mut worst_binary64) = (0.0f64, 0.0f64);
+/// [BOUNDS] scaled by `max(1, 1e-2/g)` where the two invariants of largest
+/// modulus are a relative gap `g` apart: the trif0 representation's terms
+/// grow like `1/g` there and cancel (a few `1e-15/g` in binary64 and
+/// `3e-31/g` in double-double, in every order; the generated code of the
+/// orders without the small invariant first has the same).
+#[cfg(feature = "generated-evaluators")]
+fn gap_scaled(p: &[Float; 3]) -> Worst {
+    let mut p = p.clone().map(|x| x.to_f64());
+    p.sort_by(|a, b| b.abs().total_cmp(&a.abs()));
+    let scale = (1e-2 * p[0].abs() / (p[0] - p[1]).abs()).max(1.0);
+    Worst {
+        double_double: BOUNDS.double_double * scale,
+        binary64: BOUNDS.binary64 * scale,
+        expression: BOUNDS.expression * scale,
+        expression_precise: BOUNDS.expression_precise * scale,
+    }
+}
+
+#[cfg(feature = "generated-evaluators")]
+fn check(label: &str, points: Vec<[Float; 3]>, bounds: impl Fn(&[Float; 3]) -> Worst) {
+    let mut expression = expression_evaluator();
+    let mut worst = Worst::default();
     let mut failures = vec![];
     for p in &points {
-        let (dd, binary64) = worst_over_orders(p, None);
-        worst_dd = worst_dd.max(dd);
-        worst_binary64 = worst_binary64.max(binary64);
-        if !(dd <= DOUBLE_DOUBLE && binary64 <= BINARY64) {
-            failures.push(format!(
-                "{:?}: double-double {dd:.2e}, binary64 {binary64:.2e}",
-                p.clone().map(|x| x.to_f64())
-            ));
+        let errors = worst_over_orders(p, None, &mut expression);
+        worst.max(&errors);
+        if !errors.within(&bounds(p)) {
+            failures.push(format!("{:?}: {errors}", p.clone().map(|x| x.to_f64())));
         }
     }
-    eprintln!(
-        "{label}: {} points x 6 orders: worst double-double {worst_dd:.2e}, binary64 {worst_binary64:.2e}",
-        points.len()
-    );
+    eprintln!("{label}: {} points x 6 orders: worst {worst}", points.len());
     assert!(
         failures.is_empty(),
         "{label}: {} failures:\n{}",
@@ -202,6 +342,7 @@ fn check(label: &str, points: Vec<[Float; 3]>) {
 /// `q0 = 0, q1 = k1, q2 = k1 + k2` with binary64 massless `k1, k2`: two
 /// light-like legs (the TIRust review's point).
 #[test]
+#[cfg(feature = "generated-evaluators")]
 fn two_light_like_legs_in_every_order() {
     on_stack(|| {
         let mut rng = Rng(0x9e3779b97f4a7c15);
@@ -211,12 +352,13 @@ fn two_light_like_legs_in_every_order() {
                 [square(&[k1]), square(&[k2]), square(&[k1, k2])]
             })
             .collect();
-        check("two light-like legs", points);
+        check("two light-like legs", points, |_| BOUNDS);
     });
 }
 
 /// One binary64 massless leg next to two massive ones.
 #[test]
+#[cfg(feature = "generated-evaluators")]
 fn one_light_like_leg_in_every_order() {
     on_stack(|| {
         let mut rng = Rng(0x2545f4914f6cdd1d);
@@ -232,12 +374,13 @@ fn one_light_like_leg_in_every_order() {
                 [square(&[k1]), square(&[k2]), square(&[k1, k2])]
             })
             .collect();
-        check("one light-like leg", points);
+        check("one light-like leg", points, |_| BOUNDS);
     });
 }
 
 /// Invariants 1e-3 to 1e-14 times the largest, of either sign, in every order.
 #[test]
+#[cfg(feature = "generated-evaluators")]
 fn hierarchical_invariants_in_every_order() {
     on_stack(|| {
         let mut rng = Rng(0x5851f42d4c957f2d);
@@ -256,7 +399,33 @@ fn hierarchical_invariants_in_every_order() {
                 [exact(p1), exact(p2), exact(s)]
             })
             .collect();
-        check("hierarchical invariants", points);
+        check("hierarchical invariants", points, |_| BOUNDS);
+    });
+}
+
+/// One invariant small against two nearly equal ones, in every order:
+/// relative gap `g` from 1e-1 to 1e-4 and the small invariant `1e-2 g²` to
+/// `1e-10 g²` times the others (either sign; `λ` stays away from zero). In
+/// the orders with the small invariant first, `b² - 4a`, the sums `b`, `u`,
+/// `v` and the winding term of `log(X1/X2)/(1 - X1/X2)` lost up to
+/// `30 eps/g²` relative (the generated code: up to 6 relative at g = 1e-4).
+/// Bounds: [gap_scaled].
+#[test]
+#[cfg(feature = "generated-evaluators")]
+fn small_invariant_next_to_nearly_equal_ones_in_every_order() {
+    on_stack(|| {
+        let mut rng = Rng(0x94d049bb133111eb);
+        let sign = |rng: &mut Rng| if rng.next() & 1 == 0 { -1.0 } else { 1.0 };
+        let points = (0..60)
+            .map(|_| {
+                let s = sign(&mut rng) * (0.5 + rng.uniform());
+                let gap = sign(&mut rng) * 10f64.powf(-1.0 - 3.0 * rng.uniform());
+                let small =
+                    sign(&mut rng) * gap * gap * 10f64.powf(-2.0 - 8.0 * rng.uniform()) * s.abs();
+                [exact(small), exact(s), exact(s * (1.0 + gap))]
+            })
+            .collect();
+        check("small invariant next to nearly equal ones", points, gap_scaled);
     });
 }
 
@@ -280,13 +449,22 @@ fn euclidean_points_match_the_closed_form_in_every_order() {
                 "-1.254138667411437103276142783391067434113",
             ),
         ];
+        let mut expression = expression_evaluator();
         for (p, value) in cases {
             let reference = [Float::parse(value, Some(BITS)).unwrap(), exact(0.0)];
-            let (dd, binary64) = worst_over_orders(&p, Some(&reference));
-            eprintln!("{value}: double-double {dd:.2e}, binary64 {binary64:.2e}");
+            #[cfg(feature = "generated-evaluators")]
+            let worst = worst_over_orders(&p, Some(&reference), &mut expression);
+            #[cfg(not(feature = "generated-evaluators"))]
+            let worst = expression_over_orders(&p.map(|x| x.to_f64()), &reference, &mut expression);
+            eprintln!("{value}: {worst}");
             assert!(
-                dd <= 1e-30 && binary64 <= 1e-14,
-                "{value}: double-double {dd:e}, binary64 {binary64:e}"
+                worst.within(&Worst {
+                    double_double: 1e-30,
+                    binary64: 1e-14,
+                    expression: 1e-14,
+                    expression_precise: 1e-38,
+                }),
+                "{value}: {worst}"
             );
         }
     });
