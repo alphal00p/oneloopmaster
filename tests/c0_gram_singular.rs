@@ -38,7 +38,9 @@
 //! the same triangles to bubbles (`triangle::with_gram_reduction`): checked at
 //! 128, 190 (pyAmpliCol's arbitrary-precision working precision) and 256 bits.
 #![cfg(feature = "generated-evaluators")]
-use oneloop::{EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral};
+use oneloop::{
+    EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral, evaluate_with_backend,
+};
 use symbolica::domains::float::{Complex, DoubleFloat, Float, FloatLike, RealLike};
 
 type C = Complex<f64>;
@@ -356,5 +358,44 @@ fn expressions_match_the_references_in_every_order() {
             }
         }
         report("interpreted expressions", failures);
+    });
+}
+
+/// The interpreted expressions in binary64: within 1e-12 of the references.
+/// Their exact tests are not exact in binary64 arithmetic; a first version
+/// that decided a regular Cayley matrix by `Y (e × Y_r) ≠ 0` alone gave NaN
+/// for two identical propagators (the relabelled row of lit-olm-ddc0's A/B
+/// point, `C0(1.5, 0, 1.5; 0.857, 0.5, 0.5)`), where the rounded `det Y`
+/// vanishes but `Y (e × Y_r)` keeps a residue.
+#[test]
+fn binary64_expressions_match_the_references() {
+    on_stack(|| {
+        let mut failures = Vec::new();
+        for (line, row) in rows().iter().enumerate() {
+            let reference = reference(row, 256);
+            let scale = reference.re.to_f64().hypot(reference.im.to_f64());
+            for (number, image) in images(&row.args).into_iter().enumerate() {
+                let mut output = [C::new(f64::NAN, f64::NAN); 3];
+                evaluate_with_backend(
+                    ScalarIntegral::C0,
+                    &image,
+                    &mut output,
+                    EvaluationBackend::Expression,
+                )
+                .unwrap();
+                let value = Complex::new(
+                    Float::with_val(256, output[0].re),
+                    Float::with_val(256, output[0].im),
+                );
+                let error = distance(&value, &reference, scale);
+                if !(error <= 1e-12) {
+                    failures.push(format!(
+                        "row {line} ({}) image {number}: {} {} (error {error:e})",
+                        row.class, output[0].re, output[0].im
+                    ));
+                }
+            }
+        }
+        report("binary64 expressions", failures);
     });
 }

@@ -1136,7 +1136,9 @@ fn all_nonzero(conditions: impl IntoIterator<Item = Atom>) -> Atom {
 /// `Y` is singular iff `Y (e × Y_r) = 0` for a row with `e × Y_r ≠ 0`: at a
 /// binary64 point and 128 bits or more these are exact (sums of four inputs
 /// and of three products of two such sums), where the rounded `det Y` is
-/// not.
+/// not. In binary64 arithmetic neither is exact, and `Y (e × Y_r)` can keep a
+/// rounding residue where the rounded `det Y` vanishes (two identical rows),
+/// so `Y` counts as regular only where both are nonzero.
 pub(crate) fn with_gram_reduction(
     p: [&Atom; 3],
     m: [&Atom; 3],
@@ -1186,7 +1188,7 @@ pub(crate) fn with_gram_reduction(
             ),
         )
     });
-    let regular = any_nonzero(cayley::apply(p, m, &v));
+    let regular = all_nonzero([determinant.clone(), any_nonzero(cayley::apply(p, m, &v))]);
     // ∂B0(q; b, a)/∂a in dimensional regularisation as [finite, pole] and a
     // threshold flag, in the cases of native::gram::Derivative, as nested
     // exact tests.
