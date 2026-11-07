@@ -1934,9 +1934,10 @@ The C0 oracle sweeps cover A0, B0, dB0 and C0, seeds 1 to 4, 17,555 rows.
   one to three of the eight pairs, by 1e-7 to 0.19 relative.
 - **Interpreted `Float`, C0 at vanishing invariants.** At 112, 128 and 224
   bits, `3 1.0 0 0 0 9.0 -0.1667104301703281 21.592408834323358 0 0 0` and its
-  rotations keep 14 to 19 tracked bits and are wrong by 5.3e-3 to 1.2e-2.
-  The native route is right. The ignored reproducer is
-  `open_interpreted_float_defect` in `tests/float_exact_products.rs`.
+  rotations kept 14 to 19 tracked bits and were wrong by 5.3e-3 to 1.2e-2.
+  Fixed 2026-11-07 (the expressions' Gram reduction, top of this page);
+  `open_interpreted_float_defect` in `tests/float_exact_products.rs` is no
+  longer ignored.
 - **Every route, binary64 included, with the masses reflected.** The same
   triangle with the massless line between the complex and the real mass is
   wrong even though, with vanishing invariants, the value cannot depend on

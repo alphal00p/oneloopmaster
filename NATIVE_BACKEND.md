@@ -151,10 +151,12 @@ reach their precision with `set_gram_reduction(true)` (validation). Next to
 tracks them.
 
 The expressions take the same reduction (`triangle::with_gram_reduction` in
-`triangle_series`, registered as `__olo_c0_gram` and
-`__olo_c0_zero_invariants`), decided by exact zero tests in the evaluator's
-own arithmetic like the sectors' Gram tests; at three vanishing invariants
-they weight the bubbles symmetrically, `b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²)`.
+`triangle_series`), decided by exact zero tests in the evaluator's own
+arithmetic like the sectors' Gram tests; at three vanishing invariants they
+weight the bubbles symmetrically, `b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²)`. The
+bubbles are calls of the registered B0 master, so the shared definitions gain
+no function or symbol: registering new ones moved an interpreted D0 at 128
+bits by 1e-30 (its evaluator's instruction order follows the definitions).
 This serves the interpreted expressions (`EvaluationBackend::Expression`, in
 binary64 and `Float`) and every evaluator built from them at run time, among
 them NinjaRS's `SymbolicaMasters<Float>` (its arbitrary-precision scalar

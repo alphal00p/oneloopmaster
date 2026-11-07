@@ -256,12 +256,12 @@ fn float_routes_match_the_references_at_every_precision() {
     on_stack(|| report(check_float_routes(&BITS, false)));
 }
 
-/// The interpreted `Float` route on the rows where it is still an open
-/// defect: the two-mass C0 at vanishing invariants keeps 14 to 19 tracked
-/// bits at 112, 128 and 224 bits (wrong by 5.3e-3 to 1.2e-2), where the
-/// native route keeps them all (STATUS.md, open limitations).
+/// The interpreted `Float` route on the rows that were an open defect there:
+/// the two-mass C0 at vanishing invariants kept 14 to 19 tracked bits at 112,
+/// 128 and 224 bits (wrong by 5.3e-3 to 1.2e-2). The expressions reduce a C0
+/// at three vanishing invariants to bubbles since 2026-11-07
+/// (`triangle::with_gram_reduction`).
 #[test]
-#[ignore = "open: interpreted Float C0 at vanishing invariants (STATUS.md)"]
 fn open_interpreted_float_defect() {
     on_stack(|| report(check_float_routes(&[112, 128, 224], true)));
 }
