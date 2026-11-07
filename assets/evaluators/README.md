@@ -119,6 +119,10 @@ An optional final family name writes only that family. Startup still prepares
 all five evaluators. Validation failure leaves the affected existing file
 untouched. Commit matching source and regenerated assets together, and update
 this manifest's sizes and hashes. Load only trusted serialized evaluators.
+Exception: `c0.bin` (like `src/native/generated_c0.rs`) predates the massless
+finite triangle's conditioning fixes in `triangle::triangle_finite_massless`
+and keeps its direct forms (see NATIVE_BACKEND.md, hand-written kernels):
+regenerating it under the current Symbolica pin changes every C0 sector.
 
 The previous generation and its dependency patches are documented in the
 [2026-09-08 audit](../../performance/2026-09-08-native/README.md).

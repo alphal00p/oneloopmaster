@@ -275,6 +275,36 @@ fn handwritten_c0_matches_generated_expressions() {
     run(ScalarIntegral::C0, &points, false);
 }
 
+/// Massless triangles [p1,p2,p3,0,0,0,mu2] with three nonzero invariants of
+/// either sign: generic, with an equal pair, or with one invariant 1e-3 to
+/// 1e-16 times the others (next to a light-like leg).
+fn massless_triangle_point(rng: &mut Rng) -> Vec<C> {
+    let nonzero = |rng: &mut Rng| loop {
+        let x = rng.nice(6.0);
+        if x != 0.0 {
+            break x;
+        }
+    };
+    let mut p: Vec<f64> = (0..3).map(|_| nonzero(rng)).collect();
+    match rng.below(4) {
+        0 => p[rng.below(3)] = p[rng.below(3)],
+        1 => p[rng.below(3)] *= 10f64.powf(-3.0 - 13.0 * rng.uniform()),
+        _ => {}
+    }
+    let mut point: Vec<C> = p.into_iter().map(real).collect();
+    point.extend([real(0.0); 3]);
+    point.push(real(0.3 + rng.uniform()));
+    point
+}
+
+#[test]
+fn handwritten_massless_c0_matches_generated_expressions() {
+    let mut rng = Rng(0x2545f4914f6cdd1d);
+    let n = count(3000, "HANDWRITTEN_POINTS");
+    let points: Vec<_> = (0..n).map(|_| massless_triangle_point(&mut rng)).collect();
+    run(ScalarIntegral::C0, &points, false);
+}
+
 /// Re[(p3-p1-p2)² - 4 p1 p2], as the hand-written triangle forms it.
 fn kallen(p: &[C]) -> f64 {
     let d = p[2].re - p[0].re - p[1].re;
