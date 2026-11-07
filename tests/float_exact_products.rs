@@ -53,8 +53,9 @@ struct Row {
     tolerance: f64,
     /// Only the cyclic relabellings (see the data file).
     rotations_only: bool,
-    /// The interpreted `Float` route is an open defect here (STATUS.md),
-    /// checked by the ignored [open_interpreted_float_defect] instead.
+    /// The interpreted `Float` route was an open defect here until
+    /// 2026-11-07 (STATUS.md); checked at its former precisions by
+    /// [interpreted_float_at_vanishing_invariants] instead.
     open_interpreted: bool,
 }
 
@@ -256,18 +257,19 @@ fn float_routes_match_the_references_at_every_precision() {
     on_stack(|| report(check_float_routes(&BITS, false)));
 }
 
-/// The interpreted `Float` route on the rows where it is still an open
-/// defect: the two-mass C0 at vanishing invariants keeps 14 to 19 tracked
-/// bits at 112, 128 and 224 bits (wrong by 5.3e-3 to 1.2e-2), where the
-/// native route keeps them all (STATUS.md, open limitations).
+/// The interpreted `Float` route on the rows that were an open defect there
+/// (the data flag `open-interpreted`):
+/// the two-mass C0 at vanishing invariants kept 14 to 19 tracked bits at 112,
+/// 128 and 224 bits (wrong by 5.3e-3 to 1.2e-2). The expressions reduce a C0
+/// at three vanishing invariants to bubbles since 2026-11-07
+/// (`triangle::with_gram_reduction`).
 #[test]
-#[ignore = "open: interpreted Float C0 at vanishing invariants (STATUS.md)"]
-fn open_interpreted_float_defect() {
+fn interpreted_float_at_vanishing_invariants() {
     on_stack(|| report(check_float_routes(&[112, 128, 224], true)));
 }
 
 /// Checks of [float_routes_match_the_references_at_every_precision]; with
-/// `open` only the interpreted route of the rows with an open defect there.
+/// `open` only the interpreted route of the rows flagged `open-interpreted`.
 fn check_float_routes(precisions: &[u32], open: bool) -> Vec<String> {
     let mut failures = Vec::new();
     let rows = rows();

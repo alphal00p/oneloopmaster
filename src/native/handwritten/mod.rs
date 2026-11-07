@@ -225,6 +225,19 @@ pub(crate) fn c0<T: NativeFloat>(
     Some([finite, zero.clone(), zero])
 }
 
+/// C0 `[finite, pole, double pole]` of the massless sector alone: three
+/// massless propagators with three nonzero invariants (OneLOop trif0,
+/// `triangle::massless`). `None` elsewhere.
+#[inline]
+pub(crate) fn massless_c0<T: NativeFloat>(a: &[C<T>], c: &Constants<T>) -> Option<[C<T>; 3]> {
+    if !a[3..6].iter().all(is_zero) || a[..3].iter().any(is_zero) {
+        return None;
+    }
+    let zero = real(c.one.zero());
+    let finite = triangle::massless([&a[0], &a[1], &a[2]], c);
+    Some([finite, zero.clone(), zero])
+}
+
 /// D0 `[finite, pole, double pole]` for the covered sectors (binary64 and
 /// double-double).
 #[inline]

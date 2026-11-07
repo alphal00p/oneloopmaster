@@ -84,8 +84,9 @@ checks each contour-box definition against its registered expression. Timings:
 [performance/2026-10-17-claude-c0d0](performance/2026-10-17-claude-c0d0/README.md).
 
 The massless finite triangle (sector 0 with three nonzero invariants, OneLOop
-`trif0`) has a hand-written kernel too, for binary64 and `DoubleFloat`
-(`triangle::massless`, the default wherever the hand-written kernels run). It
+`trif0`) has a hand-written kernel too, for binary64, `DoubleFloat` and `Float`
+(`triangle::massless`, the default wherever the hand-written kernels run and,
+alone of the hand-written kernels, for `Float`). It
 transcribes `triangle::triangle_finite_massless` with the conditioning fixes
 of `tests/c0_massless_orders.rs`, which next to light-like legs and next to
 nearly equal invariants made the value depend on the argument order: both
@@ -99,12 +100,101 @@ binary64), as the generated code's did in the other orders.
 were NOT regenerated with this expression (under the current Symbolica pin
 the generator's output changes every C0 sector), contrary to
 `assets/evaluators/README.md`'s rule to commit them together: until the next
-full regeneration, `EvaluationBackend::SymJit` (binary64), native `Float` and
+full regeneration, `EvaluationBackend::SymJit` (binary64) and
 `set_handwritten(false)` still run the direct forms of sector 0. Next to
 light-like legs those are off by up to the whole value in binary64, SymJIT
-included, while native `Float` tracks the bits it loses. The interpreted
-expressions (`EvaluationBackend::Expression`, binary64 and `Float`) and
-evaluators built from the expressions at run time have the fix.
+included; native `Float` ran them too until lit-olm-ap, and there they kept up
+to 60 bits fewer than they tracked in the orders with a light-like leg first
+(at 64 bits up to the whole value with every bit tracked), so native `Float`
+takes the hand-written kernel since. Its residual next to nearly equal
+invariants is about `1/g²` at 128 and 256 bits (28 bits at `g = 1e-4`), as in
+the interpreted expressions, and the tracked precision sees most of it (up to
+9 bits beyond numerica's 8-bit slack in `tests/c0_massless_orders.rs`, at most
+`1/(256 g²)`; the generated direct forms missed 36 to 40 bits there). The interpreted expressions
+(`EvaluationBackend::Expression`, binary64 and `Float`) and evaluators built
+from the expressions at run time have the fix.
+
+## C0 at a vanishing Källén function (`native/gram.rs`)
+
+Where the Källén function `λ(p1, p2, p3)` of a triangle's invariants (a
+multiple of the Gram determinant) vanishes, the roots of every sector's
+quadratic coincide. The one-mass sector forms its discriminant
+`b² - 4ac = λ/(|m|² m)` from rounded coefficients (the two- and three-mass
+sectors take it from `λ`), so there its roots split by rounding noise and its
+dilogarithm divided differences are formed from that noise. Binary64 and
+`DoubleFloat` stay near their precision through the near-coincidence
+expansion of `sheet_exact::near_difference` (`DoubleFloat` keeps only binary64
+accuracy, about 1e-16), but native `Float`, whose wider precision keeps the
+direct differences, was wrong by up to the whole value at every precision:
+`C0(0, p, p; m, 0, 0)` with `p = -0.2128`, `m = 0.3607` gave -5.871 with all
+512 bits tracked for -4.928 (numerica keeps the tracked precision of a
+computed factor of exactly `±1`, here a `log(r)/(1 - r)` of two noisy roots,
+and of `log` next to one). Zero-invariant two-mass triangles were wrong by up
+to 1e154 in the orders with the massless line between the two masses (on
+every route), and the massless triangle was NaN in two of its six orders.
+Where the modified Cayley matrix below is singular as well (two identical
+propagators, rank-one `Y`, the infrared-divergent triangles at `λ = 0`) the
+arbitrary-precision routes returned 0, a few tracked bits, or at 128 bits a
+value wrong by 1e-20 with every bit tracked.
+
+Native `Float` therefore reduces such a triangle exactly to bubbles. With the
+modified Cayley matrix `Y_ij = m_i + m_j - p_ij`, any `b` with `Y b = e` gives
+`C0 = -Σ_i b_i B0^(i) + (N - d - 1) (Σ_i b_i) C0^(d+2)` (`B0^(i)` without
+propagator `i`), and `Σ_i b_i = e^T Y^-1 e` is proportional to the Gram
+determinant, so at `λ = 0` the triangle is `-Σ_i b_i B0^(i)`, in every mass
+sector and argument order. Three cases are reduced, decided by exact
+predicates on the represented inputs (`NativeFloat::exact_rational`, so not by
+a rounded `det Y`):
+
+- `det Y ≠ 0`: `b = adj(Y) e / det Y` (an infrared-divergent triangle has
+  `det Y = 0`, so this case never meets a scaleless bubble);
+- three vanishing invariants with at most one massless line:
+  `b = (e_a - e_c)/(m_a - m_c)` for the two masses that differ most;
+- `det Y = 0` at a nonzero invariant: `Y` has a null vector `v` with
+  `Σ_i v_i = 0` (proportional to `e × Y_r` for every row not proportional to
+  `e`), `x^T Y x` is constant along `v` on the simplex, and integrating along
+  `v` gives `C0 = Σ_{i≠k} w_i ∂B0^(i)/∂m_k` with exact weights
+  `w_i = -v_i/v_k`. For two identical propagators (`m_i = m_j`,
+  `p_ij = 0`) this is the familiar `C0 = ∂B0(p; m_k, m_i)/∂m_i`. The mass
+  derivatives are taken in dimensional regularisation in exactly decided
+  cases: by parts from `B0` and the masses' logarithms where the bubble's
+  Källén function is nonzero, and from their one-dimensional Feynman
+  integrals at an on-shell soft point, a pseudo-threshold, with a massless
+  derivative line and where scaleless; their exact residues give the pole,
+  which vanishes exactly unless the triangle is infrared divergent (soft,
+  collinear, or both). A bubble at its threshold (the derivative diverges)
+  is left to the sector code.
+
+The Cayley-matrix algebra (entries, cofactor sums, `e × Y_r`, `Y v`) is one
+helper generic over the ring (`src/cayley.rs`), shared by the exact
+predicates (numerica's `Complex<Rational>`), the floating values and the
+expressions. Binary64 and `DoubleFloat` keep their kernels; they reach their
+precision with `set_gram_reduction(true)` (validation). Next to
+`λ = 0` the one-mass sector code still loses about `log2(s²/|λ|)` bits (native
+`Float` tracks them; the interpreted expressions not always, STATUS.md).
+
+The expressions take the same reduction (`triangle::with_gram_reduction` in
+`triangle_series`), decided by exact zero tests in the evaluator's own
+arithmetic like the sectors' Gram tests: `Y` is singular where
+`Y (e × Y_r) = 0` for a row with `e × Y_r ≠ 0`, products of sums of the
+inputs that are exact for binary64 kinematics where a rounded `det Y` is not,
+and the pole is kept only where an exact soft or collinear predicate holds. At
+three vanishing invariants they weight the bubbles symmetrically,
+`b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²)`, whose denominator is
+`Σ_{i<j} (m_i - m_j)²`; where that vanishes at distinct complex masses they
+take `b = (e_a - e_c)/(m_a - m_c)` for the first pair of distinct masses. The
+bubbles are calls of the registered B0 master, so the shared definitions gain
+no function or symbol: registering new ones moved an interpreted D0 at 128
+bits by 1e-30 (its evaluator's instruction order follows the definitions).
+This serves the interpreted expressions (`EvaluationBackend::Expression`, in
+binary64 and `Float`) and every evaluator built from them at run time, among
+them NinjaRS's `SymbolicaMasters<Float>` (its arbitrary-precision scalar
+masters). The generated code and the SymJIT asset were not regenerated:
+regenerating them would give binary64 and `DoubleFloat` the reduction too.
+`tests/c0_gram_singular.rs` checks both routes against closed forms,
+mpmath Feynman-parameter integrals and, for a singular `Y`, a one-dimensional
+integral along its null vector, finite parts and poles, in every order
+(native `Float` at 128 to 1024 bits, the expressions at 128, 190 and 256).
 
 This keeps the expression implementation as the mathematical source. The older
 dependency-free numerical port is not copied into production: its finite-width

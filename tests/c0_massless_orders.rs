@@ -15,12 +15,15 @@
 //! the winding term `i pi n/(1 - X1/X2)` of the quotient of the roots
 //! (`triangle::massless_kallen`, `triangle::ordered_sum`).
 //!
-//! Every route is checked: native binary64 and double-double (the
-//! hand-written kernel), and the interpreted expressions
+//! Every route is checked: native binary64, double-double and `Float` at 128
+//! bits (the hand-written kernel; `Float` took the generated direct forms
+//! before lit-olm-ap, which tracked up to 60 bits more than they kept in the
+//! orders with a light-like leg first), and the interpreted expressions
 //! (`EvaluationBackend::Expression`, the default without
 //! `generated-evaluators`) in binary64 and at 256 bits. The references are
-//! native `Float` at 512 bits (the generated code, which keeps more than 400
-//! bits here), which must agree in every order, and for Euclidean points the
+//! native `Float` at 512 bits through the generated code
+//! (`set_handwritten(false)`, which keeps more than 400 bits here), which
+//! must agree in every order, and for Euclidean points the
 //! Usyukina-Davydychev closed form (60 digits, mpmath), which also runs
 //! without `generated-evaluators` (expression routes only). The prebuilt
 //! SymJIT C0 asset is not regenerated and keeps the direct forms.
@@ -29,14 +32,17 @@ use oneloop::NativeEvaluator;
 use oneloop::{
     EvaluationBackend, NativeFloat, PrecisionEvaluator, ScalarIntegral, evaluate_with_backend,
 };
-#[cfg(feature = "generated-evaluators")]
-use symbolica::domains::float::DoubleFloat;
 use symbolica::domains::float::{Complex, Float, Real, RealLike};
+#[cfg(feature = "generated-evaluators")]
+use symbolica::domains::float::{DoubleFloat, FloatLike};
 
 /// Precision of the exact invariants and of the native `Float` references.
 const BITS: u32 = 512;
 /// Working precision of the interpreted expressions' arbitrary-precision route.
 const EXPRESSION_BITS: u32 = 256;
+/// Working precision of the checked native `Float` route.
+#[cfg(feature = "generated-evaluators")]
+const NATIVE_FLOAT_BITS: u32 = 128;
 
 #[cfg(feature = "generated-evaluators")]
 struct Rng(u64);
@@ -87,8 +93,18 @@ fn wide(value: &DoubleFloat) -> Float {
 /// The finite part of a massless C0 at `mu² = 1`, native code.
 #[cfg(feature = "generated-evaluators")]
 fn finite<T: NativeFloat>(p: &[T; 3], bits: u32) -> Complex<T> {
+    finite_with(p, bits, true)
+}
+
+/// [finite] with the hand-written kernels or the generated code.
+#[cfg(feature = "generated-evaluators")]
+fn finite_with<T: NativeFloat>(p: &[T; 3], bits: u32, handwritten: bool) -> Complex<T> {
     let mut evaluator =
         NativeEvaluator::<T>::with_binary_precision(ScalarIntegral::C0, bits).unwrap();
+    if !handwritten {
+        evaluator.set_handwritten(false);
+        evaluator.set_gram_reduction(false);
+    }
     let zero = p[0].zero();
     let mut input: Vec<_> = p
         .iter()
@@ -180,6 +196,11 @@ fn orders<V: Clone>(p: &[V; 3]) -> Vec<[V; 3]> {
 struct Worst {
     double_double: f64,
     binary64: f64,
+    /// Native `Float` at [NATIVE_FLOAT_BITS].
+    native_float: f64,
+    /// Its error over the precision it tracks (with numerica's 8 bits of
+    /// slack): at most 1 where the tracked precision is honest.
+    native_float_untracked: f64,
     expression: f64,
     expression_precise: f64,
 }
@@ -189,6 +210,10 @@ impl Worst {
     fn max(&mut self, other: &Self) {
         self.double_double = self.double_double.max(other.double_double);
         self.binary64 = self.binary64.max(other.binary64);
+        self.native_float = self.native_float.max(other.native_float);
+        self.native_float_untracked = self
+            .native_float_untracked
+            .max(other.native_float_untracked);
         self.expression = self.expression.max(other.expression);
         self.expression_precise = self.expression_precise.max(other.expression_precise);
     }
@@ -196,6 +221,8 @@ impl Worst {
     fn within(&self, bounds: &Self) -> bool {
         self.double_double <= bounds.double_double
             && self.binary64 <= bounds.binary64
+            && self.native_float <= bounds.native_float
+            && self.native_float_untracked <= bounds.native_float_untracked
             && self.expression <= bounds.expression
             && self.expression_precise <= bounds.expression_precise
     }
@@ -206,8 +233,9 @@ impl std::fmt::Display for Worst {
         if cfg!(feature = "generated-evaluators") {
             write!(
                 f,
-                "double-double {:.2e}, binary64 {:.2e}, ",
-                self.double_double, self.binary64
+                "double-double {:.2e}, binary64 {:.2e}, native Float 128 bits {:.2e} \
+                 (untracked {:.1e}), ",
+                self.double_double, self.binary64, self.native_float, self.native_float_untracked
             )?;
         }
         write!(
@@ -218,10 +246,11 @@ impl std::fmt::Display for Worst {
     }
 }
 
-/// The 512-bit native value at the arguments `p`.
+/// The 512-bit native value at the arguments `p`, through the generated
+/// code (independent of the hand-written kernel that the routes run).
 #[cfg(feature = "generated-evaluators")]
 fn native_reference(p: &[Float; 3]) -> [Float; 2] {
-    let value = finite(&p.clone().map(|x| x.at_precision(BITS)), BITS);
+    let value = finite_with(&p.clone().map(|x| x.at_precision(BITS)), BITS, false);
     [value.re, value.im]
 }
 
@@ -262,6 +291,20 @@ fn worst_over_orders(
         let value = finite(&binary64, 53);
         let error = relative(&[exact(value.re), exact(value.im)], reference_value);
         worst.binary64 = worst.binary64.max(error);
+        let arguments = binary64.map(|x| Float::with_val(NATIVE_FLOAT_BITS, x));
+        let value = finite(&arguments, NATIVE_FLOAT_BITS);
+        let tracked = if value.re.to_f64().abs() >= value.im.to_f64().abs() {
+            value.re.get_precision()
+        } else {
+            value.im.get_precision()
+        };
+        let error = relative(
+            &[value.re, value.im].map(|x| x.at_precision(BITS)),
+            reference_value,
+        );
+        worst.native_float = worst.native_float.max(error);
+        let untracked = error / 2f64.powi(8 - tracked as i32);
+        worst.native_float_untracked = worst.native_float_untracked.max(untracked);
         let error = relative(&expression_binary64(&binary64), reference_value);
         worst.expression = worst.expression.max(error);
         let error = relative(&expression_precise(expression, &binary64), reference_value);
@@ -306,6 +349,8 @@ fn on_stack(action: impl FnOnce() + Send + 'static) {
 const BOUNDS: Worst = Worst {
     double_double: 1e-27,
     binary64: 1e-12,
+    native_float: 1e-33,
+    native_float_untracked: 1.0,
     expression: 1e-12,
     expression_precise: 1e-60,
 };
@@ -314,15 +359,21 @@ const BOUNDS: Worst = Worst {
 /// modulus are a relative gap `g` apart: the trif0 representation's terms
 /// grow like `1/g` there and cancel (a few `1e-15/g` in binary64 and
 /// `3e-31/g` in double-double, in every order; the generated code of the
-/// orders without the small invariant first has the same).
+/// orders without the small invariant first has the same). At 128 and 256
+/// bits the kernel and the interpreted expressions lose about `1/g²` (28 bits
+/// at `g = 1e-4`), which the tracked precision does not see in full: up to
+/// 9 bits beyond its slack here, at most `1/(256 g²)`.
 #[cfg(feature = "generated-evaluators")]
 fn gap_scaled(p: &[Float; 3]) -> Worst {
     let mut p = p.clone().map(|x| x.to_f64());
     p.sort_by(|a, b| b.abs().total_cmp(&a.abs()));
-    let scale = (1e-2 * p[0].abs() / (p[0] - p[1]).abs()).max(1.0);
+    let gap = (p[0] - p[1]).abs() / p[0].abs();
+    let scale = (1e-2 / gap).max(1.0);
     Worst {
         double_double: BOUNDS.double_double * scale,
         binary64: BOUNDS.binary64 * scale,
+        native_float: BOUNDS.native_float * scale * scale,
+        native_float_untracked: BOUNDS.native_float_untracked.max(1.0 / (256.0 * gap * gap)),
         expression: BOUNDS.expression * scale,
         expression_precise: BOUNDS.expression_precise * scale,
     }
@@ -475,6 +526,8 @@ fn euclidean_points_match_the_closed_form_in_every_order() {
                 worst.within(&Worst {
                     double_double: 1e-30,
                     binary64: 1e-14,
+                    native_float: 1e-36,
+                    native_float_untracked: 1.0,
                     expression: 1e-14,
                     expression_precise: 1e-38,
                 }),

@@ -16,6 +16,8 @@ pub use tensor::{NativeTensorEvaluator, TensorIntegral};
 mod simple;
 #[cfg(feature = "generated-evaluators")]
 mod handwritten;
+#[cfg(feature = "generated-evaluators")]
+mod gram;
 // The emitter has its own stable formatting and mechanically named SSA locals.
 #[rustfmt::skip]
 #[allow(clippy::all)]
@@ -97,6 +99,12 @@ pub struct NativeEvaluator<T: NativeFloat> {
     arguments: Vec<C<T>>,
     /// Whether the hand-written C0 and D0 sector kernels run.
     handwritten: [bool; 2],
+    /// Whether C0's massless sector (OneLOop trif0) takes its hand-written
+    /// kernel where `handwritten[0]` is off (the `Float` default).
+    massless_c0: bool,
+    /// Whether a C0 at a vanishing Källén function is reduced to bubbles
+    /// (`gram.rs`; the `Float` default).
+    gram_c0: bool,
     /// Whether the hand-written C0 also takes three massive propagators with a
     /// negative Källén function (opt-in, see `set_handwritten_negative_kallen_c0`).
     negative_kallen_c0: bool,
@@ -136,7 +144,15 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             // Binary64 and double-double use the hand-written sector kernels.
             // `Float` keeps the generated expression code: its exact-zero tests
             // and precision bookkeeping follow the expression's own grouping.
+            // Two exceptions for `Float`, whose generated code is wrong there
+            // with every bit tracked: C0 at a vanishing Källén function is
+            // reduced to bubbles (`gram.rs`), and the massless triangle (trif0)
+            // takes the hand-written transcription of the current expression
+            // (the generated direct forms depend on the argument order next to
+            // light-like legs). Binary64 and double-double keep their kernels.
             handwritten: [T::FIXED_BITS.is_some(); 2],
+            massless_c0: T::FIXED_BITS.is_none(),
+            gram_c0: T::FIXED_BITS.is_none(),
             negative_kallen_c0: false,
             tolerance: {
                 let half = T::zero_at(bits).one() / T::zero_at(bits).from_i64(2);
@@ -147,11 +163,20 @@ impl<T: NativeFloat> NativeEvaluator<T> {
     }
 
     /// Select the hand-written sector kernels (the binary64 and double-double
-    /// default) or the generated expression code for every sector. For
-    /// validation only.
+    /// default) or the generated expression code for every sector (also for
+    /// `Float`'s massless triangle). For validation only.
     #[doc(hidden)]
     pub fn set_handwritten(&mut self, enabled: bool) {
         self.handwritten = [enabled; 2];
+        self.massless_c0 = enabled;
+    }
+
+    /// Reduce C0 at a vanishing Källén function of its invariants to bubbles
+    /// (the `Float` default) or evaluate it with the sector code (the binary64
+    /// and double-double default). For validation only.
+    #[doc(hidden)]
+    pub fn set_gram_reduction(&mut self, enabled: bool) {
+        self.gram_c0 = enabled;
     }
 
     /// Opt into the hand-written 't Hooft--Veltman C0 for three massive
@@ -295,18 +320,21 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             values
         }
         ScalarIntegral::A0 => generated_a0::evaluate(input, &self.context),
-        ScalarIntegral::B0 if input[..3].iter().all(|z| !truth(z)) => {
-            simple::zeros(&input[0].re)
-        }
-        ScalarIntegral::B0 => self
-            .small_momentum_b0(input)
-            .unwrap_or_else(|| generated_b0::evaluate(input, &self.context)),
+        ScalarIntegral::B0 => self.b0_values(input),
         ScalarIntegral::DB0 => generated_db0::evaluate(input, &self.context),
-        ScalarIntegral::C0 => simple::massless_triangle(input, &self.context.simple)
+        ScalarIntegral::C0 => self
+            .gram_c0
+            .then(|| gram::c0(input, |bubble| self.b0_values(bubble)))
+            .flatten()
+            .or_else(|| simple::massless_triangle(input, &self.context.simple))
             .or_else(|| {
-                self.handwritten[0]
-                    .then(|| handwritten::c0(input, &self.context.hand, self.negative_kallen_c0))
-                    .flatten()
+                if self.handwritten[0] {
+                    handwritten::c0(input, &self.context.hand, self.negative_kallen_c0)
+                } else if self.massless_c0 {
+                    handwritten::massless_c0(input, &self.context.hand)
+                } else {
+                    None
+                }
             })
             .unwrap_or_else(|| generated_c0::evaluate(input, &self.context)),
         // The hand-written sectors leave a soft line's on-shell pair on
@@ -325,6 +353,15 @@ impl<T: NativeFloat> NativeEvaluator<T> {
                 generated_d0::evaluate(input, &self.context)
             }),
     }
+    }
+
+    /// B0 `[finite, pole, double pole]` of `[p², m1², m2², mu²]`.
+    fn b0_values(&self, input: &[C<T>]) -> [C<T>; 3] {
+        if input[..3].iter().all(|z| !truth(z)) {
+            return simple::zeros(&input[0].re);
+        }
+        self.small_momentum_b0(input)
+            .unwrap_or_else(|| generated_b0::evaluate(input, &self.context))
     }
 
     fn validate_shape(&self, inputs: usize, outputs: usize, rows: usize) -> Result<(), String> {

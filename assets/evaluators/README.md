@@ -121,8 +121,12 @@ untouched. Commit matching source and regenerated assets together, and update
 this manifest's sizes and hashes. Load only trusted serialized evaluators.
 Exception: `c0.bin` (like `src/native/generated_c0.rs`) predates the massless
 finite triangle's conditioning fixes in `triangle::triangle_finite_massless`
-and keeps its direct forms (see NATIVE_BACKEND.md, hand-written kernels):
-regenerating it under the current Symbolica pin changes every C0 sector.
+and keeps its direct forms (see NATIVE_BACKEND.md, hand-written kernels), and
+predates the reduction of a C0 at a vanishing Källén function to bubbles
+(`triangle::with_gram_reduction`): there it differs from the expressions and
+from evaluators built from them at run time (NATIVE_BACKEND.md, C0 at a
+vanishing Källén function). Regenerating it under the current Symbolica pin
+changes every C0 sector.
 
 The previous generation and its dependency patches are documented in the
 [2026-09-08 audit](../../performance/2026-09-08-native/README.md).
