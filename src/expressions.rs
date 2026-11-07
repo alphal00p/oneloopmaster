@@ -156,7 +156,12 @@ pub(crate) fn triangle_series(p: [&Atom; 3], m: [&Atom; 3], mu: &Atom) -> Lauren
         .cloned()
         .collect::<Vec<_>>();
     let branches = core::array::from_fn(|sector| series_call("c0", sector, &args));
-    with_triangle_normalization(select_three_series(m, branches))
+    with_gram_reduction(
+        p,
+        m,
+        mu,
+        with_triangle_normalization(select_three_series(m, branches)),
+    )
 }
 
 pub(crate) fn box_series(p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeries {

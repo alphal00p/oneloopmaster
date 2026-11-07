@@ -670,6 +670,9 @@ pub(crate) fn triangle_finite_one_mass(p1: &Atom, p2: &Atom, p3: &Atom, mass: &A
     let a = &r34 * &r24 - &r23;
     let b = &r24 / &sqrt_real + &r34 / &sqrt_real - &r23 / &sqrt_mass;
     let c = Atom::num(1) / (&sqrt_real * &sqrt_real);
+    // At a vanishing Källén function b² - 4ac = lambda/(|m|² m) is a rounding
+    // residue; c0 reduces such a triangle to bubbles before this sector
+    // (with_gram_reduction).
     let (root_1, root_2) = negative_quadratic_roots(&a, &b, &c);
     // Real roots inherit their lips from OneLOop's p -> p(1 + i eps).
     let dr23 = -p2_internal / (&sqrt_real * &sqrt_real);
@@ -1089,6 +1092,126 @@ pub(crate) fn triangle_two_masses(
     )
 }
 
+/// The finite C0 at three vanishing invariants, reduced exactly to bubbles
+/// (`native::gram`): with `Y_ij = m_i + m_j` any `b` with `Σ_i b_i = 0` and
+/// `Σ_i b_i m_i = 1` solves `Y b = e`, so `C0 = -Σ_i b_i B0(0; m_j, m_k)`;
+/// here `b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²)`. Valid where
+/// [triangle_zero_invariants_usable] is nonzero.
+fn triangle_zero_invariants(m: [&Atom; 3], mu_squared: &Atom) -> Atom {
+    let sum = m[0] + m[1] + m[2];
+    let denominator = Atom::num(3) * (m[0].pow(2) + m[1].pow(2) + m[2].pow(2)) - sum.pow(2);
+    let weighted =
+        [(0, 1, 2), (1, 0, 2), (2, 0, 1)]
+            .into_iter()
+            .fold(Atom::num(0), |total, (i, j, k)| {
+                total
+                    + (Atom::num(3) * m[i] - &sum)
+                        * crate::two_point::b0_at_zero_momentum(m[j], m[k], mu_squared)
+            });
+    -weighted / denominator
+}
+
+/// Nonzero where [triangle_zero_invariants] applies: at most one massless
+/// propagator (two bound an infrared divergence, whose bubble is scaleless)
+/// and not three equal masses (the denominator vanishes; the vacuum formula
+/// of sector 7 covers them).
+fn triangle_zero_invariants_usable(m: [&Atom; 3]) -> Atom {
+    let sum = m[0] + m[1] + m[2];
+    let denominator = Atom::num(3) * (m[0].pow(2) + m[1].pow(2) + m[2].pow(2)) - sum.pow(2);
+    let massive_pair = any_nonzero([m[0] * m[1], m[0] * m[2], m[1] * m[2]]);
+    if_nonzero(&massive_pair, denominator)
+}
+
+/// The cofactor sums `(adj(Y) e)_i` and `det Y` of the modified Cayley
+/// matrix `Y_ij = m_i + m_j - p_ij` (`p = [p12, p23, p13]`).
+fn cayley_cofactors(p: [&Atom; 3], m: [&Atom; 3]) -> ([Atom; 3], Atom) {
+    let invariant = |i: usize, j: usize| match (i.min(j), i.max(j)) {
+        (0, 1) => p[0],
+        (1, 2) => p[1],
+        _ => p[2],
+    };
+    let y = |i: usize, j: usize| {
+        if i == j {
+            Atom::num(2) * m[i]
+        } else {
+            m[i] + m[j] - invariant(i, j)
+        }
+    };
+    let [a, b, c] = [y(0, 0), y(1, 1), y(2, 2)];
+    let [d, e, f] = [y(0, 1), y(1, 2), y(0, 2)];
+    let a11 = &b * &c - &e * &e;
+    let a22 = &a * &c - &f * &f;
+    let a33 = &a * &b - &d * &d;
+    let a12 = &f * &e - &d * &c;
+    let a13 = &d * &e - &b * &f;
+    let a23 = &d * &f - &a * &e;
+    let determinant = &a * &a11 + &d * &a12 + &f * &a13;
+    (
+        [&a11 + &a12 + &a13, &a12 + &a22 + &a23, &a13 + &a23 + &a33],
+        determinant,
+    )
+}
+
+/// The finite C0 at a vanishing Källén function with `det Y ≠ 0`, reduced
+/// exactly to bubbles (`native::gram`): `b = adj(Y) e / det Y`,
+/// `C0 = -Σ_i b_i B0^(i)`.
+fn triangle_gram_reduced(p: [&Atom; 3], m: [&Atom; 3], mu_squared: &Atom) -> Atom {
+    let (sums, determinant) = cayley_cofactors(p, m);
+    // The bubble without propagator i: the invariant between the other two.
+    let bubbles = [(p[1], m[1], m[2]), (p[2], m[0], m[2]), (p[0], m[0], m[1])]
+        .map(|(q, a, b)| crate::two_point::b0(q, a, b, mu_squared).into_coefficients()[0].clone());
+    let weighted = sums
+        .iter()
+        .zip(&bubbles)
+        .fold(Atom::num(0), |total, (sum, bubble)| total + sum * bubble);
+    -weighted / determinant
+}
+
+/// `series`, or at a vanishing Källén function `λ(p1, p2, p3)` the triangle's
+/// exact reduction to bubbles (`native::gram`): with `det Y ≠ 0` at nonzero
+/// invariants ([triangle_gram_reduced]), and at three vanishing invariants
+/// where [triangle_zero_invariants_usable] holds. There the roots of the
+/// sectors' quadratics coincide: the one-mass sector's split by the rounding
+/// of its discriminant (`b² - 4ac = λ/(|m|² m)`), the zero-invariant two-mass
+/// sector's in half the orders, and the massless sector was NaN in two orders.
+/// Otherwise (`det Y = 0` at a nonzero invariant) the sector code runs.
+pub(crate) fn with_gram_reduction(
+    p: [&Atom; 3],
+    m: [&Atom; 3],
+    mu_squared: &Atom,
+    series: LaurentSeries,
+) -> LaurentSeries {
+    let all = p
+        .into_iter()
+        .chain(m)
+        .chain([mu_squared])
+        .cloned()
+        .collect::<Vec<_>>();
+    let lambda = (p[2] - p[0] - p[1]).pow(2) - Atom::num(4) * p[0] * p[1];
+    let reduced = symbolica::symbol!("__olo_c0_gram").call(&all);
+    let determinant = symbolica::symbol!("__olo_c0_gram_determinant").call(&all[..6]);
+    let at_zero = symbolica::symbol!("__olo_c0_zero_invariants").call(&all[3..]);
+    let usable = symbolica::symbol!("__olo_c0_zero_invariants_usable").call(&all[3..6]);
+    let nonzero_p = any_nonzero(p.into_iter().cloned());
+    let [finite, pole, double_pole] = series.into_coefficients();
+    let select = |sector: Atom, nonzero: Atom, zero: Atom| {
+        if_nonzero_else(
+            &lambda,
+            sector.clone(),
+            if_nonzero_else(
+                &nonzero_p,
+                if_nonzero_else(&determinant, nonzero, sector.clone()),
+                if_nonzero_else(&usable, zero, sector),
+            ),
+        )
+    };
+    LaurentSeries::new(
+        select(finite, reduced, at_zero),
+        select(pole, Atom::num(0), Atom::num(0)),
+        select(double_pole, Atom::num(0), Atom::num(0)),
+    )
+}
+
 pub(crate) fn with_triangle_normalization(series: LaurentSeries) -> LaurentSeries {
     let result = series.into_coefficients();
     let pi_squared = Symbol::PI.to_atom() * Symbol::PI.to_atom();
@@ -1102,8 +1225,11 @@ pub(crate) fn with_triangle_normalization(series: LaurentSeries) -> LaurentSerie
 /// Constructs a scalar triangle with its transparent native function definitions.
 /// Momenta are [p1²,p2²,(p1+p2)²]; masses follow propagator order.
 ///
-/// Exact one-mass quadratic limits are supported. Other quadratic/Gram
-/// degeneracies are not generally supported.
+/// Exact one-mass quadratic limits are supported. At a vanishing Källén
+/// function (Gram determinant) the triangle is reduced exactly to bubbles
+/// where its modified Cayley matrix is regular or its invariants vanish
+/// ([with_gram_reduction]); other quadratic/Gram degeneracies are not
+/// generally supported.
 /// See STATUS.md for the development implementation's coverage limitations.
 pub fn c0(p: [&Atom; 3], m: [&Atom; 3], mu_squared: &Atom) -> MappedLaurentSeries {
     let expressions = OneLoopExpressions::new();
@@ -1180,6 +1306,34 @@ pub(crate) fn register_triangles(map: &mut FunctionMap) {
     let symbols =
         core::array::from_fn::<_, 7, _>(|i| symbolica::symbol!(format!("__olo_c0_arg_{i}")));
     let x = symbols.map(Symbol::to_atom);
+    map.add_function_with_options(
+        symbolica::symbol!("__olo_c0_gram"),
+        symbols.to_vec(),
+        triangle_gram_reduced([&x[0], &x[1], &x[2]], [&x[3], &x[4], &x[5]], &x[6]),
+        native_function_options(),
+    )
+    .expect("unique Gram-reduced triangle");
+    map.add_function_with_options(
+        symbolica::symbol!("__olo_c0_gram_determinant"),
+        symbols[..6].to_vec(),
+        cayley_cofactors([&x[0], &x[1], &x[2]], [&x[3], &x[4], &x[5]]).1,
+        native_function_options(),
+    )
+    .expect("unique Cayley determinant");
+    map.add_function_with_options(
+        symbolica::symbol!("__olo_c0_zero_invariants"),
+        symbols[3..].to_vec(),
+        triangle_zero_invariants([&x[3], &x[4], &x[5]], &x[6]),
+        native_function_options(),
+    )
+    .expect("unique zero-invariant triangle");
+    map.add_function_with_options(
+        symbolica::symbol!("__olo_c0_zero_invariants_usable"),
+        symbols[3..6].to_vec(),
+        triangle_zero_invariants_usable([&x[3], &x[4], &x[5]]),
+        native_function_options(),
+    )
+    .expect("unique zero-invariant triangle predicate");
     let p = [&x[0], &x[1], &x[2]];
     let m = [&x[3], &x[4], &x[5]];
     register_three_mass_triangle(map, &symbols[..6], p, m);

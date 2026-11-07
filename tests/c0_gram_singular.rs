@@ -21,8 +21,13 @@
 //! binary64 is right and double-double keeps only binary64 accuracy (its
 //! generated code splits the roots by its own rounding); with
 //! `set_gram_reduction` they reach their precision on every row.
+//!
+//! The interpreted expressions (`EvaluationBackend::Expression`, the
+//! arbitrary-precision masters of NinjaRS's `SymbolicaMasters<Float>`) reduce
+//! the same triangles to bubbles (`triangle::with_gram_reduction`): checked at
+//! 128 and 256 bits.
 #![cfg(feature = "generated-evaluators")]
-use oneloop::{NativeEvaluator, ScalarIntegral};
+use oneloop::{EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral};
 use symbolica::domains::float::{Complex, DoubleFloat, Float, FloatLike, RealLike};
 
 type C = Complex<f64>;
@@ -272,5 +277,48 @@ fn float_is_unchanged_next_to_the_singular_point() {
             assert_eq!(with.im.to_rational(), without.im.to_rational());
             assert_eq!(with.re.get_precision(), without.re.get_precision());
         }
+    });
+}
+
+/// The interpreted expressions at 128 and 256 bits (module documentation).
+#[test]
+fn expressions_match_the_references_in_every_order() {
+    on_stack(|| {
+        let mut failures = Vec::new();
+        for bits in [128, 256] {
+            let mut expression = PrecisionEvaluator::with_binary_precision_and_backend(
+                ScalarIntegral::C0,
+                bits,
+                EvaluationBackend::Expression,
+            )
+            .unwrap();
+            for (line, row) in rows().iter().enumerate() {
+                let reference = reference(row, bits + 64);
+                let scale = reference.re.to_f64().hypot(reference.im.to_f64());
+                for (number, image) in images(&row.args).into_iter().enumerate() {
+                    let input: Vec<_> = image
+                        .iter()
+                        .map(|z| {
+                            Complex::new(Float::with_val(bits, z.re), Float::with_val(bits, z.im))
+                        })
+                        .collect();
+                    let mut output = core::array::from_fn::<_, 3, _>(|_| {
+                        Complex::new(Float::new(bits), Float::new(bits))
+                    });
+                    expression.evaluate(&input, &mut output).unwrap();
+                    let value = output[0].clone();
+                    let precision = tracked(&value);
+                    let error = distance(&value, &reference, scale);
+                    if !(error <= REFERENCE.max(claimed(precision))) || precision + SLACK < bits {
+                        failures.push(format!(
+                            "row {line} ({}) image {number} at {bits} bits: {} {} (error {error:e}, \
+                             {precision} tracked bits)",
+                            row.class, value.re, value.im
+                        ));
+                    }
+                }
+            }
+        }
+        report("interpreted expressions", failures);
     });
 }
