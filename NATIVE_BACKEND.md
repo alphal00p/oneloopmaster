@@ -148,9 +148,21 @@ invariant, e.g. the equal on-shell masses of STATUS.md's open C0 limitations)
 the sector code runs. Binary64 and `DoubleFloat` keep their kernels; they
 reach their precision with `set_gram_reduction(true)` (validation). Next to
 `λ = 0` the one-mass sector code still loses about `log2(s²/|λ|)` bits, and
-tracks them. `tests/c0_gram_singular.rs` checks the reduction against closed
-forms and mpmath Feynman-parameter integrals in every order at 128 to 1024
-bits.
+tracks them.
+
+The expressions take the same reduction (`triangle::with_gram_reduction` in
+`triangle_series`, registered as `__olo_c0_gram` and
+`__olo_c0_zero_invariants`), decided by exact zero tests in the evaluator's
+own arithmetic like the sectors' Gram tests; at three vanishing invariants
+they weight the bubbles symmetrically, `b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²)`.
+This serves the interpreted expressions (`EvaluationBackend::Expression`, in
+binary64 and `Float`) and every evaluator built from them at run time, among
+them NinjaRS's `SymbolicaMasters<Float>` (its arbitrary-precision scalar
+masters). The generated code and the SymJIT asset were not regenerated:
+regenerating them would give binary64 and `DoubleFloat` the reduction too.
+`tests/c0_gram_singular.rs` checks both routes against closed forms and
+mpmath Feynman-parameter integrals in every order (native `Float` at 128 to
+1024 bits, the expressions at 128 and 256).
 
 This keeps the expression implementation as the mathematical source. The older
 dependency-free numerical port is not copied into production: its finite-width
