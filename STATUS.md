@@ -23,8 +23,9 @@ double-double kernel (`native::handwritten::triangle::massless`); checked by
   in every order (2.4e-11 at `g = 1e-4`; main's generated code had the same
   in the orders without the small invariant first). An expansion in the gap
   would remove it.
-- At exactly `λ = 0` (coincident roots, e.g. `p = (-6, -1.5, -1.5)`) the
-  sector returns NaN on every route, as before.
+- At exactly `λ = 0` with `p2 = p3` (coincident roots on a winding sheet,
+  e.g. `p = (-6, -1.5, -1.5)`) the sector returns NaN on every route, as
+  before; the other orders of the same point are right.
 - C0 at `p = (0, 0, 0)` with one massless propagator (the vacuum triangle,
   `-(ln m1 - ln m3)/(m1 - m3)`) is wrong on every route, as before.
 

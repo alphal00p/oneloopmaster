@@ -230,7 +230,7 @@ fn worst_over_orders(
     let mut first: Option<[Float; 2]> = None;
     for order in orders(p) {
         let dd = order.clone().map(|x| x.to_double_float());
-        let reference_value = native_reference(&dd.clone().map(|x| wide(&x)));
+        let reference_value = native_reference(&dd.map(|x| wide(&x)));
         match &first {
             None => first = Some(reference_value.clone()),
             Some(first) => assert!(
@@ -290,8 +290,8 @@ fn on_stack(action: impl FnOnce() + Send + 'static) {
 /// Bounds far below the defect (1e-2 to 1.0 in double-double and binary64)
 /// and above the conditioning of the formula: with one light-like leg the
 /// `log² p1` terms cancel between the dilogarithms and the logarithms (three
-/// digits at `p1 ~ 1e-17 s`). The 256-bit expressions lost 30 to 50 digits
-/// before the fix.
+/// digits at `p1 ~ 1e-17 s`). Before the fix the 256-bit expressions kept
+/// only 42 to 58 digits at these points (now 69 to 77).
 #[cfg(feature = "generated-evaluators")]
 const BOUNDS: Worst = Worst {
     double_double: 1e-27,
