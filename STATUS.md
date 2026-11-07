@@ -18,25 +18,45 @@ expressions, which NinjaRS's `SymbolicaMasters<Float>` evaluates for its
 arbitrary-precision scalar masters, had the same defect (`-4.616` with 256
 tracked bits at the same point). Zero-invariant triangles with the massless line
 between two masses were wrong by up to 1e154 (on every route), and the massless
-triangle at `λ = 0` was NaN in two of its orders.
+triangle at `λ = 0` was NaN in two of its orders. Where the modified Cayley
+matrix `Y_ij = m_i + m_j - p_ij` is singular as well (two identical
+propagators, `m_i = m_j` with `p_ij = 0`, e.g. `C0(0, p, p; m, m, 0) =
+ln(1 - p/m)/p`; rank-two and rank-one `Y`; the soft, collinear and
+soft-collinear triangles at `λ = 0`) the arbitrary-precision routes returned 0
+(binary64 and double-double too for `C0(0, p, p; m, m, 0)`), values with a few
+tracked bits, or (native `Float` at 128 bits, the soft triangle at a
+pseudo-threshold) a value wrong by 1e-20 with all bits tracked.
 
 Native `Float` and the expressions now reduce a triangle at `λ = 0` exactly to
-bubbles (`native/gram.rs`, `triangle::with_gram_reduction`, NATIVE_BACKEND.md),
-and native `Float`'s massless triangle (trif0) takes the hand-written kernel of
-the next section (the generated direct forms kept up to 60 bits fewer than they
-tracked next to light-like legs). Native binary64 and double-double are
-unchanged. Open:
+bubbles, or, where `Y` is singular, to mass derivatives of bubbles in
+dimensional regularisation with the exact pole (`native/gram.rs`,
+`triangle::with_gram_reduction`, NATIVE_BACKEND.md), and native `Float`'s
+massless triangle (trif0) takes the hand-written kernel of the next section
+(the generated direct forms kept up to 60 bits fewer than they tracked next to
+light-like legs). Native binary64 and double-double are unchanged. Open:
 
 - Native binary64 and double-double keep their kernels at `λ = 0`: the
-  zero-invariant reflections and the massless NaN above, and double-double
-  keeps only binary64 accuracy (about 1e-16) on the one-mass rows;
-  `set_gram_reduction(true)` gives 1e-13 and 1e-29 there (validation only).
-- `det Y = 0` at a nonzero invariant (the equal on-shell masses of the open
-  C0 limitations below) is not reduced.
+  zero-invariant reflections and the massless NaN above, two identical
+  propagators with a massless third line (`C0(0, p, p; m, m, 0)` is 0), and
+  double-double keeps only binary64 accuracy (about 1e-16) on the one-mass
+  rows; `set_gram_reduction(true)` gives 1e-13 and 1e-29 on every row of
+  `tests/c0_gram_singular.txt` (validation only; enabling it by default moves
+  values only where they were wrong).
+- Not reduced, left to the sector code: a singular `Y` where every choice of
+  the derivative needs a bubble at its threshold (`λ(p_jk, m_j, m_k) = 0` with
+  the double root inside the Feynman interval, e.g. the soft triangle at
+  threshold, whose Coulomb singularity is a pole in the velocity), and three
+  equal masses at vanishing invariants.
 - Next to `λ = 0` (`|λ|/s² = 2^-2k`) the one-mass sector still loses about
   `2k` bits on every arbitrary-precision route. Native `Float` tracked them in
   the survey of lit-olm-ap; the interpreted expressions not always (`k = 100`
-  at 128 bits: 69 tracked bits, wrong by 2e-2, as on main).
+  at 128 bits: 69 tracked bits, wrong by 2e-2, as on main): numerica keeps the
+  tracked precision of a computed factor of exactly `±1` and of `log` next to
+  one, which only numerica can fix. Points from binary64 kinematics stay
+  further away (`|λ|/s² ≥ 1e-10` in pyAmpliCol's fixtures).
+- Native `Float` trif0 next to nearly equal invariants (relative gap `g`)
+  still claims up to about 5 bits beyond numerica's 8-bit slack (the generated
+  forms: up to 32; `tests/c0_massless_orders.rs` bounds it by `1/(256 g²)`).
 - The generated code and the SymJIT asset were not regenerated; regenerating
   them gives binary64 and double-double the expressions' reduction.
 
@@ -1938,8 +1958,9 @@ The C0 oracle sweeps cover A0, B0, dB0 and C0, seeds 1 to 4, 17,555 rows.
   bits, `3 1.0 0 0 0 9.0 -0.1667104301703281 21.592408834323358 0 0 0` and its
   rotations kept 14 to 19 tracked bits and were wrong by 5.3e-3 to 1.2e-2.
   Fixed 2026-11-07 (the expressions' Gram reduction, top of this page);
-  `open_interpreted_float_defect` in `tests/float_exact_products.rs` is no
-  longer ignored.
+  `interpreted_float_at_vanishing_invariants` (formerly the ignored
+  `open_interpreted_float_defect`) in `tests/float_exact_products.rs` checks
+  it.
 - **Every route, binary64 included, with the masses reflected.** The same
   triangle with the massless line between the complex and the real mass is
   wrong even though, with vanishing invariants, the value cannot depend on
