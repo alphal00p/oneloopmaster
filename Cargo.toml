@@ -32,10 +32,10 @@ xprec = "0.2.3"
 symjit = "2.27.3"
 
 [patch.crates-io]
-# Symbolica: symbolica-dev/symbolica `community` 36cbac3a plus the consolidated upstream PR
+# Symbolica: symbolica-dev/symbolica `community` plus the consolidated upstream PR
 # symbolica-dev/symbolica#163 (branch ValentinHirschi/symbolica loop_me_pyamplicol), the one revision
 # shared by pyAmpliCol, NinjaRS and OneLoop; it moves to upstream once the PR is merged.
 # Keep all three packages on one source; embedding hosts supply their own patch.
-symbolica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc" }
-numerica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc" }
-graphica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc" }
+symbolica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "dfe6bd97b974b1028dc63071ea165136cd2b0ef5" }
+numerica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "dfe6bd97b974b1028dc63071ea165136cd2b0ef5" }
+graphica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "dfe6bd97b974b1028dc63071ea165136cd2b0ef5" }
