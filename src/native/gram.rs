@@ -135,7 +135,10 @@ pub(super) fn c0<T: NativeFloat>(
     if !lambda.is_zero() {
         return None;
     }
-    let exact = input[..6].iter().map(Exact::of).collect::<Option<Vec<_>>>()?;
+    let exact = input[..6]
+        .iter()
+        .map(Exact::of)
+        .collect::<Option<Vec<_>>>()?;
     let all_zero = exact[..3].iter().all(Exact::is_zero);
     let m = [&input[3], &input[4], &input[5]];
     // The invariant between propagators i and j (input order p12, p23, p13).
@@ -209,7 +212,12 @@ pub(super) fn c0<T: NativeFloat>(
             1 => (0, 2),
             _ => (0, 1),
         };
-        let arguments = [invariant(j, k).clone(), m[j].clone(), m[k].clone(), mu.clone()];
+        let arguments = [
+            invariant(j, k).clone(),
+            m[j].clone(),
+            m[k].clone(),
+            mu.clone(),
+        ];
         let bubble = b0(&arguments);
         finite = sub(&finite, &mul(coefficient, &bubble[0]));
     }
