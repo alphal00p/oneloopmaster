@@ -107,8 +107,13 @@ fn expression_binary64(p: &[f64; 3]) -> [Float; 2] {
     input.extend([Complex::new(0.0, 0.0); 3]);
     input.push(Complex::new(1.0, 0.0));
     let mut output = [Complex::new(0.0, 0.0); 3];
-    evaluate_with_backend(ScalarIntegral::C0, &input, &mut output, EvaluationBackend::Expression)
-        .unwrap();
+    evaluate_with_backend(
+        ScalarIntegral::C0,
+        &input,
+        &mut output,
+        EvaluationBackend::Expression,
+    )
+    .unwrap();
     [exact(output[0].re), exact(output[0].im)]
 }
 
@@ -124,7 +129,12 @@ fn expression_evaluator() -> PrecisionEvaluator {
 
 /// The finite part through `evaluator` at binary64 arguments.
 fn expression_precise(evaluator: &mut PrecisionEvaluator, p: &[f64; 3]) -> [Float; 2] {
-    let value = |x: f64| Complex::new(Float::with_val(EXPRESSION_BITS, x), Float::new(EXPRESSION_BITS));
+    let value = |x: f64| {
+        Complex::new(
+            Float::with_val(EXPRESSION_BITS, x),
+            Float::new(EXPRESSION_BITS),
+        )
+    };
     let mut input: Vec<_> = p.iter().map(|&x| value(x)).collect();
     input.extend([0.0, 0.0, 0.0, 1.0].map(value));
     let mut output: Vec<_> = (0..3).map(|_| value(0.0)).collect();
@@ -425,7 +435,11 @@ fn small_invariant_next_to_nearly_equal_ones_in_every_order() {
                 [exact(small), exact(s), exact(s * (1.0 + gap))]
             })
             .collect();
-        check("small invariant next to nearly equal ones", points, gap_scaled);
+        check(
+            "small invariant next to nearly equal ones",
+            points,
+            gap_scaled,
+        );
     });
 }
 
