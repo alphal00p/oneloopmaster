@@ -9,7 +9,7 @@
 # products once and keeping factors of exactly +-1 exact (tests/float_exact_products.rs).
 # The finite parts are the references (the poles vanish); the tolerance is relative to |finite|.
 # The last column selects all relabellings or only the cyclic ones, and marks rows whose
-# interpreted Float route is an open defect (checked by an ignored test).
+# interpreted Float route was an open defect until 2026-11-07 (checked by a separate test).
 #
 # D0, two adjacent complex masses with three vanishing invariants (256-bit native gave 3.07e4 +
 # 19i). Reference: Denner and Dittmaier's two-mass box (arXiv:1005.2076, eqs. (3.78)-(3.80)) in
@@ -35,7 +35,7 @@
 # the Feynman-parameter integral in mpmath at 40 digits (COLLIER COLI agrees to 1e-33). Only its
 # rotations: with the massless line between the complex and the real mass (the reflections) every
 # route and OneLOop are wrong in binary64 already (STATUS.md, open limitations).
-# Its interpreted Float route keeps only 14 to 19 bits at 112, 128 and 224 bits (open, STATUS.md).
+# Its interpreted Float route kept only 14 to 19 bits at 112, 128 and 224 bits (fixed 2026-11-07, STATUS.md).
 3 1.0 0.0 0.0 0.0 9.0 -0.1667104301703281 21.592408834323358 0.0 0.0 0.0 -6.948928915874376110838886563721738137e-2 -5.508615401135076901094822810610469224e-4 1e-32 rotations,open-interpreted
 # C0 with real masses, one invariant on shell with a massless line, one vanishing (256-bit
 # -0.625 - 0.0625i for -0.797). Reference: the Feynman-parameter integral in mpmath at 40

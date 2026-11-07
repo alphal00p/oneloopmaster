@@ -9,23 +9,34 @@
 //! `C0(0, p, p; m, 0, 0) = -4.928` (the first row), and wrong values at every
 //! precision, mostly with few tracked bits. Zero-invariant triangles were
 //! wrong by up to 1e154 in the orders with the massless line between the two
-//! masses, and the massless triangle was NaN in two of its six orders. Native
-//! `Float` now reduces these triangles exactly to bubbles (`native::gram`).
+//! masses, and the massless triangle was NaN in two of its six orders. Where
+//! the modified Cayley matrix `Y_ij = m_i + m_j - p_ij` is also singular (rows
+//! `singular-y-*`: two identical propagators such as `C0(0, p, p; m, m, M)`,
+//! rank-two and rank-one `Y`, and the soft, collinear and soft-collinear
+//! triangles at a vanishing Källén function) every route returned 0, values
+//! with a few tracked bits, or (native `Float` at 128 bits, the soft triangle
+//! at a pseudo-threshold) a value wrong by 1e-20 with every bit tracked.
+//! Native `Float` now reduces these triangles exactly to bubbles and to mass
+//! derivatives of bubbles (`native::gram`).
 //!
-//! References: the closed form `-[(1+a) ln(1+a) - a ln a]/(-p)`, `a = -p/m`,
-//! of the one-mass rows and the mpmath Feynman-parameter integral (50 digits).
-//! Native `Float` at 128 to 1024 bits must match them within the precision it
-//! tracks (8 bits of slack; the references bound the check at 1e-48), track
-//! at least `bits - 32` bits, agree across the orders and return vanishing
-//! poles. Binary64 and double-double keep their kernels: on the one-mass rows
-//! binary64 is right and double-double keeps only binary64 accuracy (its
-//! generated code splits the roots by its own rounding); with
-//! `set_gram_reduction` they reach their precision on every row.
+//! References (50 digits): the closed form `-[(1+a) ln(1+a) - a ln a]/(-p)`,
+//! `a = -p/m`, of the one-mass rows (at `m - i0` in the Minkowski region), the
+//! mpmath Feynman-parameter integral, and for a singular `Y` closed forms or a
+//! one-dimensional integral along the null vector of `Y` (the data file), with
+//! the poles of the infrared-divergent rows. Native `Float` at 128 to 1024
+//! bits must match them within the precision it tracks (8 bits of slack; the
+//! references bound the check at 1e-48), track at least `bits - 32` bits,
+//! agree across the orders and return the reference pole (exactly zero where
+//! the triangle is infrared finite) and a vanishing double pole. Binary64 and
+//! double-double keep their kernels: on the one-mass rows binary64 is right
+//! and double-double keeps only binary64 accuracy (its generated code splits
+//! the roots by its own rounding); with `set_gram_reduction` they reach their
+//! precision on every row.
 //!
 //! The interpreted expressions (`EvaluationBackend::Expression`, the
 //! arbitrary-precision masters of NinjaRS's `SymbolicaMasters<Float>`) reduce
 //! the same triangles to bubbles (`triangle::with_gram_reduction`): checked at
-//! 128 and 256 bits.
+//! 128, 190 (pyAmpliCol's arbitrary-precision working precision) and 256 bits.
 #![cfg(feature = "generated-evaluators")]
 use oneloop::{EvaluationBackend, NativeEvaluator, PrecisionEvaluator, ScalarIntegral};
 use symbolica::domains::float::{Complex, DoubleFloat, Float, FloatLike, RealLike};
@@ -42,6 +53,7 @@ const SLACK: u32 = 32;
 struct Row {
     args: Vec<C>,
     reference: (String, String),
+    pole: (String, String),
     class: String,
 }
 
@@ -51,7 +63,7 @@ fn rows() -> Vec<Row> {
         .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
         .map(|line| {
             let tokens: Vec<&str> = line.split_whitespace().collect();
-            assert_eq!(tokens.len(), 13, "malformed row {line}");
+            assert_eq!(tokens.len(), 15, "malformed row {line}");
             let v: Vec<f64> = tokens[..10].iter().map(|x| x.parse().unwrap()).collect();
             let mut args: Vec<C> = v[1..4].iter().map(|&x| C::new(x, 0.0)).collect();
             args.extend(v[4..10].chunks_exact(2).map(|z| C::new(z[0], z[1])));
@@ -59,7 +71,8 @@ fn rows() -> Vec<Row> {
             Row {
                 args,
                 reference: (tokens[10].to_string(), tokens[11].to_string()),
-                class: tokens[12].to_string(),
+                pole: (tokens[12].to_string(), tokens[13].to_string()),
+                class: tokens[14].to_string(),
             }
         })
         .collect()
@@ -109,11 +122,32 @@ fn report(label: &str, failures: Vec<String>) {
     );
 }
 
-fn reference(row: &Row, bits: u32) -> Complex<Float> {
+fn parsed((re, im): &(String, String), bits: u32) -> Complex<Float> {
     Complex::new(
-        Float::parse(&row.reference.0, Some(bits)).unwrap(),
-        Float::parse(&row.reference.1, Some(bits)).unwrap(),
+        Float::parse(re, Some(bits)).unwrap(),
+        Float::parse(im, Some(bits)).unwrap(),
     )
+}
+
+fn reference(row: &Row, bits: u32) -> Complex<Float> {
+    parsed(&row.reference, bits)
+}
+
+fn is_zero(z: &Complex<Float>) -> bool {
+    z.re.is_fully_zero() && z.im.is_fully_zero()
+}
+
+/// The pole matches the row's reference within the precision it tracks
+/// (exactly zero where the reference vanishes) and the double pole vanishes.
+fn poles_match(row: &Row, output: &[Complex<Float>], bits: u32) -> bool {
+    let pole = parsed(&row.pole, bits + 64);
+    let pole_matches = if is_zero(&pole) {
+        is_zero(&output[1])
+    } else {
+        let scale = pole.re.to_f64().hypot(pole.im.to_f64());
+        distance(&output[1], &pole, scale) <= REFERENCE.max(claimed(tracked(&output[1])))
+    };
+    pole_matches && is_zero(&output[2])
 }
 
 fn distance(value: &Complex<Float>, other: &Complex<Float>, scale: f64) -> f64 {
@@ -167,9 +201,7 @@ fn float_matches_the_references_in_every_order() {
                     let spread = first
                         .as_ref()
                         .map_or(0.0, |first| distance(&value, first, scale));
-                    let poles = output[1..]
-                        .iter()
-                        .all(|pole| pole.re.is_fully_zero() && pole.im.is_fully_zero());
+                    let poles = poles_match(row, &output, bits);
                     if !(error <= REFERENCE.max(claimed(precision)))
                         || !(spread <= claimed(precision))
                         || precision + SLACK < bits
@@ -177,8 +209,8 @@ fn float_matches_the_references_in_every_order() {
                     {
                         failures.push(format!(
                             "row {line} ({}) image {number} at {bits} bits: {} {} (error {error:e}, \
-                             spread {spread:e}, {precision} tracked bits, poles vanish: {poles})",
-                            row.class, value.re, value.im
+                             spread {spread:e}, {precision} tracked bits, poles match: {poles}; pole {} {})",
+                            row.class, value.re, value.im, output[1].re, output[1].im
                         ));
                     }
                     first.get_or_insert(value);
@@ -280,12 +312,12 @@ fn float_is_unchanged_next_to_the_singular_point() {
     });
 }
 
-/// The interpreted expressions at 128 and 256 bits (module documentation).
+/// The interpreted expressions at 128, 190 and 256 bits (module documentation).
 #[test]
 fn expressions_match_the_references_in_every_order() {
     on_stack(|| {
         let mut failures = Vec::new();
-        for bits in [128, 256] {
+        for bits in [128, 190, 256] {
             let mut expression = PrecisionEvaluator::with_binary_precision_and_backend(
                 ScalarIntegral::C0,
                 bits,
@@ -309,11 +341,15 @@ fn expressions_match_the_references_in_every_order() {
                     let value = output[0].clone();
                     let precision = tracked(&value);
                     let error = distance(&value, &reference, scale);
-                    if !(error <= REFERENCE.max(claimed(precision))) || precision + SLACK < bits {
+                    let poles = poles_match(row, &output, bits);
+                    if !(error <= REFERENCE.max(claimed(precision)))
+                        || precision + SLACK < bits
+                        || !poles
+                    {
                         failures.push(format!(
                             "row {line} ({}) image {number} at {bits} bits: {} {} (error {error:e}, \
-                             {precision} tracked bits)",
-                            row.class, value.re, value.im
+                             {precision} tracked bits, poles match: {poles}; pole {} {})",
+                            row.class, value.re, value.im, output[1].re, output[1].im
                         ));
                     }
                 }
