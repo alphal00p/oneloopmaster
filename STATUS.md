@@ -4,6 +4,37 @@ This page preserves the September 8 development snapshot. See the
 [Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
 dependency setup and validation.
 
+## Native `Float` C0 at a vanishing Källén function (2026-11-07)
+
+`NativeEvaluator<Float>` (the arbitrary-precision route of NinjaRS and its
+callers) returned `C0(0, p, p; m, 0, 0) = -5.871` with all 512 bits tracked for
+`-[(1+a) ln(1+a) - a ln a]/(-p) = -4.928` (`p = -0.2128`, `m = 0.3607`,
+`a = -p/m`). At `λ(p1, p2, p3) = 0` the one-mass sector's roots split by the
+rounding of its discriminant `b² - 4ac = λ/(|m|² m)`, and its divided
+differences are formed from that noise: on main the class was wrong at 128
+to 1024 bits in nearly every row and order, mostly with 1 to 9 tracked bits,
+in some with all of them (numerica keeps the tracked precision of a computed
+factor of exactly `±1` and of `log` next to one). Native `Float` now reduces a
+triangle at `λ = 0` exactly to bubbles (`native/gram.rs`, NATIVE_BACKEND.md),
+which also fixes zero-invariant triangles in the orders with the massless line
+between two masses (previously wrong by up to 1e154 on every route) and the
+massless triangle at `λ = 0` (NaN in two orders) on that route; and its massless
+triangle (trif0) takes the hand-written kernel of the previous section (the
+generated direct forms kept up to 60 bits fewer than they tracked next to
+light-like legs). Binary64 and double-double are unchanged. Open:
+
+- Binary64 and double-double keep their kernels at `λ = 0`: the
+  zero-invariant reflections and the massless NaN above, and double-double
+  keeps only binary64 accuracy (about 1e-16) on the one-mass rows;
+  `set_gram_reduction(true)` gives 1e-13 and 1e-29 there (validation only).
+- `det Y = 0` at a nonzero invariant (the equal on-shell masses of the open
+  C0 limitations below) is not reduced.
+- Next to `λ = 0` (`|λ|/s² = 2^-2k`) the one-mass sector still loses about
+  `2k` bits on every arbitrary-precision route, and tracks them.
+- The interpreted expressions keep the defect at `λ = 0` (the one-mass
+  sector's discriminant would have to come from `λ` there, as in the two- and
+  three-mass sectors).
+
 ## Massless finite triangle and the argument order (2026-11-06)
 
 C0 with three massless propagators and three nonzero invariants (OneLOop
@@ -25,9 +56,11 @@ double-double kernel (`native::handwritten::triangle::massless`); checked by
   would remove it.
 - At exactly `λ = 0` with `p2 = p3` (coincident roots on a winding sheet,
   e.g. `p = (-6, -1.5, -1.5)`) the sector returns NaN on every route, as
-  before; the other orders of the same point are right.
+  before; the other orders of the same point are right. (Native `Float` is
+  right since 2026-11-07, the previous section.)
 - C0 at `p = (0, 0, 0)` with one massless propagator (the vacuum triangle,
-  `-(ln m1 - ln m3)/(m1 - m3)`) is wrong on every route, as before.
+  `-(ln m1 - ln m3)/(m1 - m3)`) is wrong on every route, as before. (Native
+  `Float` is right since 2026-11-07.)
 
 ## Adversarial sweeps and the remaining tail (landed 2026-10-21)
 
