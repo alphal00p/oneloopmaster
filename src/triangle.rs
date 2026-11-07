@@ -1,5 +1,6 @@
 //! Triangle sectors and their native expressions.
 use super::*;
+use crate::cayley;
 use sheet_exact::sqrt_lower as physical_sqrt;
 
 pub(crate) fn negative_quadratic_roots(a: &Atom, b: &Atom, c: &Atom) -> (Atom, Atom) {
@@ -1092,44 +1093,50 @@ pub(crate) fn triangle_two_masses(
     )
 }
 
-/// The cofactor sums `(adj(Y) e)_i` and `det Y` of the modified Cayley
-/// matrix `Y_ij = m_i + m_j - p_ij` (`p = [p12, p23, p13]`).
-fn cayley_cofactors(p: [&Atom; 3], m: [&Atom; 3]) -> ([Atom; 3], Atom) {
-    let invariant = |i: usize, j: usize| match (i.min(j), i.max(j)) {
-        (0, 1) => p[0],
-        (1, 2) => p[1],
-        _ => p[2],
+/// `f(k)` for the index `k` of the entry of largest modulus in `v` (the first
+/// such), as nested exact comparisons.
+fn at_largest_modulus(v: &[Atom; 3], f: impl Fn(usize) -> Atom) -> Atom {
+    // Nonzero iff |v_i| < |v_j|.
+    let smaller = |i: usize, j: usize| {
+        let size_difference = grouped(&(Symbol::ABS.call((&v[i],)) - Symbol::ABS.call((&v[j],))));
+        &size_difference - Symbol::ABS.call((&size_difference,))
     };
-    let y = |i: usize, j: usize| {
-        if i == j {
-            Atom::num(2) * m[i]
-        } else {
-            m[i] + m[j] - invariant(i, j)
-        }
-    };
-    let [a, b, c] = [y(0, 0), y(1, 1), y(2, 2)];
-    let [d, e, f] = [y(0, 1), y(1, 2), y(0, 2)];
-    let a11 = &b * &c - &e * &e;
-    let a22 = &a * &c - &f * &f;
-    let a33 = &a * &b - &d * &d;
-    let a12 = &f * &e - &d * &c;
-    let a13 = &d * &e - &b * &f;
-    let a23 = &d * &f - &a * &e;
-    let determinant = &a * &a11 + &d * &a12 + &f * &a13;
-    (
-        [&a11 + &a12 + &a13, &a12 + &a22 + &a23, &a13 + &a23 + &a33],
-        determinant,
+    if_nonzero_else(
+        &smaller(0, 1),
+        if_nonzero_else(&smaller(1, 2), f(2), f(1)),
+        if_nonzero_else(&smaller(0, 2), f(2), f(0)),
     )
 }
 
+/// Nonzero iff every condition is nonzero.
+fn all_nonzero(conditions: impl IntoIterator<Item = Atom>) -> Atom {
+    let conditions: Vec<Atom> = conditions.into_iter().collect();
+    conditions
+        .into_iter()
+        .rev()
+        .fold(Atom::num(1), |predicate, condition| {
+            if_nonzero_else(&condition, predicate, Atom::num(0))
+        })
+}
+
 /// `series`, or at a vanishing Källén function `λ(p1, p2, p3)` the triangle's
-/// exact reduction to bubbles (`native::gram`): `C0 = -Σ_i b_i B0^(i)` with
-/// `Y b = e`, for `det Y ≠ 0` at nonzero invariants and at three vanishing
-/// invariants. There the roots of the sectors' quadratics coincide: the
-/// one-mass sector's split by the rounding of its discriminant
-/// (`b² - 4ac = λ/(|m|² m)`), the zero-invariant two-mass sector's in half the
-/// orders, and the massless sector was NaN in two orders. Otherwise
-/// (`det Y = 0` at a nonzero invariant) the sector code runs.
+/// exact reduction to bubbles (`native::gram`, whose documentation derives
+/// the three cases): `C0 = -Σ_i b_i B0^(i)` with `Y b = e`, `Σ_i b_i = 0`
+/// where `Y` is regular and at three vanishing invariants, and
+/// `C0 = Σ_{i≠k} w_i ∂B0^(i)/∂m_k` with `w_i = -v_i/v_k` from a null vector
+/// `v` of `Y` orthogonal to `e` where `Y` is singular at nonzero invariants.
+/// There the roots of the sectors' quadratics coincide: the one-mass sector's
+/// split by the rounding of its discriminant (`b² - 4ac = λ/(|m|² m)`), the
+/// zero-invariant two-mass sector's in half the orders, the massless sector
+/// was NaN in two orders, and two identical propagators gave 0. Where no
+/// reduction applies (an infrared divergence, a bubble at its threshold or
+/// pseudo-threshold, three equal masses at vanishing invariants) the sector
+/// code runs.
+///
+/// `Y` is singular iff `Y (e × Y_r) = 0` for a row with `e × Y_r ≠ 0`: at a
+/// binary64 point and 128 bits or more these are exact (sums of four inputs
+/// and of three products of two such sums), where the rounded `det Y` is
+/// not.
 pub(crate) fn with_gram_reduction(
     p: [&Atom; 3],
     m: [&Atom; 3],
@@ -1153,7 +1160,7 @@ pub(crate) fn with_gram_reduction(
     let lambda = (p[2] - p[0] - p[1]).pow(2) - Atom::num(4) * p[0] * p[1];
     // det Y != 0: b = adj(Y) e / det Y; the bubble without propagator i takes
     // the invariant between the other two.
-    let (sums, determinant) = cayley_cofactors(p, m);
+    let (sums, determinant) = cayley::cofactor_sums(p, m);
     let bubbles = [
         bubble(p[1], m[1], m[2]),
         bubble(p[2], m[0], m[2]),
@@ -1164,39 +1171,210 @@ pub(crate) fn with_gram_reduction(
         .zip(&bubbles)
         .fold(Atom::num(0), |total, (sum, b0)| total + sum * b0)
         / &determinant;
+    // det Y = 0 at nonzero invariants: v ∝ e × Y_r for the first row with a
+    // nonzero product.
+    let crosses = [0, 1, 2].map(|r| cayley::cross_row(p, m, r));
+    let nonzero_cross = |r: usize| any_nonzero(crosses[r].iter().cloned());
+    let v: [Atom; 3] = core::array::from_fn(|c| {
+        if_nonzero_else(
+            &nonzero_cross(0),
+            crosses[0][c].clone(),
+            if_nonzero_else(
+                &nonzero_cross(1),
+                crosses[1][c].clone(),
+                crosses[2][c].clone(),
+            ),
+        )
+    });
+    let regular = any_nonzero(cayley::apply(p, m, &v));
+    // ∂B0(q; b, a)/∂a in dimensional regularisation as [finite, pole] and a
+    // threshold flag, in the cases of native::gram::Derivative, as nested
+    // exact tests.
+    let mass_derivative = |q: &Atom, a: &Atom, b: &Atom| {
+        let beta = a - b - q;
+        let kallen = &beta * &beta - Atom::num(4) * b * q;
+        let log_a = physical_log(&(a / mu_squared));
+        let log_b = physical_log(&(b / mu_squared));
+        let regular = (&beta * (bubble(q, b, a) + &log_a - Atom::num(2))
+            + if_nonzero(b, Atom::num(2) * b * (&log_a - &log_b)))
+            / &kallen;
+        let upper = q + a - b;
+        let ratio = &upper / (a - b - q);
+        let pseudo_threshold = Atom::num(2) / &upper - ratio.log() / q;
+        let negative = |x: &Atom| {
+            let x = grouped(x);
+            &x - Symbol::ABS.call((&x,))
+        };
+        let threshold = all_nonzero([
+            a.clone(),
+            if_nonzero_else(&kallen, Atom::num(0), Atom::num(1)),
+            b.clone(),
+            q.clone(),
+            if_nonzero_else(&off_real_axis(&ratio), Atom::num(0), negative(&ratio)),
+        ]);
+        let shifted = b - q;
+        let log_shifted = physical_log(&(&shifted / mu_squared));
+        let log_q = physical_log(&(q / mu_squared));
+        let massless =
+            -&log_shifted / &shifted + if_nonzero(b, b * (&log_b - &log_shifted) / (&shifted * q));
+        let finite = if_nonzero_else(
+            a,
+            if_nonzero_else(
+                &kallen,
+                regular,
+                if_nonzero_else(
+                    b,
+                    if_nonzero_else(q, pseudo_threshold, -Atom::num(1) / (Atom::num(2) * a)),
+                    -&log_a / (Atom::num(2) * a),
+                ),
+            ),
+            if_nonzero_else(
+                q,
+                if_nonzero_else(
+                    &shifted,
+                    massless,
+                    &log_q / (Atom::num(2) * q) + Atom::num(1) / q,
+                ),
+                if_nonzero(b, (Atom::num(1) - &log_b) / b),
+            ),
+        );
+        let pole = if_nonzero_else(
+            a,
+            if_nonzero_else(
+                &kallen,
+                Atom::num(0),
+                if_nonzero_else(b, Atom::num(0), Atom::num(1) / (Atom::num(2) * a)),
+            ),
+            if_nonzero_else(
+                q,
+                if_nonzero_else(
+                    &shifted,
+                    Atom::num(1) / &shifted,
+                    -Atom::num(1) / (Atom::num(2) * q),
+                ),
+                if_nonzero(b, Atom::num(1) / b),
+            ),
+        );
+        (finite, pole, threshold)
+    };
+    // C0 = Σ_{i≠k} w_i ∂B0^(i)/∂m_k, B0^(i) joining j = 3 - i - k and k.
+    let term = |i: usize, k: usize| {
+        let j = 3 - i - k;
+        mass_derivative(p[cayley::invariant_index(j, k)], m[k], m[j])
+    };
+    let weighted = |k: usize, pick: fn((Atom, Atom, Atom)) -> Atom| {
+        (0..3).filter(|&i| i != k).fold(Atom::num(0), |total, i| {
+            total + if_nonzero(&v[i], -(&v[i] / &v[k]) * pick(term(i, k)))
+        })
+    };
+    let derivative_usable = |k: usize| {
+        let mut conditions = vec![v[k].clone()];
+        conditions.extend((0..3).filter(|&i| i != k).map(|i| {
+            let (_, _, threshold) = term(i, k);
+            if_nonzero_else(
+                &v[i],
+                if_nonzero_else(&threshold, Atom::num(0), Atom::num(1)),
+                Atom::num(1),
+            )
+        }));
+        all_nonzero(conditions)
+    };
+    // The pole vanishes exactly unless the triangle is infrared divergent: a
+    // soft line (row i of Y vanishes: m_i = 0, p_ij = m_j, p_ik = m_k) or a
+    // collinear pair (m_i = m_j = 0, p_ij = 0).
+    let infrared = any_nonzero((0..3).flat_map(|i| {
+        let (j, k) = cayley::others(i);
+        let soft = all_nonzero([
+            if_nonzero_else(m[i], Atom::num(0), Atom::num(1)),
+            if_nonzero_else(
+                &(m[j] - p[cayley::invariant_index(i, j)]),
+                Atom::num(0),
+                Atom::num(1),
+            ),
+            if_nonzero_else(
+                &(m[k] - p[cayley::invariant_index(i, k)]),
+                Atom::num(0),
+                Atom::num(1),
+            ),
+        ]);
+        let collinear = all_nonzero([
+            if_nonzero_else(m[j], Atom::num(0), Atom::num(1)),
+            if_nonzero_else(m[k], Atom::num(0), Atom::num(1)),
+            if_nonzero_else(p[cayley::invariant_index(j, k)], Atom::num(0), Atom::num(1)),
+        ]);
+        [soft, collinear]
+    }));
+    // The index of largest |v_k| first (weights in [0, 1]), then the others.
+    let derivative_or = |coefficient: usize, sector: Atom| {
+        let value = |k: usize| match coefficient {
+            0 => weighted(k, |(finite, _, _)| finite),
+            1 => if_nonzero(&infrared, weighted(k, |(_, pole, _)| pole)),
+            _ => Atom::num(0),
+        };
+        let fallback = (0..3).rev().fold(sector, |fallback, k| {
+            if_nonzero_else(&derivative_usable(k), value(k), fallback)
+        });
+        if_nonzero_else(
+            &at_largest_modulus(&v, derivative_usable),
+            at_largest_modulus(&v, value),
+            fallback,
+        )
+    };
     // Three vanishing invariants: Y = m e^T + e m^T, and any b with
     // Σ b_i = 0, Σ b_i m_i = 1 solves Y b = e; here
-    // b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²). At most one massless line (two
-    // bound an infrared divergence, whose bubble is scaleless) and not three
-    // equal masses (the denominator vanishes; sector 7's vacuum formula).
+    // b_i = (3 m_i - Σ m)/(3 Σ m² - (Σ m)²), whose denominator is
+    // Σ_{i<j} (m_i - m_j)²; where it vanishes at distinct (complex) masses,
+    // b = (e_a - e_c)/(m_a - m_c) for the first pair of distinct masses. At
+    // most one massless line (two bound an infrared divergence, whose bubble
+    // is scaleless) and not three equal masses (sector 7's vacuum formula).
     let sum = m[0] + m[1] + m[2];
     let denominator = Atom::num(3) * (m[0].pow(2) + m[1].pow(2) + m[2].pow(2)) - sum.pow(2);
     let zero = Atom::num(0);
-    let at_zero = -[(0, 1, 2), (1, 0, 2), (2, 0, 1)]
+    let symmetric = -[(0, 1, 2), (1, 0, 2), (2, 0, 1)]
         .into_iter()
         .fold(Atom::num(0), |total, (i, j, k)| {
             total + (Atom::num(3) * m[i] - &sum) * bubble(&zero, m[j], m[k])
         })
         / &denominator;
+    // The bubble without propagator i at vanishing invariants.
+    let vacuum_bubble = |i: usize| {
+        let (j, k) = cayley::others(i);
+        bubble(&zero, m[j], m[k])
+    };
+    let pair = |a: usize, c: usize| -(vacuum_bubble(a) - vacuum_bubble(c)) / (m[a] - m[c]);
+    let differences = [m[0] - m[1], m[1] - m[2], m[0] - m[2]];
+    let at_zero = if_nonzero_else(
+        &denominator,
+        symmetric,
+        if_nonzero_else(
+            &differences[0],
+            pair(0, 1),
+            if_nonzero_else(&differences[1], pair(1, 2), pair(0, 2)),
+        ),
+    );
     let massive_pair = any_nonzero([m[0] * m[1], m[0] * m[2], m[1] * m[2]]);
-    let usable = if_nonzero(&massive_pair, denominator);
+    let usable = all_nonzero([massive_pair, any_nonzero(differences)]);
     let nonzero_p = any_nonzero(p.into_iter().cloned());
     let [finite, pole, double_pole] = series.into_coefficients();
-    let select = |sector: Atom, nonzero: Atom, at_zero: Atom| {
+    let select = |sector: Atom, coefficient: usize, reduced: Atom, at_zero: Atom| {
         if_nonzero_else(
             &lambda,
             sector.clone(),
             if_nonzero_else(
                 &nonzero_p,
-                if_nonzero_else(&determinant, nonzero, sector.clone()),
+                if_nonzero_else(
+                    &regular,
+                    reduced,
+                    derivative_or(coefficient, sector.clone()),
+                ),
                 if_nonzero_else(&usable, at_zero, sector),
             ),
         )
     };
     LaurentSeries::new(
-        select(finite, reduced, at_zero),
-        select(pole, Atom::num(0), Atom::num(0)),
-        select(double_pole, Atom::num(0), Atom::num(0)),
+        select(finite, 0, reduced, at_zero),
+        select(pole, 1, Atom::num(0), Atom::num(0)),
+        select(double_pole, 2, Atom::num(0), Atom::num(0)),
     )
 }
 

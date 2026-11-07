@@ -52,6 +52,7 @@ symbolica::initialize!(
 );
 mod box_complex;
 mod box_integral;
+mod cayley;
 mod masters;
 mod triangle;
 mod two_point;

@@ -1,110 +1,94 @@
 //! C0 at a vanishing Källén function (Gram determinant) through its exact
-//! reduction to bubbles.
+//! reductions to bubbles.
 //!
-//! With the modified Cayley matrix `Y_ij = m_i + m_j - p_ij` (`p_ii = 0`, `p_ij`
-//! the invariant between propagators `i` and `j`), the Feynman-parameter
-//! denominator is `x^T Y x / 2` on the simplex, and any `b` with `Y b = e`
-//! (`e = (1, 1, 1)`) gives the exact identity
+//! With the modified Cayley matrix `Y_ij = m_i + m_j - p_ij` ([crate::cayley])
+//! the Feynman-parameter denominator is `x^T Y x / 2` on the simplex, and
+//! `e^T adj(Y) e` (`e = (1, 1, 1)`) is proportional to the Källén function.
+//! `B0^(i)` is the bubble without propagator `i` (OneLOop's normalisation of
+//! both masters).
 //!
-//! `C0 = -Σ_i b_i B0^(i) + (N - d - 1) (Σ_i b_i) C0^(d+2)`
+//! - `det Y ≠ 0`: any `b` with `Y b = e` gives the exact identity
+//!   `C0 = -Σ_i b_i B0^(i) + (N - d - 1) (Σ_i b_i) C0^(d+2)`, and
+//!   `b = adj(Y) e / det Y` has `Σ_i b_i = e^T adj(Y) e / det Y = 0`, so
+//!   `C0 = -Σ_i b_i B0^(i)` (the bubbles' poles cancel). An infrared-divergent
+//!   triangle (a massless line between two on-shell legs, or a light-like leg
+//!   between two massless lines) has `det Y = 0`, so this case is infrared
+//!   finite and never takes a scaleless bubble.
+//! - three vanishing invariants (`Y = m e^T + e m^T`, `det Y = 0`): any `b`
+//!   with `e^T b = 0` and `m^T b = 1` solves `Y b = e`;
+//!   `b = (e_a - e_c)/(m_a - m_c)` for the pair of masses that differ most. Two
+//!   massless lines (an infrared divergence) or three equal masses are left to
+//!   the sector code.
+//! - `det Y = 0` at nonzero invariants: `Y` has a null vector `v` with
+//!   `Σ_i v_i = 0` (rank two: `adj(Y) = c v v^T` and `e^T adj(Y) e = c (e·v)²`
+//!   vanishes; rank one: its null plane meets `e^⊥`), proportional to `e × Y_r`
+//!   for every row `Y_r` not proportional to `e`. `x^T Y x` is then constant
+//!   along `v` on the simplex; integrating along `v` leaves the triangle's
+//!   edges with linear weights, and for every `k` with `v_k ≠ 0`
+//!   `C0 = Σ_{i≠k} w_i ∂B0^(i)/∂m_k`, `w_i = -v_i/v_k`, `Σ_i w_i = 1`,
+//!   with `B0^(i)` the bubble `B0(p_jk; m_j, m_k)` and, from integration by
+//!   parts of its Feynman-parameter integral (finite parts; the pole does not
+//!   depend on the masses),
+//!   `∂B0/∂m_k = [β (B0 + ln(m_k/μ²) - 2) + 2 m_j (ln(m_k/μ²) - ln(m_j/μ²))] / λ(p_jk, m_j, m_k)`,
+//!   `β = m_k - m_j - p_jk`. Two identical propagators (`m_i = m_j`,
+//!   `p_ij = 0`, `v = e_i - e_j`) give `C0 = ∂B0(p_ik; m_k', m_i)/∂m_i`. `k` is
+//!   taken where `|v_k|` is largest (the weights then lie in `[0, 1]`), else
+//!   at the first index whose terms are regular: `m_k ≠ 0` and
+//!   `λ(p_jk, m_j, m_k) ≠ 0` for every `w_i ≠ 0`. Where none is regular (an
+//!   infrared divergence, or a bubble at its threshold or pseudo-threshold)
+//!   the sector code runs.
 //!
-//! (`B0^(i)` is the bubble without propagator `i`; OneLOop's normalisation of
-//! both masters, so the bubbles' unit simple poles cancel against the last
-//! term's). `Σ_i b_i = e^T Y^-1 e` is proportional to the Gram determinant,
-//! `-λ(p1, p2, p3)/4`, so where the Källén function vanishes the triangle is
-//! `C0 = -Σ_i b_i B0^(i)` exactly, in every mass sector, at every order of its
-//! arguments, and the bubbles' poles cancel (`Σ_i b_i = 0`).
-//!
-//! The direct forms are not built for that point: the roots of their
+//! The direct forms are not built for these points: the roots of their
 //! quadratics coincide, and where a sector forms the discriminant `b² - 4ac`
 //! from rounded coefficients (the one-mass sector, whose `b² - 4ac` is
 //! `λ/(|m|² m)`) the roots split by rounding noise, every divided difference
 //! is formed from that noise, and the arbitrary-precision result was wrong by
 //! up to the whole value, at times with every bit tracked (numerica keeps the
 //! tracked precision of a factor of exactly `±1` and of `log` next to one).
+//! Two identical propagators returned 0 or values with a few tracked bits.
 //!
-//! Two cases are reduced, decided by exact predicates on the represented
-//! input values ([NativeFloat::exact_rational]): the Källén function and
-//! `det Y` in rational arithmetic, so that the decision does not depend on
+//! The cases are decided by exact predicates on the represented input values
+//! ([NativeFloat::exact_rational]), so that the decision does not depend on
 //! the working precision (at 128 bits a rounded `det Y` of a zero-invariant
-//! triangle is a rounding residue):
-//!
-//! - `det Y ≠ 0`: `b = adj(Y) e / det Y`, unique. An infrared-divergent
-//!   triangle (a massless line between two on-shell legs, or a light-like leg
-//!   between two massless lines) has `det Y = 0`, so this case is infrared
-//!   finite and never takes a scaleless bubble.
-//! - all invariants zero (`Y = m e^T + e m^T`, rank two): any `b` with
-//!   `e^T b = 0` and `m^T b = 1` solves `Y b = e`; `b = (e_a - e_c)/(m_a - m_c)`
-//!   for the pair of masses that differ most. Two massless lines (an infrared
-//!   divergence) or three equal masses are left to the sector code.
-//!
-//! Otherwise (`det Y = 0` with a nonzero invariant: `Y` has a null vector
-//! orthogonal to `e`, and no `b` with `Σ_i b_i = 0` exists) the sector code is
-//! used.
-use super::primitives::{C, NativeFloat, add, inverse, mul, truth};
+//! triangle is a rounding residue); the weights `w_i` are exact rationals.
+use super::primitives::{C, NativeFloat, add, inverse, log, mul, truth};
+use crate::cayley::{self, Ring};
+use symbolica::domains::float::{Complex, SingleFloat};
 use symbolica::domains::rational::Rational;
 
 /// Exact complex rationals for the predicates.
-#[derive(Clone)]
-struct Exact {
-    re: Rational,
-    im: Rational,
-}
+type Exact = Complex<Rational>;
 
-impl Exact {
-    fn of<T: NativeFloat>(z: &C<T>) -> Option<Self> {
-        Some(Self {
-            re: z.re.exact_rational()?,
-            im: z.im.exact_rational()?,
-        })
+impl Ring for Exact {
+    fn plus(&self, other: &Self) -> Self {
+        self.clone() + other
     }
 
-    fn add(&self, other: &Self) -> Self {
-        Self {
-            re: &self.re + &other.re,
-            im: &self.im + &other.im,
-        }
+    fn minus(&self, other: &Self) -> Self {
+        self.clone() - other
     }
 
-    fn sub(&self, other: &Self) -> Self {
-        Self {
-            re: &self.re - &other.re,
-            im: &self.im - &other.im,
-        }
-    }
-
-    fn mul(&self, other: &Self) -> Self {
-        Self {
-            re: &(&self.re * &other.re) - &(&self.im * &other.im),
-            im: &(&self.re * &other.im) + &(&self.im * &other.re),
-        }
-    }
-
-    fn is_zero(&self) -> bool {
-        self.re.is_zero() && self.im.is_zero()
+    fn times(&self, other: &Self) -> Self {
+        self.clone() * other
     }
 }
 
-/// `det Y` of `Y_ij = m_i + m_j - p_ij` (input order p12, p23, p13, m1, m2, m3).
-fn exact_determinant(z: &[Exact]) -> Exact {
-    let y = |i: usize, j: usize| {
-        let invariant = match (i.min(j), i.max(j)) {
-            (0, 1) => &z[0],
-            (1, 2) => &z[1],
-            _ => &z[2],
-        };
-        if i == j {
-            z[3 + i].add(&z[3 + i])
-        } else {
-            z[3 + i].add(&z[3 + j]).sub(invariant)
-        }
-    };
-    let [a, b, c] = [y(0, 0), y(1, 1), y(2, 2)];
-    let [d, e, f] = [y(0, 1), y(1, 2), y(0, 2)];
-    let a11 = b.mul(&c).sub(&e.mul(&e));
-    let a12 = f.mul(&e).sub(&d.mul(&c));
-    let a13 = d.mul(&e).sub(&b.mul(&f));
-    a.mul(&a11).add(&d.mul(&a12)).add(&f.mul(&a13))
+impl<T: NativeFloat> Ring for C<T> {
+    fn plus(&self, other: &Self) -> Self {
+        add(self, other)
+    }
+
+    fn minus(&self, other: &Self) -> Self {
+        sub(self, other)
+    }
+
+    fn times(&self, other: &Self) -> Self {
+        mul(self, other)
+    }
+}
+
+fn exact<T: NativeFloat>(z: &C<T>) -> Option<Exact> {
+    Some(Complex::new(z.re.exact_rational()?, z.im.exact_rational()?))
 }
 
 fn sub<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
@@ -119,9 +103,172 @@ fn modulus_squared<T: NativeFloat>(a: &C<T>) -> T {
     a.re.clone() * &a.re + a.im.clone() * &a.im
 }
 
+/// The Källén function `λ(p, a, b) = (a - b - p)² - 4 b p` of a bubble.
+fn kallen<Z: Ring>(p: &Z, a: &Z, b: &Z) -> Z {
+    let beta = a.minus(b).minus(p);
+    let bp = b.times(p);
+    let four_bp = bp.plus(&bp).plus(&bp.plus(&bp));
+    beta.times(&beta).minus(&four_bp)
+}
+
+/// The cases of `∂B0(p; b, a)/∂a` in dimensional regularisation, from
+/// `-∫_0^1 σ D(σ)^(-1-ε) dσ`, `D(σ) = (1-σ) b + σ a - σ(1-σ) p` (module
+/// documentation).
+#[derive(Clone, Copy)]
+enum Derivative {
+    /// `a ≠ 0`, `λ(p, a, b) ≠ 0`: by parts, from `B0`.
+    Regular,
+    /// `a ≠ 0`, `λ = 0`, `b = 0` (`p = a`): `D = σ² a`, a soft pole.
+    OnShell,
+    /// `a = b`, `p = 0`: `D = a`.
+    Constant,
+    /// `a ≠ 0`, `λ = 0`, `b p ≠ 0`: `D = p (σ - r)²` with `r` off `[0, 1]`.
+    PseudoThreshold,
+    /// `a = 0`, `p = 0`, `b ≠ 0`: `D = (1-σ) b`.
+    MasslessAtZero,
+    /// `a = 0`, `b = p ≠ 0`: `D = p (1-σ)²`.
+    MasslessOnShell,
+    /// `a = 0`, `p ≠ 0`, `b ≠ p`: `D = (1-σ)(b - σ p)`.
+    Massless,
+    /// `a = b = p = 0`.
+    Scaleless,
+}
+
+/// The case of `∂B0(p; b, a)/∂a`, or `None` at a threshold (`D` with a double
+/// root inside `[0, 1]`: the derivative diverges).
+fn derivative_case(p: &Exact, a: &Exact, b: &Exact) -> Option<Derivative> {
+    if !a.is_zero() {
+        if !kallen(p, a, b).is_zero() {
+            return Some(Derivative::Regular);
+        }
+        if b.is_zero() {
+            return Some(Derivative::OnShell);
+        }
+        if p.is_zero() {
+            return Some(Derivative::Constant);
+        }
+        // q = (1 - r)/(-r) for the double root r of D; real and negative iff
+        // r lies in (0, 1).
+        let q = a.plus(p).minus(b) / &a.minus(b).minus(p);
+        if q.im.is_zero() && q.re < Rational::zero() {
+            return None;
+        }
+        return Some(Derivative::PseudoThreshold);
+    }
+    Some(match (b.is_zero(), p.is_zero()) {
+        (true, true) => Derivative::Scaleless,
+        (false, true) => Derivative::MasslessAtZero,
+        _ if b.minus(p).is_zero() => Derivative::MasslessOnShell,
+        _ => Derivative::Massless,
+    })
+}
+
+/// The simple-pole coefficient of `∂B0(p; b, a)/∂a` in its case, exactly.
+fn residue(case: Derivative, p: &Exact, a: &Exact, b: &Exact) -> Exact {
+    let one = Complex::new(Rational::one(), Rational::zero());
+    match case {
+        Derivative::OnShell => one / &a.plus(a),
+        Derivative::MasslessAtZero => one / b,
+        Derivative::MasslessOnShell => -(one / &p.plus(p)),
+        Derivative::Massless => one / &b.minus(p),
+        _ => one.zero(),
+    }
+}
+
+/// The exact plan of the mass-derivative reduction (`det Y = 0` at nonzero
+/// invariants; module documentation): the index `k`, the exact weights `w_i`
+/// and derivative cases of the nonzero terms, and the exact pole
+/// `Σ_i w_i Res ∂B0^(i)/∂m_k` (zero for an infrared-finite triangle).
+#[allow(clippy::type_complexity)]
+fn derivative_plan(
+    p: [&Exact; 3],
+    m: [&Exact; 3],
+) -> Option<(usize, [Option<(Exact, Derivative)>; 3], Exact)> {
+    let v = (0..3)
+        .map(|r| cayley::cross_row(p, m, r))
+        .find(|v| v.iter().any(|z| !z.is_zero()))?;
+    if !cayley::apply(p, m, &v).iter().all(SingleFloat::is_zero) {
+        return None;
+    }
+    let largest = (0..3)
+        .rev()
+        .max_by(|&i, &j| v[i].norm_squared().cmp(&v[j].norm_squared()))?;
+    let plan = |k: usize| {
+        if v[k].is_zero() {
+            return None;
+        }
+        let mut terms = [None, None, None];
+        let mut pole = v[k].zero();
+        for i in (0..3).filter(|&i| i != k && !v[i].is_zero()) {
+            // B0^(i) joins propagators j and k.
+            let j = 3 - i - k;
+            let q = p[cayley::invariant_index(j, k)];
+            let case = derivative_case(q, m[k], m[j])?;
+            let weight = -(v[i].clone() / &v[k]);
+            pole = pole.plus(&weight.times(&residue(case, q, m[k], m[j])));
+            terms[i] = Some((weight, case));
+        }
+        Some((k, terms, pole))
+    };
+    [largest, 0, 1, 2].into_iter().find_map(plan)
+}
+
+/// `ln(z/mu²)` on the lower lip of the negative real axis (`z - i0`).
+fn physical_log<T: NativeFloat>(z: &C<T>, mu: &C<T>) -> C<T> {
+    let mut ratio = mul(z, &inverse(mu));
+    if ratio.im.is_fully_zero() {
+        ratio.im = -ratio.im.zero();
+    }
+    log(&ratio)
+}
+
+/// The finite part of `∂B0(p; b, a)/∂a` in its exactly decided case
+/// ([Derivative]), the regular one from the finite `B0(p; b, a)`.
+fn mass_derivative<T: NativeFloat>(
+    case: Derivative,
+    [p, a, b, mu]: [&C<T>; 4],
+    b0: impl FnOnce(&[C<T>]) -> [C<T>; 3],
+) -> C<T> {
+    let real = |n: i64| C::new(a.re.one().from_i64(n), a.re.zero());
+    let over = |x: &C<T>, y: &C<T>| mul(x, &inverse(y));
+    match case {
+        Derivative::Regular => {
+            let bubble = b0(&[p.clone(), b.clone(), a.clone(), mu.clone()])[0].clone();
+            let log_a = physical_log(a, mu);
+            let beta = sub(&sub(a, b), p);
+            let mut numerator = mul(&beta, &sub(&add(&bubble, &log_a), &real(2)));
+            if truth(b) {
+                let difference = mul(b, &sub(&log_a, &physical_log(b, mu)));
+                numerator = add(&numerator, &add(&difference, &difference));
+            }
+            over(&numerator, &kallen(p, a, b))
+        }
+        Derivative::OnShell => neg(&over(&physical_log(a, mu), &add(a, a))),
+        Derivative::Constant => neg(&inverse(&add(a, a))),
+        Derivative::PseudoThreshold => {
+            let upper = sub(&add(p, a), b);
+            let q = over(&upper, &sub(&sub(a, b), p));
+            sub(&over(&real(2), &upper), &over(&log(&q), p))
+        }
+        Derivative::MasslessAtZero => over(&sub(&real(1), &physical_log(b, mu)), b),
+        Derivative::MasslessOnShell => add(&over(&physical_log(p, mu), &add(p, p)), &inverse(p)),
+        Derivative::Massless => {
+            let shifted = sub(b, p);
+            let log_shifted = physical_log(&shifted, mu);
+            let mut finite = neg(&over(&log_shifted, &shifted));
+            if truth(b) {
+                let ratio = sub(&physical_log(b, mu), &log_shifted);
+                finite = add(&finite, &over(&mul(b, &ratio), &mul(&shifted, p)));
+            }
+            finite
+        }
+        Derivative::Scaleless => real(0),
+    }
+}
+
 /// The C0 `[finite, pole, double pole]` at a vanishing Källén function of
 /// the invariants, from the bubbles `b0([p², m_i², m_j², mu²])`, or `None`
-/// where the reduction does not apply (module documentation).
+/// where no reduction applies (module documentation).
 pub(super) fn c0<T: NativeFloat>(
     input: &[C<T>],
     mut b0: impl FnMut(&[C<T>]) -> [C<T>; 3],
@@ -135,53 +282,51 @@ pub(super) fn c0<T: NativeFloat>(
     if !lambda.is_zero() {
         return None;
     }
-    let exact = input[..6]
-        .iter()
-        .map(Exact::of)
-        .collect::<Option<Vec<_>>>()?;
-    let all_zero = exact[..3].iter().all(Exact::is_zero);
+    let values = input[..6].iter().map(exact).collect::<Option<Vec<_>>>()?;
+    let (exact_p, exact_m) = (
+        [&values[0], &values[1], &values[2]],
+        [&values[3], &values[4], &values[5]],
+    );
+    let all_zero = exact_p.iter().all(|z| z.is_zero());
+    let p = [&input[0], &input[1], &input[2]];
     let m = [&input[3], &input[4], &input[5]];
-    // The invariant between propagators i and j (input order p12, p23, p13).
-    let invariant = |i: usize, j: usize| match (i.min(j), i.max(j)) {
-        (0, 1) => &input[0],
-        (1, 2) => &input[1],
-        _ => &input[2],
-    };
-    let coefficients: [Option<C<T>>; 3] = if !all_zero && !exact_determinant(&exact).is_zero() {
-        let y = |i: usize, j: usize| {
-            if i == j {
-                add(m[i], m[i])
-            } else {
-                sub(&add(m[i], m[j]), invariant(i, j))
-            }
+    let invariant = |i: usize, j: usize| p[cayley::invariant_index(i, j)];
+    let mu = &input[6];
+    let zero = C::new(input[0].re.zero(), input[0].re.zero());
+    let (_, determinant) = cayley::cofactor_sums(exact_p, exact_m);
+    if !all_zero && determinant.is_zero() {
+        let (k, terms, pole) = derivative_plan(exact_p, exact_m)?;
+        let from_exact = |z: &Exact| {
+            C::new(
+                input[0].re.from_rational(&z.re),
+                input[0].re.from_rational(&z.im),
+            )
         };
-        let [a, b, c] = [y(0, 0), y(1, 1), y(2, 2)];
-        let [d, e, f] = [y(0, 1), y(1, 2), y(0, 2)];
-        // b = adj(Y) e / det Y with the cofactors of the symmetric
-        // Y = [[a, d, f], [d, b, e], [f, e, c]].
-        let a11 = sub(&mul(&b, &c), &mul(&e, &e));
-        let a22 = sub(&mul(&a, &c), &mul(&f, &f));
-        let a33 = sub(&mul(&a, &b), &mul(&d, &d));
-        let a12 = sub(&mul(&f, &e), &mul(&d, &c));
-        let a13 = sub(&mul(&d, &e), &mul(&b, &f));
-        let a23 = sub(&mul(&d, &f), &mul(&a, &e));
-        let determinant = add(&add(&mul(&a, &a11), &mul(&d, &a12)), &mul(&f, &a13));
+        let mut finite = zero.clone();
+        for (i, term) in terms.iter().enumerate() {
+            let Some((weight, case)) = term else {
+                continue;
+            };
+            let j = 3 - i - k;
+            let value = mass_derivative(*case, [invariant(j, k), m[k], m[j], mu], &mut b0);
+            finite = add(&finite, &mul(&from_exact(weight), &value));
+        }
+        return Some([finite, from_exact(&pole), zero]);
+    }
+    let coefficients: [Option<C<T>>; 3] = if !all_zero {
+        // b = adj(Y) e / det Y.
+        let (sums, determinant) = cayley::cofactor_sums(p, m);
         let inverse_determinant = inverse(&determinant);
-        [
-            add(&add(&a11, &a12), &a13),
-            add(&add(&a12, &a22), &a23),
-            add(&add(&a13, &a23), &a33),
-        ]
-        .map(|cofactor_sum| Some(mul(&cofactor_sum, &inverse_determinant)))
-    } else if all_zero {
-        let masses = &exact[3..6];
+        sums.map(|sum| Some(mul(&sum, &inverse_determinant)))
+    } else {
+        let masses = &values[3..6];
         if masses.iter().filter(|z| z.is_zero()).count() >= 2 {
             return None;
         }
         // The pair of masses that differ most (b = (e_a - e_c)/(m_a - m_c)).
         let (first, second) = [(0, 1), (1, 2), (0, 2)]
             .into_iter()
-            .filter(|&(i, j)| !masses[i].sub(&masses[j]).is_zero())
+            .filter(|&(i, j)| !(masses[i].clone() - &masses[j]).is_zero())
             .map(|(i, j)| (i, j, modulus_squared(&sub(m[i], m[j]))))
             .reduce(|best, next| if next.2 > best.2 { next } else { best })
             .map(|(i, j, _)| (i, j))?;
@@ -190,11 +335,7 @@ pub(super) fn c0<T: NativeFloat>(
         coefficients[second] = Some(neg(&weight));
         coefficients[first] = Some(weight);
         coefficients
-    } else {
-        return None;
     };
-    let mu = &input[6];
-    let zero = C::new(input[0].re.zero(), input[0].re.zero());
     let mut finite = zero.clone();
     let mut terms = 0;
     for (i, coefficient) in coefficients.iter().enumerate() {
@@ -207,11 +348,7 @@ pub(super) fn c0<T: NativeFloat>(
         terms += 1;
         // The bubble without propagator i: its two other propagators and
         // the invariant between them.
-        let (j, k) = match i {
-            0 => (1, 2),
-            1 => (0, 2),
-            _ => (0, 1),
-        };
+        let (j, k) = cayley::others(i);
         let arguments = [
             invariant(j, k).clone(),
             m[j].clone(),
