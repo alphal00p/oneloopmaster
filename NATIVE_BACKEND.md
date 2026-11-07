@@ -147,8 +147,8 @@ m_c)` for the two masses that differ most. Otherwise (`det Y = 0` at a nonzero
 invariant, e.g. the equal on-shell masses of STATUS.md's open C0 limitations)
 the sector code runs. Binary64 and `DoubleFloat` keep their kernels; they
 reach their precision with `set_gram_reduction(true)` (validation). Next to
-`λ = 0` the one-mass sector code still loses about `log2(s²/|λ|)` bits, and
-tracks them.
+`λ = 0` the one-mass sector code still loses about `log2(s²/|λ|)` bits (native
+`Float` tracks them; the interpreted expressions not always, STATUS.md).
 
 The expressions take the same reduction (`triangle::with_gram_reduction` in
 `triangle_series`), decided by exact zero tests in the evaluator's own

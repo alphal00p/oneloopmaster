@@ -34,7 +34,9 @@ unchanged. Open:
 - `det Y = 0` at a nonzero invariant (the equal on-shell masses of the open
   C0 limitations below) is not reduced.
 - Next to `λ = 0` (`|λ|/s² = 2^-2k`) the one-mass sector still loses about
-  `2k` bits on every arbitrary-precision route, and tracks them.
+  `2k` bits on every arbitrary-precision route. Native `Float` tracked them in
+  the survey of lit-olm-ap; the interpreted expressions not always (`k = 100`
+  at 128 bits: 69 tracked bits, wrong by 2e-2, as on main).
 - The generated code and the SymJIT asset were not regenerated; regenerating
   them gives binary64 and double-double the expressions' reduction.
 
