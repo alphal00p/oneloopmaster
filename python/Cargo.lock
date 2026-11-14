@@ -316,7 +316,7 @@ dependencies = [
 [[package]]
 name = "graphica"
 version = "3.0.1"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=f514a7fe1b19e851207f9421ef9a4a4157d5f0e5#f514a7fe1b19e851207f9421ef9a4a4157d5f0e5"
+source = "git+https://github.com/symbolica-dev/symbolica.git?rev=0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7#0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7"
 dependencies = [
  "ahash",
  "dyn-clone",
@@ -567,8 +567,8 @@ dependencies = [
 
 [[package]]
 name = "numerica"
-version = "3.0.1"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=f514a7fe1b19e851207f9421ef9a4a4157d5f0e5#f514a7fe1b19e851207f9421ef9a4a4157d5f0e5"
+version = "3.1.0"
+source = "git+https://github.com/symbolica-dev/symbolica.git?rev=0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7#0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7"
 dependencies = [
  "ahash",
  "bincode",
@@ -619,6 +619,7 @@ dependencies = [
  "bincode",
  "symbolica",
  "symjit",
+ "xprec",
 ]
 
 [[package]]
@@ -1159,8 +1160,8 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "symbolica"
-version = "3.0.1"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=f514a7fe1b19e851207f9421ef9a4a4157d5f0e5#f514a7fe1b19e851207f9421ef9a4a4157d5f0e5"
+version = "3.0.2"
+source = "git+https://github.com/symbolica-dev/symbolica.git?rev=0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7#0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7"
 dependencies = [
  "ahash",
  "append-only-vec",
@@ -1669,9 +1670,9 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xprec"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39a30f7277acb4ef10faeec631c7fbb0ff92355bea37e1b01a63f3803c78e319"
+checksum = "6e736c2312fb577875c99665eae274f51a6b33489f00114602b69cf224f48a7c"
 dependencies = [
  "approx",
  "libm",
