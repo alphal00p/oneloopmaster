@@ -116,6 +116,35 @@ fn geometric_terms<T: NativeFloat>(r: &T, target: &T, limit: usize) -> Option<us
     Some(terms)
 }
 
+/// Terms `K` of a tail `Σ_{j>K} C(j + P, P) r^j` bounded by
+/// `C(K + 1 + P, P) r^{K+1} / (1 − r)^{P+1}` below `target / 8` (past the
+/// binomial's peak), or `None` beyond `limit`. Binary64 bookkeeping suffices
+/// for a length.
+fn binomial_terms(r: f64, polynomial: usize, target: f64, limit: usize) -> Option<usize> {
+    if r == 0.0 {
+        return Some(0);
+    }
+    if !(r < 1.0) {
+        return None;
+    }
+    let p = polynomial as f64;
+    let goal = (target / 8.0).ln() + (p + 1.0) * (1.0 - r).ln();
+    // ln C(k + 1 + P, P) at k = 0.
+    let mut log_binomial = (p + 1.0).ln();
+    let mut k = 0usize;
+    loop {
+        let past_peak = (k as f64 + 2.0 + p) * r < k as f64 + 2.0;
+        if past_peak && log_binomial + (k as f64 + 1.0) * r.ln() < goal {
+            return Some(k);
+        }
+        k += 1;
+        if k > limit {
+            return None;
+        }
+        log_binomial += ((k as f64 + 1.0 + p) / (k as f64 + 1.0)).ln();
+    }
+}
+
 /// A distinct squared mass and its propagators.
 struct Node<T: NativeFloat> {
     value: C<T>,
@@ -457,11 +486,24 @@ pub(crate) fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -
             }
         }
         // Every order needs the full length: a cluster's part of the divided
-        // difference can cancel against the far nodes' residues.
+        // difference can cancel against the far nodes' residues. The terms do
+        // not decay like (spread/radius)^k: the coefficients of (1 - δt)^{-M}
+        // and those of a nonzero far node's (d + h)^{-M} grow like
+        // C(k + M - 1, k), with multiplicities M up to 2n + 2 at the top order.
         let terms = if offsets.is_empty() {
             0
         } else {
-            geometric_terms(&(spread / &radius), tolerance, MAX_CLUSTER_TERMS)?
+            let top = |members: &mut dyn Iterator<Item = usize>| {
+                members.map(|k| largest_multiplicity(&nodes[k], order)).max().unwrap_or(1) - 1
+            };
+            let polynomial = top(&mut offsets.iter().map(|(k, _)| *k))
+                + top(&mut far.iter().map(|(k, _)| *k).filter(|&k| !nodes[k].zero));
+            binomial_terms(
+                (spread / &radius).to_f64(),
+                polynomial,
+                tolerance.to_f64(),
+                MAX_CLUSTER_TERMS,
+            )?
         };
         clusters.push(Cluster {
             centre,
