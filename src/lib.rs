@@ -40,7 +40,10 @@ pub use inspection::{
     get_expression_shared_with_options, get_expression_with_options, master_arguments,
     select_branch_shared,
 };
-pub use native::{NativeEvaluator, NativeFloat, NativeTensorEvaluator, TensorIntegral, b0_momentum_shift};
+pub use native::{
+    NativeEvaluator, NativeFloat, NativeTensorEvaluator, TensorIntegral, b0_momentum_shift,
+    c0_small_momentum,
+};
 #[doc(hidden)]
 pub use native::primitives::{double_dilog_via_float, symbolica_dilog_float};
 pub use precision::PrecisionEvaluator;

@@ -11,6 +11,7 @@ pub mod double_double;
 mod small_momentum;
 mod small_momentum_c0;
 pub use small_momentum::b0_momentum_shift;
+pub use small_momentum_c0::c0_small_momentum;
 mod tensor;
 pub use tensor::{NativeTensorEvaluator, TensorIntegral};
 #[cfg(feature = "generated-evaluators")]

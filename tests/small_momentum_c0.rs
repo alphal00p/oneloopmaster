@@ -1,68 +1,313 @@
 #![cfg(feature = "generated-evaluators")]
 //! Small-momentum C0: binary64 and double-double finite parts against the
 //! general expression at 1024 bits, for external invariants from zero and
-//! 1e-14 to 1/80 of the largest squared mass (one or none massless, equal,
+//! 1e-14 to 1/16 of the squared masses (one or none massless, equal,
 //! separated, nearby, hierarchical and complex masses; one, two or three
-//! nonzero invariants of either sign, in every propagator order).
-use oneloop::{NativeEvaluator, ScalarIntegral};
+//! nonzero invariants of either sign, in every propagator order), the cases
+//! of the review of #21, and random three-mass points.
+//!
+//! Where the series serves a point (`c0_small_momentum` returns a value), it
+//! must be accurate to a few units of the precision. Where it declines, the
+//! evaluator must return the general expression, and the general expression
+//! must still be accurate there.
+use oneloop::{NativeEvaluator, ScalarIntegral, c0_small_momentum};
 use symbolica::domains::float::{Complex, DoubleFloat, Float, RealLike};
 
 const BITS: u32 = 1024;
+/// Served points (on random points the second grouping, residues of masses
+/// at moderate distances, can lose about 100 units of binary64).
+const SERVED_BINARY64: f64 = 4e-15;
+const SERVED_BINARY64_RANDOM: f64 = 3e-14;
+const SERVED_DOUBLE_DOUBLE: f64 = 1e-29;
+/// Declined points inside the series' range of orders (binary64 ρ ≤ 1/24,
+/// double-double ρ ≤ 1/415): the general expression there.
+const DECLINED_BINARY64: f64 = 1e-10;
+const DECLINED_DOUBLE_DOUBLE: f64 = 1e-22;
+/// Smallest ρ declined on the fixed mass sets.
+const SMALLEST_DECLINED_RHO_BINARY64: f64 = 1e-4;
+const SMALLEST_DECLINED_RHO_DOUBLE_DOUBLE: f64 = 1e-5;
 
 type Point = [(f64, f64); 7];
 
-fn reference(input: &Point) -> [Complex<Float>; 3] {
-    let mut native =
-        NativeEvaluator::<Float>::with_binary_precision(ScalarIntegral::C0, BITS).unwrap();
-    native.set_small_momentum(false);
-    let point: Vec<_> = input
-        .iter()
-        .map(|&(re, im)| Complex::new(Float::with_val(BITS, re), Float::with_val(BITS, im)))
-        .collect();
-    let mut out = vec![Complex::new(Float::new(BITS), Float::new(BITS)); 3];
-    native.evaluate(&point, &mut out).unwrap();
-    [out[0].clone(), out[1].clone(), out[2].clone()]
+fn binary64_tolerance() -> f64 {
+    2f64.powi(-57)
 }
 
-/// Largest slot difference over the finite part's modulus.
-fn relative<T: RealLike>(value: &[Complex<T>], reference: &[Complex<Float>; 3]) -> f64 {
-    let scale = reference[0].re.to_f64().hypot(reference[0].im.to_f64());
-    let mut worst = 0.0f64;
-    for slot in 0..3 {
-        let dr = Float::with_val(BITS, value[slot].re.to_f64()) - reference[slot].re.clone();
-        let di = Float::with_val(BITS, value[slot].im.to_f64()) - reference[slot].im.clone();
-        worst = worst.max(dr.to_f64().hypot(di.to_f64()));
-    }
-    worst / scale
+fn double_double_tolerance() -> DoubleFloat {
+    DoubleFloat::from(2f64.powi(-55)) * DoubleFloat::from(2f64.powi(-55))
 }
 
-/// Like `relative`, with both double-double limbs.
-fn relative_dd(value: &[Complex<DoubleFloat>], reference: &[Complex<Float>; 3]) -> f64 {
-    let wide = |x: &DoubleFloat| {
-        let d = x.clone().into_inner();
-        Float::with_val(BITS, d.hi()) + Float::with_val(BITS, d.lo())
-    };
-    let scale = reference[0].re.to_f64().hypot(reference[0].im.to_f64());
-    let mut worst = 0.0f64;
-    for slot in 0..3 {
-        let dr = wide(&value[slot].re) - reference[slot].re.clone();
-        let di = wide(&value[slot].im) - reference[slot].im.clone();
-        worst = worst.max(dr.to_f64().hypot(di.to_f64()));
-    }
-    worst / scale
-}
-
-/// The series parameter ρ = Σ |s_ij| / (Re m_i² + Re m_j²) of `small_momentum_c0`.
+/// The series parameter ρ = Σ |s_ij| / (Re m_i² + Re m_j²) of `c0_small_momentum`.
 fn rho(point: &Point) -> f64 {
-    let re = |k: usize| point[k].0;
     [(0, 3, 4), (1, 4, 5), (2, 3, 5)]
         .iter()
-        .map(|&(s, i, j)| re(s).abs() / (re(i) + re(j)))
+        .map(|&(s, i, j)| {
+            if point[s].0 == 0.0 {
+                0.0
+            } else {
+                point[s].0.abs() / (point[i].0 + point[j].0)
+            }
+        })
         .sum()
 }
 
-fn cases() -> Vec<Point> {
+/// Relative errors against 1024 bits and the routes of one point.
+#[derive(Debug)]
+struct Outcome {
+    binary64: f64,
+    binary64_general: f64,
+    double_double: f64,
+    double_double_general: f64,
+    served_binary64: bool,
+    served_double_double: bool,
+}
+
+struct Evaluators {
+    binary64: NativeEvaluator<f64>,
+    binary64_general: NativeEvaluator<f64>,
+    double_double: NativeEvaluator<DoubleFloat>,
+    double_double_general: NativeEvaluator<DoubleFloat>,
+    reference: NativeEvaluator<Float>,
+}
+
+fn wide(x: &DoubleFloat) -> Float {
+    let d = (*x).into_inner();
+    Float::with_val(BITS, d.hi()) + Float::with_val(BITS, d.lo())
+}
+
+/// Largest slot difference over the finite part's modulus.
+fn relative(value: &[Complex<Float>], reference: &[Complex<Float>]) -> f64 {
+    let scale = reference[0].re.to_f64().hypot(reference[0].im.to_f64());
+    let mut worst = 0.0f64;
+    for slot in 0..3 {
+        let dr = value[slot].re.clone() - reference[slot].re.clone();
+        let di = value[slot].im.clone() - reference[slot].im.clone();
+        let error = dr.to_f64().hypot(di.to_f64());
+        worst = if error.is_nan() {
+            f64::INFINITY
+        } else {
+            worst.max(error)
+        };
+    }
+    worst / scale
+}
+
+impl Evaluators {
+    fn new() -> Self {
+        let mut binary64_general = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
+        binary64_general.set_small_momentum(false);
+        let mut double_double_general =
+            NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap();
+        double_double_general.set_small_momentum(false);
+        let mut reference =
+            NativeEvaluator::<Float>::with_binary_precision(ScalarIntegral::C0, BITS).unwrap();
+        reference.set_small_momentum(false);
+        Self {
+            binary64: NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap(),
+            binary64_general,
+            double_double: NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap(),
+            double_double_general,
+            reference,
+        }
+    }
+
+    fn binary64(evaluator: &mut NativeEvaluator<f64>, point: &[Complex<f64>]) -> Vec<Complex<f64>> {
+        let mut out = vec![Complex::new(0.0, 0.0); 3];
+        evaluator.evaluate(point, &mut out).unwrap();
+        out
+    }
+
+    fn double_double(
+        evaluator: &mut NativeEvaluator<DoubleFloat>,
+        point: &[Complex<DoubleFloat>],
+    ) -> Vec<Complex<DoubleFloat>> {
+        let mut out = vec![Complex::new(DoubleFloat::from(0.0), DoubleFloat::from(0.0)); 3];
+        evaluator.evaluate(point, &mut out).unwrap();
+        out
+    }
+
+    /// Evaluates `point` every way and checks that the evaluator returns
+    /// what `c0_small_momentum` serves (finite part, zero poles) or else the
+    /// general expression, bit for bit.
+    fn check(&mut self, point: &Point) -> Outcome {
+        let exact = {
+            let input: Vec<_> = point
+                .iter()
+                .map(|&(re, im)| Complex::new(Float::with_val(BITS, re), Float::with_val(BITS, im)))
+                .collect();
+            let mut out = vec![Complex::new(Float::new(BITS), Float::new(BITS)); 3];
+            self.reference.evaluate(&input, &mut out).unwrap();
+            out
+        };
+        let input: Vec<_> = point.iter().map(|&(re, im)| Complex::new(re, im)).collect();
+        let value = Self::binary64(&mut self.binary64, &input);
+        let general = Self::binary64(&mut self.binary64_general, &input);
+        let served = c0_small_momentum(&input, &binary64_tolerance());
+        let expected = match &served {
+            Some(finite) => vec![*finite, Complex::new(0.0, 0.0), Complex::new(0.0, 0.0)],
+            None => general.clone(),
+        };
+        for slot in 0..3 {
+            assert!(
+                value[slot].re.to_bits() == expected[slot].re.to_bits()
+                    && value[slot].im.to_bits() == expected[slot].im.to_bits(),
+                "{point:?}: binary64 evaluator slot {slot} is neither the series nor the general expression"
+            );
+        }
+        let lift = |v: &[Complex<f64>]| -> Vec<Complex<Float>> {
+            v.iter()
+                .map(|z| Complex::new(Float::with_val(BITS, z.re), Float::with_val(BITS, z.im)))
+                .collect()
+        };
+        let binary64 = relative(&lift(&value), &exact);
+        let binary64_general = relative(&lift(&general), &exact);
+
+        let input: Vec<_> = point
+            .iter()
+            .map(|&(re, im)| Complex::new(DoubleFloat::from(re), DoubleFloat::from(im)))
+            .collect();
+        let value = Self::double_double(&mut self.double_double, &input);
+        let general = Self::double_double(&mut self.double_double_general, &input);
+        let served_dd = c0_small_momentum(&input, &double_double_tolerance());
+        let zero = Complex::new(DoubleFloat::from(0.0), DoubleFloat::from(0.0));
+        let expected = match &served_dd {
+            Some(finite) => vec![*finite, zero, zero],
+            None => general.clone(),
+        };
+        for slot in 0..3 {
+            assert!(
+                value[slot] == expected[slot],
+                "{point:?}: double-double evaluator slot {slot} is neither the series nor the general expression"
+            );
+        }
+        let lift = |v: &[Complex<DoubleFloat>]| -> Vec<Complex<Float>> {
+            v.iter()
+                .map(|z| Complex::new(wide(&z.re), wide(&z.im)))
+                .collect()
+        };
+        Outcome {
+            binary64,
+            binary64_general,
+            double_double: relative(&lift(&value), &exact),
+            double_double_general: relative(&lift(&general), &exact),
+            served_binary64: served.is_some(),
+            served_double_double: served_dd.is_some(),
+        }
+    }
+}
+
+/// Worst errors of a set of points, split by route.
+#[derive(Default, Debug)]
+struct Summary {
+    points: usize,
+    served_binary64: usize,
+    served_double_double: usize,
+    worst_served_binary64: f64,
+    worst_served_double_double: f64,
+    worst_declined_binary64: f64,
+    worst_declined_double_double: f64,
+    worst_general_binary64: f64,
+    smallest_declined_rho_binary64: f64,
+    smallest_declined_rho_double_double: f64,
+}
+
+impl Summary {
+    fn add(&mut self, point: &Point, outcome: &Outcome) {
+        if std::env::var("VERBOSE").is_ok() {
+            println!("{point:?}: {outcome:?}");
+        }
+        if self.points == 0 {
+            self.smallest_declined_rho_binary64 = f64::INFINITY;
+            self.smallest_declined_rho_double_double = f64::INFINITY;
+        }
+        self.points += 1;
+        let rho = rho(point);
+        if !outcome.served_binary64 {
+            self.smallest_declined_rho_binary64 = self.smallest_declined_rho_binary64.min(rho);
+        }
+        if !outcome.served_double_double {
+            self.smallest_declined_rho_double_double =
+                self.smallest_declined_rho_double_double.min(rho);
+        }
+        if outcome.served_binary64 {
+            self.served_binary64 += 1;
+            self.worst_served_binary64 = self.worst_served_binary64.max(outcome.binary64);
+        } else if rho <= 1.0 / 24.0 {
+            self.worst_declined_binary64 = self.worst_declined_binary64.max(outcome.binary64);
+        }
+        if outcome.served_double_double {
+            self.served_double_double += 1;
+            self.worst_served_double_double =
+                self.worst_served_double_double.max(outcome.double_double);
+        } else if rho <= 1.0 / 415.0 {
+            self.worst_declined_double_double =
+                self.worst_declined_double_double.max(outcome.double_double);
+        }
+        self.worst_general_binary64 = self.worst_general_binary64.max(outcome.binary64_general);
+        let _ = outcome.double_double_general;
+    }
+
+    fn assert_accurate(&self, name: &str, served_binary64: f64) {
+        println!("{name}: {self:?}");
+        assert!(
+            self.worst_served_binary64 < served_binary64,
+            "{name}: served binary64 {:e}",
+            self.worst_served_binary64
+        );
+        assert!(
+            self.worst_served_double_double < SERVED_DOUBLE_DOUBLE,
+            "{name}: served double-double {:e}",
+            self.worst_served_double_double
+        );
+        assert!(
+            self.worst_declined_binary64 < DECLINED_BINARY64,
+            "{name}: declined binary64 {:e}",
+            self.worst_declined_binary64
+        );
+        assert!(
+            self.worst_declined_double_double < DECLINED_DOUBLE_DOUBLE,
+            "{name}: declined double-double {:e}",
+            self.worst_declined_double_double
+        );
+    }
+}
+
+/// Every relabelling of the propagators of `masses` and invariants `s`
+/// (`s[0]` between propagators 0 and 1, `s[1]` between 1 and 2, `s[2]`
+/// between 0 and 2; legs follow the masses).
+fn relabellings(masses: [(f64, f64); 3], s: [f64; 3]) -> Vec<Point> {
     let mu = (1.0e6, 0.0);
+    [
+        [0, 1, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [0, 2, 1],
+        [2, 1, 0],
+        [1, 0, 2],
+    ]
+    .iter()
+    .map(|order| {
+        let original = |x: usize, y: usize| match (x.min(y), x.max(y)) {
+            (0, 1) => s[0],
+            (1, 2) => s[1],
+            _ => s[2],
+        };
+        let inv = |a: usize, b: usize| original(order[a], order[b]);
+        let m = order.map(|l| masses[l]);
+        [
+            (inv(0, 1), 0.0),
+            (inv(1, 2), 0.0),
+            (inv(0, 2), 0.0),
+            m[0],
+            m[1],
+            m[2],
+            mu,
+        ]
+    })
+    .collect()
+}
+
+fn cases() -> Vec<Point> {
     let (m, w) = (6467.2, 0.0);
     let top = (29929.0, -233.6);
     let masses: Vec<[(f64, f64); 3]> = vec![
@@ -98,33 +343,7 @@ fn cases() -> Vec<Point> {
             }
         }
         for s in invariants {
-            // Every relabelling of the propagators (legs follow the masses).
-            for order in [
-                [0, 1, 2],
-                [1, 2, 0],
-                [2, 0, 1],
-                [0, 2, 1],
-                [2, 1, 0],
-                [1, 0, 2],
-            ] {
-                // Original invariants: s[0] between propagators (0, 1), s[1] (1, 2), s[2] (0, 2).
-                let original = |x: usize, y: usize| match (x.min(y), x.max(y)) {
-                    (0, 1) => s[0],
-                    (1, 2) => s[1],
-                    _ => s[2],
-                };
-                let inv = |a: usize, b: usize| original(order[a], order[b]);
-                let m3 = order.map(|l| masses[l]);
-                out.push([
-                    (inv(0, 1), 0.0),
-                    (inv(1, 2), 0.0),
-                    (inv(0, 2), 0.0),
-                    m3[0],
-                    m3[1],
-                    m3[2],
-                    mu,
-                ]);
-            }
+            out.extend(relabellings(masses, s));
         }
     }
     out
@@ -132,69 +351,362 @@ fn cases() -> Vec<Point> {
 
 #[test]
 fn small_momentum_c0_is_accurate_in_binary64_and_double_double() {
-    let mut double = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
-    let mut dd = NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap();
-    let mut general = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
-    general.set_small_momentum(false);
-    let (mut worst64, mut worst_dd, mut worst_general, mut worst_dd_general) =
-        (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-    let cases = cases();
-    for case in &cases {
-        let exact = reference(case);
-        let point: Vec<_> = case.iter().map(|&(re, im)| Complex::new(re, im)).collect();
-        let mut out = vec![Complex::new(0.0, 0.0); 3];
-        double.evaluate(&point, &mut out).unwrap();
-        let e64 = relative(&out, &exact);
-        general.evaluate(&point, &mut out).unwrap();
-        let eg = relative(&out, &exact);
-        let point: Vec<_> = case
-            .iter()
-            .map(|&(re, im)| Complex::new(DoubleFloat::from(re), DoubleFloat::from(im)))
-            .collect();
-        let mut out = vec![Complex::new(DoubleFloat::from(0.0), DoubleFloat::from(0.0)); 3];
-        dd.evaluate(&point, &mut out).unwrap();
-        let edd = relative_dd(&out, &exact);
-        if std::env::var("VERBOSE").is_ok() {
-            println!("{case:?}: binary64 {e64:.2e} general {eg:.2e} double-double {edd:.2e}");
-        }
-        worst64 = worst64.max(e64);
-        // Double-double takes the series up to ρ ≈ 1/415 (12 orders), binary64 up
-        // to ρ ≈ 1/24; beyond, the general expression, which loses a few bits.
-        if rho(case) <= 1.0 / 500.0 {
-            worst_dd = worst_dd.max(edd);
-        } else {
-            worst_dd_general = worst_dd_general.max(edd);
-        }
-        worst_general = worst_general.max(eg);
+    let mut evaluators = Evaluators::new();
+    let mut summary = Summary::default();
+    for case in cases() {
+        let outcome = evaluators.check(&case);
+        summary.add(&case, &outcome);
     }
-    println!(
-        "{} points: worst binary64 {worst64:e}, double-double {worst_dd:e} (beyond its series {worst_dd_general:e}); general expression {worst_general:e}",
-        cases.len()
-    );
-    assert!(worst64 < 4e-15, "binary64 {worst64:e}");
-    assert!(worst_dd < 1e-29, "double-double {worst_dd:e}");
+    summary.assert_accurate("fixed mass sets", SERVED_BINARY64);
+    // The work budget declines only at larger ρ (sooner in double-double,
+    // whose expansions are longer).
+    assert!(summary.smallest_declined_rho_binary64 > SMALLEST_DECLINED_RHO_BINARY64);
+    assert!(summary.smallest_declined_rho_double_double > SMALLEST_DECLINED_RHO_DOUBLE_DOUBLE);
     // The general expression is what the small-momentum path repairs.
-    assert!(worst_general > 1e-6);
+    assert!(summary.worst_general_binary64 > 1e-6);
+}
+
+/// Squared masses `m` with invariants `(0.4, −0.35, 0.25) (Re m_i² + Re m_j²) ρ`.
+fn scaled(m: [(f64, f64); 3], target: f64) -> Point {
+    let den = [m[0].0 + m[1].0, m[1].0 + m[2].0, m[0].0 + m[2].0];
+    [
+        (0.4 * den[0] * target, 0.0),
+        (-0.35 * den[1] * target, 0.0),
+        (0.25 * den[2] * target, 0.0),
+        m[0],
+        m[1],
+        m[2],
+        (7.3, 0.0),
+    ]
+}
+
+fn real(x: f64) -> (f64, f64) {
+    (x, 0.0)
+}
+
+/// The cases of the review of #21: a cluster of two masses with a nearby,
+/// nonzero third mass (A to E), two tiny masses whose expansion overflowed
+/// (F) and wide widths beyond the cluster expansion's reach (G).
+#[test]
+fn review_of_21_cases() {
+    let mut evaluators = Evaluators::new();
+    let a = [real(1.0), real(0.66655), real(0.45)];
+    let sm = [real(8315.0), real(6467.2), real(15625.0)];
+    let d = [
+        real(0.0),
+        real(-11.506190046397727),
+        real(-14.539770758302355),
+        real(675.0403603627077),
+        real(445.21451896598046),
+        real(322.5358104582457),
+        real(7.3),
+    ];
+    let f = [
+        real(0.0),
+        real(-5.107859805229796e-24),
+        real(0.0),
+        real(0.037034422757829706),
+        real(6.334868353316832e-9),
+        real(5.15208355328473e-9),
+        real(7.3),
+    ];
+    let g = [
+        real(2.4365910182777774e-7),
+        real(-2.232458914626797e-7),
+        real(-3.042667720433323e-7),
+        (4084365.994061994, -234743.79550801977),
+        (2835925.136725336, -1027301.8922336465),
+        real(2774783.2466520304),
+        real(7.3),
+    ];
+    // At ρ = 1/30 and 1/500 the series may decline (the general expression
+    // keeps 13 digits); below, it serves.
+    for (name, point) in [
+        ("A", scaled(a, 1.0 / 30.0)),
+        ("C", scaled([real(1.0), real(0.7), real(0.45)], 1.0 / 30.0)),
+        ("D", d),
+        ("E", scaled(sm, 1.0 / 30.0)),
+        ("B", scaled(a, 1.0 / 500.0)),
+    ] {
+        let outcome = evaluators.check(&point);
+        println!("{name}: {outcome:?}");
+        assert!(
+            outcome.binary64 < 1e-12,
+            "{name}: binary64 {:e}",
+            outcome.binary64
+        );
+        assert!(
+            outcome.double_double < 1e-27,
+            "{name}: double-double {:e}",
+            outcome.double_double
+        );
+        assert!(
+            !outcome.served_binary64 || outcome.binary64 < SERVED_BINARY64,
+            "{name}: served binary64 {:e}",
+            outcome.binary64
+        );
+    }
+    for (name, point) in [
+        ("A at 1e-6", scaled(a, 1e-6)),
+        ("E at 1e-6", scaled(sm, 1e-6)),
+        ("F", f),
+        ("G", g),
+    ] {
+        let outcome = evaluators.check(&point);
+        println!("{name}: {outcome:?}");
+        assert!(
+            outcome.binary64 < SERVED_BINARY64,
+            "{name}: binary64 {:e}",
+            outcome.binary64
+        );
+        assert!(outcome.served_binary64, "{name}: binary64 declined");
+        // Double-double may decline the comparable masses at ρ = 1e-6 (its
+        // expansions are longer); F and G it serves.
+        let bound = if outcome.served_double_double {
+            SERVED_DOUBLE_DOUBLE
+        } else {
+            1e-24
+        };
+        assert!(
+            outcome.double_double < bound,
+            "{name}: double-double {:e}",
+            outcome.double_double
+        );
+        if name == "F" || name == "G" {
+            assert!(
+                outcome.served_double_double,
+                "{name}: double-double declined"
+            );
+        }
+    }
+}
+
+/// xorshift64, so that the points are reproducible without an RNG crate.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn uniform(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    fn range(&mut self, a: f64, b: f64) -> f64 {
+        a + (b - a) * self.uniform()
+    }
+
+    fn log_range(&mut self, a: f64, b: f64) -> f64 {
+        (a.ln() + (b.ln() - a.ln()) * self.uniform()).exp()
+    }
+
+    fn pick(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+/// Squared masses of a class (times a random scale), with a nonzero third
+/// mass wherever the class allows it.
+fn random_masses(rng: &mut Rng, class: usize) -> [(f64, f64); 3] {
+    let mut m = match class {
+        // Two masses about a third apart, the third nearby.
+        0 => {
+            let d = rng.range(0.25, 0.4);
+            [
+                real(1.0),
+                real(1.0 - d),
+                real((1.0 - d) * rng.range(0.4, 0.8)),
+            ]
+        }
+        // A close pair and a nonzero far mass anywhere.
+        1 => {
+            let d = rng.log_range(1e-6, 0.33);
+            [real(1.0), real(1.0 - d), real(rng.log_range(1e-3, 30.0))]
+        }
+        // Two light masses and a heavy one.
+        2 => [
+            real(rng.log_range(1e-8, 0.1)),
+            real(rng.log_range(1e-8, 0.1)),
+            real(1.0),
+        ],
+        // A massless propagator and two masses up to a factor 5 apart.
+        3 => [real(0.0), real(1.0), real(rng.log_range(0.2, 5.0))],
+        // Uniform masses.
+        _ => [
+            real(rng.uniform()),
+            real(rng.uniform()),
+            real(rng.uniform()),
+        ],
+    };
+    // Widths up to 0.6 m on some points.
+    if rng.pick(3) == 0 {
+        for z in m.iter_mut() {
+            if z.0 > 0.0 && rng.uniform() < 0.8 {
+                z.1 = -z.0 * rng.range(0.0, 0.6);
+            }
+        }
+    }
+    let scale = 10f64.powf(rng.range(-6.0, 8.0));
+    m.map(|z| (z.0 * scale, z.1 * scale))
+}
+
+/// Invariants with ρ = `target`: one, two or three nonzero, random signs.
+fn random_invariants(rng: &mut Rng, m: &[(f64, f64); 3], target: f64) -> [f64; 3] {
+    let mut w = [rng.uniform(), rng.uniform(), rng.uniform()];
+    match rng.pick(5) {
+        0 => w = [w[0], 0.0, 0.0],
+        1 => w = [0.0, w[1], 0.0],
+        2 => w[rng.pick(3)] = 0.0,
+        _ => {}
+    }
+    for x in w.iter_mut() {
+        if rng.uniform() < 0.5 {
+            *x = -*x;
+        }
+    }
+    let den = [m[0].0 + m[1].0, m[1].0 + m[2].0, m[0].0 + m[2].0];
+    let raw: f64 = w.iter().map(|x| x.abs()).sum();
+    if raw == 0.0 {
+        return [0.0; 3];
+    }
+    let t = target / raw;
+    [w[0] * den[0] * t, w[1] * den[1] * t, w[2] * den[2] * t]
+}
+
+/// Random three-mass points in the domain (fixed seed), ρ log-uniform from
+/// 1e-16 to 1/16, in a random propagator order.
+#[test]
+fn random_three_mass_points() {
+    let classes = [
+        "pair a third apart",
+        "close pair, far mass",
+        "two light",
+        "(0, m, M)",
+        "uniform",
+    ];
+    let mut rng = Rng(0x5EED_C0C0_2026_1119);
+    let mut evaluators = Evaluators::new();
+    for (class, name) in classes.iter().enumerate() {
+        let mut summary = Summary::default();
+        while summary.points < 300 {
+            let m = random_masses(&mut rng, class);
+            let target = rng.log_range(1e-16, 1.0 / 16.0);
+            let s = random_invariants(&mut rng, &m, target);
+            let all = relabellings(m, s);
+            let point = all[rng.pick(6)];
+            if rho(&point) <= 1.0 / 16.0 {
+                summary.add(&point, &evaluators.check(&point));
+            }
+        }
+        summary.assert_accurate(name, SERVED_BINARY64_RANDOM);
+    }
+}
+
+/// The route and the value do not depend on the propagator order.
+#[test]
+fn propagator_order_does_not_change_the_route_or_the_value() {
+    let mut rng = Rng(0xC0FF_EE00_2026_1119);
+    let tolerance = binary64_tolerance();
+    let tolerance_dd = double_double_tolerance();
+    for _ in 0..400 {
+        let class = rng.pick(5);
+        let m = random_masses(&mut rng, class);
+        let target = rng.log_range(1e-14, 1.0 / 24.0);
+        let s = random_invariants(&mut rng, &m, target);
+        let points = relabellings(m, s);
+        let values: Vec<Option<Complex<f64>>> = points
+            .iter()
+            .map(|p| {
+                let input: Vec<_> = p.iter().map(|&(re, im)| Complex::new(re, im)).collect();
+                c0_small_momentum(&input, &tolerance)
+            })
+            .collect();
+        let values_dd: Vec<Option<Complex<DoubleFloat>>> = points
+            .iter()
+            .map(|p| {
+                let input: Vec<_> = p
+                    .iter()
+                    .map(|&(re, im)| Complex::new(DoubleFloat::from(re), DoubleFloat::from(im)))
+                    .collect();
+                c0_small_momentum(&input, &tolerance_dd)
+            })
+            .collect();
+        let first = values[0];
+        for value in &values {
+            assert_eq!(
+                value.is_some(),
+                first.is_some(),
+                "{:?}: binary64 route",
+                points[0]
+            );
+            if let (Some(a), Some(b)) = (value, first) {
+                let spread = (a.re - b.re).hypot(a.im - b.im) / b.re.hypot(b.im);
+                assert!(
+                    spread < 4e-15,
+                    "{:?}: binary64 spread {spread:e}",
+                    points[0]
+                );
+            }
+        }
+        let first = &values_dd[0];
+        for value in &values_dd {
+            assert_eq!(
+                value.is_some(),
+                first.is_some(),
+                "{:?}: double-double route",
+                points[0]
+            );
+            if let (Some(a), Some(b)) = (value, first) {
+                let dr = wide(&a.re) - wide(&b.re);
+                let di = wide(&a.im) - wide(&b.im);
+                let size = wide(&b.re).to_f64().hypot(wide(&b.im).to_f64());
+                let spread = dr.to_f64().hypot(di.to_f64()) / size;
+                assert!(
+                    spread < 1e-29,
+                    "{:?}: double-double spread {spread:e}",
+                    points[0]
+                );
+            }
+        }
+    }
 }
 
 /// Outside the series' domain the evaluator is the general expression, bit
 /// for bit: ρ above 1/16, two massless propagators (collinear or soft
-/// singularities), and physical invariants.
+/// singularities), physical invariants, and an invariant with an imaginary
+/// part.
 #[test]
 fn outside_the_series_domain_c0_is_the_general_expression() {
     let mut double = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
     let mut general = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
     general.set_small_momentum(false);
     let (m, mu) = (6467.2, 1.0e6);
-    let points: [[f64; 7]; 5] = [
-        [-900.0, 0.0, 300.0, m, m, m, mu],
-        [0.0, 0.0, -1.0, 0.0, 0.0, m, mu],
-        [-1.0e-3, 0.0, 0.0, m, 0.0, 0.0, mu],
-        [29929.0, 0.0, 1.0e5, 29929.0, 29929.0, 0.0, mu],
-        [-2.0e4, 1.0e3, -5.0e3, m, 2.0 * m, 3.0 * m, mu],
+    let points: [[(f64, f64); 7]; 6] = [
+        [-900.0, 0.0, 300.0, m, m, m, mu].map(real),
+        [0.0, 0.0, -1.0, 0.0, 0.0, m, mu].map(real),
+        [-1.0e-3, 0.0, 0.0, m, 0.0, 0.0, mu].map(real),
+        [29929.0, 0.0, 1.0e5, 29929.0, 29929.0, 0.0, mu].map(real),
+        [-2.0e4, 1.0e3, -5.0e3, m, 2.0 * m, 3.0 * m, mu].map(real),
+        [
+            (-1.0e-3, 1.0e-4),
+            real(0.0),
+            real(0.0),
+            real(m),
+            real(m),
+            real(m),
+            real(mu),
+        ],
     ];
     for point in points {
-        let input: Vec<_> = point.iter().map(|&x| Complex::new(x, 0.0)).collect();
+        let input: Vec<_> = point.iter().map(|&(re, im)| Complex::new(re, im)).collect();
+        assert!(c0_small_momentum(&input, &binary64_tolerance()).is_none());
+        if point[0].1 != 0.0 {
+            continue; // The evaluator requires real invariants.
+        }
         let (mut a, mut b) = (
             vec![Complex::new(0.0, 0.0); 3],
             vec![Complex::new(0.0, 0.0); 3],
