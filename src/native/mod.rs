@@ -9,7 +9,9 @@ pub mod primitives;
 mod dilog;
 pub mod double_double;
 mod small_momentum;
+mod small_momentum_c0;
 pub use small_momentum::b0_momentum_shift;
+pub use small_momentum_c0::c0_small_momentum;
 mod tensor;
 pub use tensor::{NativeTensorEvaluator, TensorIntegral};
 #[cfg(feature = "generated-evaluators")]
@@ -200,8 +202,8 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         self.bits
     }
 
-    /// Use the small-momentum B0 representation (the default) or the general
-    /// expression everywhere. For validation only.
+    /// Use the small-momentum B0 and C0 representations (the default) or the
+    /// general expressions everywhere. For validation only.
     #[doc(hidden)]
     pub fn set_small_momentum(&mut self, enabled: bool) {
         self.small_momentum = enabled;
@@ -323,9 +325,12 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         ScalarIntegral::B0 => self.b0_values(input),
         ScalarIntegral::DB0 => generated_db0::evaluate(input, &self.context),
         ScalarIntegral::C0 => self
-            .gram_c0
-            .then(|| gram::c0(input, |bubble| self.b0_values(bubble)))
-            .flatten()
+            .small_momentum_c0(input)
+            .or_else(|| {
+                self.gram_c0
+                    .then(|| gram::c0(input, |bubble| self.b0_values(bubble)))
+                    .flatten()
+            })
             .or_else(|| simple::massless_triangle(input, &self.context.simple))
             .or_else(|| {
                 if self.handwritten[0] {
@@ -375,6 +380,21 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             ));
         }
         Ok(())
+    }
+
+    /// C0 for small external invariants (binary64 and double-double): the
+    /// general expression cancels like `max(m²)/|p²|` there, so evaluate the
+    /// cancellation-free momentum series of `small_momentum_c0` (finite part;
+    /// the integral has no poles in its domain). `Float` keeps the general
+    /// expression, whose working precision absorbs the loss.
+    fn small_momentum_c0(&self, input: &[C<T>]) -> Option<[C<T>; 3]> {
+        if !self.small_momentum || T::FIXED_BITS.is_none() {
+            return None;
+        }
+        let finite = small_momentum_c0::c0_small_momentum(input, &self.tolerance)?;
+        let mut values = simple::zeros(&input[0].re);
+        values[0] = finite;
+        Some(values)
     }
 
     /// B0 for `0 < |p²| <= max(m²)/16`: the general expression cancels like
