@@ -43,7 +43,9 @@
 //! or lighter than the centre. Each cluster is evaluated in units of its
 //! centre (`h = c u`), so that clusters of small masses do not overflow.
 //! Inputs are scaled by a power of two so that the largest squared mass is of
-//! order one.
+//! order one. Where squared masses are more than [`RESCALE_RATIO`] apart, the
+//! invariants and a heavier far node's factors are taken in units of each
+//! cluster's centre as well, so that nothing underflows.
 //!
 //! Residues of masses at moderate distances, and a cluster with a nearby far
 //! node, lose up to about 100 units of the precision to cancellation, and
@@ -61,8 +63,8 @@
 //! orders, the number of nonzero invariants and the spread of the masses: in
 //! the tests the budget and the shell limit decline only distinct masses at
 //! high orders, binary64 points from `ρ ≈ 1e-3`, where the general expression
-//! keeps 1e-10 relative, and double-double points from `ρ ≈ 1e-7`, where it
-//! keeps 1.4e-24.
+//! keeps 1e-10 relative (1e-9 with two squared masses below 1e-12 of the
+//! third), and double-double points from `ρ ≈ 1e-7`, where it keeps 1.4e-24.
 
 use super::primitives::{C, NativeFloat, add, inverse, log, mul};
 
@@ -79,8 +81,8 @@ const MAX_CLUSTER_TERMS: usize = 256;
 /// `Cluster::cost` and `Cluster::table_cost`). It is reached only by distinct
 /// masses at high orders (in the tests binary64 from `ρ ≈ 1e-3`,
 /// double-double from `ρ ≈ 1e-7`); below it the series costs up to about
-/// 70 µs per call in binary64 and 1 ms in double-double (the general
-/// expression 1 to 2 µs and 20 to 40 µs). A smaller budget would decline
+/// 115 µs per call in binary64 and 1.5 ms in double-double, 180 and 35 to 100
+/// times the general expression (review of #21). A smaller budget would decline
 /// points where the general expression is far off: with two light masses it
 /// loses `log10(max m² / |p²|)` digits (2.7e-2 relative in binary64 for
 /// squared masses a few 1e-12 of the third at `ρ ≈ 0.035`), and at 8192 even
@@ -93,6 +95,20 @@ const WORK_BUDGET: usize = 32768;
 /// (`q = z_f / c`, the same for `q` and `1/q`): at order 12, 137 for `q = 4`,
 /// 1.4 for `q = 5` and 3e-4 for `q = 8`.
 const FAR_SEPARATION: f64 = 8.0;
+/// Squared masses this many times apart rescale the evaluation. Where a
+/// nonzero squared mass is below `1/RESCALE_RATIO` of the largest, each
+/// cluster takes the invariants in units of its centre and of its far nodes at
+/// least [`FAR_SCALE`] times heavier, so that no term of size `ρⁿ` underflows
+/// (squared masses below 1e-24 of the largest lost up to 2e-6 relative in
+/// binary64 and 2e-15 in double-double, review of #21; the double-double low
+/// word is lost below about 1e-292). Otherwise every centre is above `2^-40`
+/// (the largest squared mass scaled to [1, 2)), so that `c^{−n−1} < 2^520` and
+/// what underflows contributes below 1e-135.
+const RESCALE_RATIO: i64 = 1 << 40;
+/// Where the evaluation is rescaled, a far node this many times heavier than
+/// a cluster's centre is taken in units of its distance; the others keep
+/// `|d|^{−M} > 2^{−16 (2n + 3)} ≥ 2^{−432}`.
+const FAR_SCALE: i64 = 1 << 16;
 
 fn modulus<T: NativeFloat>(z: &C<T>) -> T {
     NativeFloat::hypot(&z.re, &z.im)
@@ -213,10 +229,14 @@ struct Node<T: NativeFloat> {
 /// Nodes expanded together about `centre` (their largest member), in units of
 /// the centre `c`: `offsets` are the other members `(node, (z − c)/c)`, `far`
 /// the remaining nodes `(node, (c − z)/c)`, `terms[n]` the number of shells
-/// at order `n`.
+/// at order `n`. Where the evaluation is rescaled (see [`RESCALE_RATIO`]),
+/// `far_scale[f]` is a power of two `t ≈ |d|` for a far node at least
+/// [`FAR_SCALE`] times heavier than the centre, by which its tables are
+/// multiplied per power (otherwise `None`; empty where nothing is rescaled).
 struct Cluster<T: NativeFloat> {
     centre: usize,
     inverse: C<T>,
+    far_scale: Vec<Option<T>>,
     log: C<T>,
     offsets: Vec<(usize, C<T>)>,
     far: Vec<(usize, C<T>)>,
@@ -312,6 +332,7 @@ fn divide_by_linear<T: NativeFloat>(series: &mut [C<T>], inverse_d: &C<T>) {
 /// `table[M][q] = [u^q] (d + u)^{−M}` for `M ≤ powers`, `q ≤ order`.
 fn inverse_powers<T: NativeFloat>(
     d: &C<T>,
+    t: Option<&T>,
     powers: usize,
     order: usize,
     reciprocal: &[T],
@@ -329,6 +350,9 @@ fn inverse_powers<T: NativeFloat>(
         }
         table.push(row);
         leading = mul(&leading, &inverse_d);
+        if let Some(t) = t {
+            leading = scale(&leading, t);
+        }
     }
     table
 }
@@ -400,11 +424,22 @@ impl<T: NativeFloat> Cluster<T> {
             for m in 1..=largest(*k) {
                 let mut next = divided[m - 1].clone();
                 divide_by_linear(&mut next, &inverse_d);
+                if let Some(Some(t)) = self.far_scale.first() {
+                    for z in next.iter_mut() {
+                        *z = scale(z, t);
+                    }
+                }
                 divided.push(next);
             }
         }
         let second = match self.far.get(1) {
-            Some((k, d)) => inverse_powers(d, largest(*k), largest(self.centre), reciprocal),
+            Some((k, d)) => inverse_powers(
+                d,
+                self.far_scale.get(1).and_then(Option::as_ref),
+                largest(*k),
+                largest(self.centre),
+                reciprocal,
+            ),
             None => Vec::new(),
         };
         let offsets = match self.offsets.as_slice() {
@@ -421,6 +456,7 @@ impl<T: NativeFloat> Cluster<T> {
 
     /// This cluster's part of the divided difference for node multiplicities
     /// `m`, in units of `c^{−n−1}`.
+    #[inline(always)]
     fn contribution(
         &self,
         tables: &Tables<T>,
@@ -592,6 +628,7 @@ fn plan<T: NativeFloat>(
         clusters.push(Cluster {
             centre,
             inverse: unit,
+            far_scale: Vec::new(),
             log: complex_zero(prototype),
             offsets,
             far,
@@ -617,6 +654,201 @@ fn plan<T: NativeFloat>(
         }
     }
     Some(clusters)
+}
+
+/// `[1, x, x², …, x^order]`.
+fn powers_of<T: NativeFloat>(x: &T, order: usize) -> Vec<T> {
+    let mut column = vec![x.one()];
+    for k in 1..=order {
+        column.push(column[k - 1].clone() * x);
+    }
+    column
+}
+
+/// A rescaled evaluation, per cluster: the powers of the invariants in units of
+/// its centre `2^e` and of its far nodes' scales, `s_ij / (2^e t_i t_j)` with
+/// `t_i` the scale of the far node of propagator `i` (1 for the cluster's own
+/// propagators and unscaled far nodes), `inverse = 2^e / c` and the remaining
+/// power of two `prefactor = 2^{−e} Π_f t_f^{−|f|}`.
+struct Rescaled<T: NativeFloat> {
+    powers: Vec<Vec<Vec<T>>>,
+    inverse: Vec<C<T>>,
+    prefactor: Vec<T>,
+}
+
+/// The rescaled evaluation for invariants `s` (in units of the largest squared
+/// mass), setting the clusters' far-node scales (see [`RESCALE_RATIO`] and
+/// [`FAR_SCALE`]). Out of line: rare.
+#[cold]
+#[inline(never)]
+fn rescale_clusters<T: NativeFloat>(
+    clusters: &mut [Cluster<T>],
+    nodes: &[Node<T>],
+    s: &[T; 3],
+    order: usize,
+) -> Option<Rescaled<T>> {
+    let prototype = &s[0];
+    let pairs = [(0usize, 1usize), (1, 2), (0, 2)];
+    let far_limit = prototype.from_i64(FAR_SCALE);
+    let mut rescaled = Rescaled {
+        powers: Vec::with_capacity(clusters.len()),
+        inverse: Vec::with_capacity(clusters.len()),
+        prefactor: Vec::with_capacity(clusters.len()),
+    };
+    for cluster in clusters.iter_mut() {
+        let unit = power_of_two_inverse(&modulus(&nodes[cluster.centre].value))?;
+        cluster.far_scale = cluster
+            .far
+            .iter()
+            .map(|(_, d)| {
+                let size = modulus(d);
+                if size >= far_limit {
+                    power_of_two_inverse(&size).map(|t| Some(prototype.one() / t))
+                } else {
+                    Some(None)
+                }
+            })
+            .collect::<Option<_>>()?;
+        let mut propagator = vec![prototype.one(); 3];
+        let mut factor = unit.clone();
+        for ((node, _), t) in cluster.far.iter().zip(&cluster.far_scale) {
+            if let Some(t) = t {
+                let inverse_t = prototype.one() / t;
+                for &i in &nodes[*node].members {
+                    propagator[i] = inverse_t.clone();
+                    factor *= &inverse_t;
+                }
+            }
+        }
+        rescaled.powers.push(
+            pairs
+                .iter()
+                .zip(s)
+                .map(|(&(i, j), x)| {
+                    powers_of(
+                        &(x.clone() * &propagator[i] * &propagator[j] * &unit),
+                        order,
+                    )
+                })
+                .collect(),
+        );
+        rescaled
+            .inverse
+            .push(scale(&cluster.inverse, &(prototype.one() / &unit)));
+        rescaled.prefactor.push(factor);
+    }
+    Some(rescaled)
+}
+
+/// What the sum over the orders needs once the clusters are planned: `shared`
+/// holds the powers of the invariants for all clusters, or, where the
+/// evaluation is rescaled, `rescaled` each cluster's own (see
+/// `c0_small_momentum`).
+struct Series<'a, T: NativeFloat> {
+    nodes: &'a [Node<T>],
+    clusters: &'a [Cluster<T>],
+    tops: &'a [Vec<usize>],
+    zero: [bool; 3],
+    reciprocal: &'a [T],
+    factorial: &'a [T],
+    inverse_factorial: &'a [T],
+    shared: &'a [Vec<T>],
+    rescaled: Option<&'a Rescaled<T>>,
+}
+
+impl<T: NativeFloat> Series<'_, T> {
+    /// The orders' sum of the clusters' parts in units of the largest squared
+    /// mass (`c0_small_momentum` applies the overall factor), with the shared
+    /// powers or, for `RESCALE`, the clusters' own: two instances, so that the
+    /// shared one compiles to the loop without the rescaling.
+    #[inline(never)]
+    fn sum<const RESCALE: bool>(&self, prototype: &T) -> C<T> {
+        let rescaled = self.rescaled.filter(|_| RESCALE);
+        let mut total = complex_zero(prototype);
+        let mut multiplicity = vec![0usize; self.nodes.len()];
+        let mut sums = vec![complex_zero(prototype); self.clusters.len()];
+        for (n, top) in self.tops.iter().enumerate() {
+            let p = n + 1;
+            let tables: Vec<Tables<T>> = self
+                .clusters
+                .iter()
+                .map(|cluster| cluster.tables(top, n, self.reciprocal))
+                .collect();
+            for sum in sums.iter_mut() {
+                *sum = complex_zero(prototype);
+            }
+            for k01 in 0..=n {
+                for k12 in 0..=n - k01 {
+                    let k02 = n - k01 - k12;
+                    let monomial = if RESCALE {
+                        let zero = &self.zero;
+                        if (k01 > 0 && zero[0]) || (k12 > 0 && zero[1]) || (k02 > 0 && zero[2]) {
+                            continue;
+                        }
+                        prototype.one()
+                    } else {
+                        let shared = self.shared;
+                        let monomial = shared[0][k01].clone() * &shared[1][k12] * &shared[2][k02];
+                        if monomial.is_zero() {
+                            continue;
+                        }
+                        monomial
+                    };
+                    let alpha = [k01 + k02, k01 + k12, k12 + k02];
+                    // Multiplicity of each node: Σ (α_i + 1) over its propagators.
+                    for (slot, node) in multiplicity.iter_mut().zip(self.nodes) {
+                        *slot = node.members.iter().map(|&i| alpha[i] + 1).sum();
+                    }
+                    // (−1)ⁿ α0! α1! α2! / ((n+1)! k01! k12! k02!).
+                    let factorial = self.factorial;
+                    let inverse_factorial = self.inverse_factorial;
+                    let mut weight = factorial[alpha[0]].clone()
+                        * &factorial[alpha[1]]
+                        * &factorial[alpha[2]]
+                        * &inverse_factorial[p]
+                        * &inverse_factorial[k01]
+                        * &inverse_factorial[k12]
+                        * &inverse_factorial[k02];
+                    if n % 2 == 1 {
+                        weight = -weight;
+                    }
+                    let weighted = if RESCALE { weight } else { weight * monomial };
+                    for (k, ((sum, cluster), table)) in
+                        sums.iter_mut().zip(self.clusters).zip(&tables).enumerate()
+                    {
+                        let coefficient = match rescaled {
+                            Some(rescaled) => {
+                                let power = &rescaled.powers[k];
+                                weighted.clone() * &power[0][k01] * &power[1][k12] * &power[2][k02]
+                            }
+                            None => weighted.clone(),
+                        };
+                        let value =
+                            cluster.contribution(table, &multiplicity, self.reciprocal, prototype);
+                        *sum = add(sum, &scale(&value, &coefficient));
+                    }
+                }
+            }
+            // Back from units of the centre, one factor at a time (the
+            // intermediates lie between the two magnitudes): times c^{−n−1},
+            // or (2^e / c)^{n+1} and the cluster's power of two.
+            for (k, (sum, cluster)) in sums.iter().zip(self.clusters).enumerate() {
+                let mut value = sum.clone();
+                if let Some(rescaled) = rescaled {
+                    for _ in 0..p {
+                        value = mul(&value, &rescaled.inverse[k]);
+                    }
+                    value = scale(&value, &rescaled.prefactor[k]);
+                } else {
+                    for _ in 0..p {
+                        value = mul(&value, &cluster.inverse);
+                    }
+                }
+                total = add(&total, &value);
+            }
+        }
+        total
+    }
 }
 
 /// Finite part of `C0(p1², p2², p3²; m1², m2², m3²)` for small external
@@ -805,76 +1037,44 @@ pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Optio
         reciprocal.push(prototype.one() / prototype.from_i64(k as i64));
     }
 
-    // Factorials, their inverses and powers of the invariants.
+    // Factorials and their inverses.
     let mut factorial = vec![prototype.one()];
     let mut inverse_factorial = vec![prototype.one()];
     for k in 1..=2 * order + 2 {
         factorial.push(factorial[k - 1].clone() * prototype.from_i64(k as i64));
         inverse_factorial.push(inverse_factorial[k - 1].clone() * &reciprocal[k]);
     }
-    let powers: Vec<Vec<T>> = s
+    // Powers of the invariants, shared by the clusters, or each cluster's own
+    // where a nonzero squared mass is `RESCALE_RATIO` times lighter than the
+    // largest.
+    let small = constant(prototype, 1, RESCALE_RATIO);
+    let rescale = nodes
         .iter()
-        .map(|x| {
-            let mut column = vec![prototype.one()];
-            for k in 1..=order {
-                column.push(column[k - 1].clone() * x);
-            }
-            column
-        })
-        .collect();
-
-    let mut total = complex_zero(prototype);
-    let mut multiplicity = vec![0usize; count];
-    let mut sums = vec![complex_zero(prototype); clusters.len()];
-    for (n, top) in tops.iter().enumerate() {
-        let p = n + 1;
-        let tables: Vec<Tables<T>> = clusters
-            .iter()
-            .map(|cluster| cluster.tables(top, n, &reciprocal))
-            .collect();
-        for sum in sums.iter_mut() {
-            *sum = complex_zero(prototype);
-        }
-        for k01 in 0..=n {
-            for k12 in 0..=n - k01 {
-                let k02 = n - k01 - k12;
-                let monomial = powers[0][k01].clone() * &powers[1][k12] * &powers[2][k02];
-                if monomial.is_zero() {
-                    continue;
-                }
-                let alpha = [k01 + k02, k01 + k12, k12 + k02];
-                // Multiplicity of each node: Σ (α_i + 1) over its propagators.
-                for (slot, node) in multiplicity.iter_mut().zip(&nodes) {
-                    *slot = node.members.iter().map(|&i| alpha[i] + 1).sum();
-                }
-                // (−1)ⁿ α0! α1! α2! / ((n+1)! k01! k12! k02!).
-                let mut weight = factorial[alpha[0]].clone()
-                    * &factorial[alpha[1]]
-                    * &factorial[alpha[2]]
-                    * &inverse_factorial[p]
-                    * &inverse_factorial[k01]
-                    * &inverse_factorial[k12]
-                    * &inverse_factorial[k02];
-                if n % 2 == 1 {
-                    weight = -weight;
-                }
-                let coefficient = weight * monomial;
-                for ((sum, cluster), table) in sums.iter_mut().zip(&clusters).zip(&tables) {
-                    let value = cluster.contribution(table, &multiplicity, &reciprocal, prototype);
-                    *sum = add(sum, &scale(&value, &coefficient));
-                }
-            }
-        }
-        // Back from units of the centre: times c^{−n−1}, one factor at a time
-        // (the intermediates lie between the two magnitudes).
-        for (sum, cluster) in sums.iter().zip(&clusters) {
-            let mut value = sum.clone();
-            for _ in 0..p {
-                value = mul(&value, &cluster.inverse);
-            }
-            total = add(&total, &value);
-        }
-    }
+        .any(|node| !node.zero && modulus(&node.value) < small);
+    let (shared, rescaled) = if rescale {
+        (
+            Vec::new(),
+            Some(rescale_clusters(&mut clusters, &nodes, &s, order)?),
+        )
+    } else {
+        (s.iter().map(|x| powers_of(x, order)).collect(), None)
+    };
+    let series = Series {
+        nodes: &nodes,
+        clusters: &clusters,
+        tops: &tops,
+        zero,
+        reciprocal: &reciprocal,
+        factorial: &factorial,
+        inverse_factorial: &inverse_factorial,
+        shared: &shared,
+        rescaled: rescaled.as_ref(),
+    };
+    let total = if rescale {
+        series.sum::<true>(prototype)
+    } else {
+        series.sum::<false>(prototype)
+    };
     let result = scale(&total, &(-factor));
     (result.re.is_finite() && result.im.is_finite()).then_some(result)
 }

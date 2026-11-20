@@ -241,20 +241,34 @@ times. A cluster's length follows the binomial tail bound of the review of
 #21, with only `ρⁿ` of the tolerance at order `n` where no far mass within a
 factor 8 can cancel against the cluster's part. Each cluster is evaluated in
 units of its centre, and the tables of an order are as long as the
-multiplicities of its monomials with nonzero invariants require.
+multiplicities of its monomials with nonzero invariants require. Where a
+nonzero squared mass is more than `2^40` times lighter than the largest, each
+cluster also takes the invariants in units of its centre, and a far mass at
+least `2^16` times heavier in units of its distance: terms of size `ρⁿ`
+underflowed there before (squared masses below 1e-24 of the largest lost up
+to 2e-6 relative in binary64 and 2e-15 in DoubleFloat, third review of #21).
+Other points are evaluated exactly as before.
 
-Elsewhere, and for `Float`, the general expression is evaluated, bit for bit
-as before; `NativeEvaluator::set_small_momentum(false)` restores it
+Outside the domain, and for `Float`, the general expression is evaluated,
+bit for bit as before, with one exception: where the general kernels return
+NaN or infinity, the evaluator sets invariants within `2^-30` of the largest
+argument to zero and evaluates again, and that retry can lie inside the
+domain and take the series (24 of 29,975 binary64 values in the third
+review's random points outside the domain, none for the worse).
+`NativeEvaluator::set_small_momentum(false)` restores the general expression
 everywhere. `c0_small_momentum` evaluates the series alone (`None` outside its
 domain), next to `b0_momentum_shift`. Against 1024 bits, the tests
 (`tests/small_momentum_c0.rs`) find served values within 1.3e-15 in binary64
-and 2.3e-31 in DoubleFloat. On 1.6 million random points of 34 mass classes
-(those of both reviews and the thresholds) they stay within 6.1e-15 and
-1.5e-30, and points the work budget declines keep the general expression's
-1e-10 and 1.4e-24. Outside the domain the cost is the general expression's;
-inside, most binary64 calls take 2 to 15 µs (the general expression 1 to
-2 µs), and distinct masses at the highest orders up to about 70 µs in
-binary64 and 1 ms in DoubleFloat.
+and 2.3e-31 in DoubleFloat. On 2 million random points of 41 mass classes
+(those of the three reviews, the thresholds and squared masses down to 1e-34
+of the largest) they stay within 6.1e-15 and 1.5e-30, and points the work
+budget declines keep the general expression's 1e-10 (1e-9 with two squared
+masses below 1e-12 of the third) and 1.4e-24. Outside the domain the cost is
+the general expression's; inside, most binary64 calls take 2 to 15 µs (the
+general expression 1 to 2 µs), and distinct masses at the highest orders up
+to about 115 µs in binary64 (180 times the general expression) and 1.5 ms in
+DoubleFloat (35 to 100 times). Rescaled points cost up to 15 % more in
+binary64.
 
 ## Numeric domains
 

@@ -4,8 +4,10 @@
 //! 1e-14 to 1/16 of the squared masses (one or none massless, equal,
 //! separated, nearby, hierarchical and complex masses; one, two or three
 //! nonzero invariants of either sign, in every propagator order), the cases
-//! of both reviews of #21 with points on both sides of the far-mass
-//! separation and of binary64's closeness, and random three-mass points.
+//! of the three reviews of #21 with points on both sides of the far-mass
+//! separation, of binary64's closeness and of the rescaling for squared
+//! masses far below the largest, and random three-mass points (down to 1e-34
+//! of the largest).
 //!
 //! Where the series serves a point (`c0_small_momentum` returns a value), it
 //! must be accurate to a few units of the precision. Where it declines, the
@@ -613,8 +615,13 @@ fn second_review_of_21_cases() {
     for x in [1.49, 1.51, 1.99, 2.01] {
         cases.push((format!("(1, {x}, 0)"), apart(x), true, false));
     }
-    // The flags say which carriers must serve the point; every point must be
-    // accurate on the route it takes.
+    assert_cases(&mut evaluators, cases);
+}
+
+/// Named points and the carriers that must serve them; every point must be
+/// accurate on the route it takes (a declined point: the general expression,
+/// for double-double within the series' orders).
+fn assert_cases(evaluators: &mut Evaluators, cases: Vec<(String, Point, bool, bool)>) {
     for (name, point, binary64, double_double) in cases {
         let outcome = evaluators.check(&point);
         println!("{name}: rho {:.3e} {outcome:?}", rho(&point));
@@ -649,6 +656,139 @@ fn second_review_of_21_cases() {
             );
         }
     }
+}
+
+/// The third review of #21: a nonzero squared mass far below the largest (D1 to
+/// D7, down to 1e-34 of it) must be served at the bounds, with onset sweeps
+/// and points on both sides of the rescaling threshold `2^-40`.
+#[test]
+fn third_review_of_21_cases() {
+    let mut evaluators = Evaluators::new();
+    let point = |s: [f64; 3], m: [f64; 3]| {
+        [
+            real(s[0]),
+            real(s[1]),
+            real(s[2]),
+            real(m[0]),
+            real(m[1]),
+            real(m[2]),
+            real(7.3),
+        ]
+    };
+    let mut cases: Vec<(String, Point, bool, bool)> = vec![
+        (
+            "D1".into(),
+            point([-6e-34, 0.0, 0.0], [1e-32, 2e-32, 1.0]),
+            true,
+            false,
+        ),
+        (
+            "D2".into(),
+            point([-1.167e-25, 0.0, 0.0], [1e-24, 2e-24, 1.0]),
+            true,
+            false,
+        ),
+        (
+            "D3".into(),
+            point(
+                [-1.0423410757830895e-29, 0.0, 0.0],
+                [
+                    8.348713658487341e-29,
+                    1.8483749301695216e-28,
+                    0.04278863316278276,
+                ],
+            ),
+            true,
+            false,
+        ),
+        (
+            "D4".into(),
+            point([-0.0023, 0.0, 0.0], [1.0, 0.0, 1e-30]),
+            true,
+            true,
+        ),
+        (
+            "D5".into(),
+            point([-0.0023, 0.0, 0.0], [1.0, 0.0, 1e-34]),
+            true,
+            true,
+        ),
+        (
+            "D6".into(),
+            point(
+                [-0.0, -0.0, 4.4797187706966715e-22],
+                [
+                    8.7186308281056e-20,
+                    11957381.75392906,
+                    1.4348713837390516e-19,
+                ],
+            ),
+            true,
+            true,
+        ),
+        (
+            "D7".into(),
+            point(
+                [-0.0, 1.6683316122991433e-36, 0.0],
+                [
+                    1.9700872362686774e-6,
+                    2.5629803088749135e-34,
+                    5.6057353225659384e-34,
+                ],
+            ),
+            true,
+            true,
+        ),
+    ];
+    // The onsets: (1, 0, r) at ρ = 2.3e-3 (double-double) and (r, 2r, 1) at
+    // ρ = 0.039 (binary64), both with p1² only, and at ρ = 1e-6.
+    for r in [1e-12, 1e-20, 1e-24, 1e-26, 1e-28, 1e-30, 1e-34] {
+        cases.push((
+            format!("(1, 0, {r:e})"),
+            point([-0.0023, 0.0, 0.0], [1.0, 0.0, r]),
+            true,
+            true,
+        ));
+        cases.push((
+            format!("(1, 0, {r:e}) at 1e-6"),
+            point([-1e-6, 0.0, 0.0], [1.0, 0.0, r]),
+            true,
+            true,
+        ));
+    }
+    let threshold = 2f64.powi(-40);
+    for r in [
+        1e-12,
+        1e-22,
+        1e-24,
+        1e-32,
+        0.99 * threshold,
+        1.01 * threshold,
+    ] {
+        cases.push((
+            format!("({r:e}, 2r, 1)"),
+            point([-0.039 * 3.0 * r, 0.0, 0.0], [r, 2.0 * r, 1.0]),
+            true,
+            false,
+        ));
+        cases.push((
+            format!("({r:e}, 2r, 1) at 1e-6"),
+            point([-1e-6 * 3.0 * r, 0.0, 0.0], [r, 2.0 * r, 1.0]),
+            true,
+            true,
+        ));
+    }
+    // Across the threshold with a tiny mass on its own and a heavy far node of
+    // two propagators.
+    for r in [0.99 * threshold, 1.01 * threshold] {
+        cases.push((
+            format!("(1, 1, {r:e})"),
+            point([-0.001, 0.0, -0.001], [1.0, 1.0, r]),
+            true,
+            true,
+        ));
+    }
+    assert_cases(&mut evaluators, cases);
 }
 
 /// xorshift64, so that the points are reproducible without an RNG crate.
@@ -705,6 +845,11 @@ fn random_masses(rng: &mut Rng, class: usize) -> [(f64, f64); 3] {
         ],
         // A massless propagator and two masses up to a factor 5 apart.
         3 => [real(0.0), real(1.0), real(rng.log_range(0.2, 5.0))],
+        // Two tiny masses, 1e-34 to 1e-12 of the third, up to a factor 3 apart.
+        5 => {
+            let a = 10f64.powf(rng.range(-34.0, -12.0));
+            [real(1.0), real(a), real(a * rng.log_range(0.3, 3.0))]
+        }
         // Uniform masses.
         _ => [
             real(rng.uniform()),
@@ -757,6 +902,7 @@ fn random_three_mass_points() {
         "two light",
         "(0, m, M)",
         "uniform",
+        "two tiny masses",
     ];
     let mut rng = Rng(0x5EED_C0C0_2026_1119);
     let mut evaluators = Evaluators::new();
