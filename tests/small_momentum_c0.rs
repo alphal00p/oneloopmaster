@@ -4,7 +4,8 @@
 //! 1e-14 to 1/16 of the squared masses (one or none massless, equal,
 //! separated, nearby, hierarchical and complex masses; one, two or three
 //! nonzero invariants of either sign, in every propagator order), the cases
-//! of the review of #21, and random three-mass points.
+//! of both reviews of #21 with points on both sides of the far-mass
+//! separation and of binary64's closeness, and random three-mass points.
 //!
 //! Where the series serves a point (`c0_small_momentum` returns a value), it
 //! must be accurate to a few units of the precision. Where it declines, the
@@ -14,18 +15,16 @@ use oneloop::{NativeEvaluator, ScalarIntegral, c0_small_momentum};
 use symbolica::domains::float::{Complex, DoubleFloat, Float, RealLike};
 
 const BITS: u32 = 1024;
-/// Served points (on random points the second grouping, residues of masses
-/// at moderate distances, can lose about 100 units of binary64).
+/// Served points.
 const SERVED_BINARY64: f64 = 4e-15;
-const SERVED_BINARY64_RANDOM: f64 = 3e-14;
-const SERVED_DOUBLE_DOUBLE: f64 = 1e-29;
+const SERVED_DOUBLE_DOUBLE: f64 = 1e-30;
 /// Declined points inside the series' range of orders (binary64 ρ ≤ 1/24,
 /// double-double ρ ≤ 1/415): the general expression there.
 const DECLINED_BINARY64: f64 = 1e-10;
 const DECLINED_DOUBLE_DOUBLE: f64 = 1e-22;
-/// Smallest ρ declined on the fixed mass sets.
-const SMALLEST_DECLINED_RHO_BINARY64: f64 = 1e-4;
-const SMALLEST_DECLINED_RHO_DOUBLE_DOUBLE: f64 = 1e-5;
+/// The series' range of orders: the fixed mass sets are served throughout.
+const ORDERS_BINARY64: f64 = 1.0 / 24.0;
+const ORDERS_DOUBLE_DOUBLE: f64 = 1.0 / 415.0;
 
 type Point = [(f64, f64); 7];
 
@@ -247,10 +246,10 @@ impl Summary {
         let _ = outcome.double_double_general;
     }
 
-    fn assert_accurate(&self, name: &str, served_binary64: f64) {
+    fn assert_accurate(&self, name: &str) {
         println!("{name}: {self:?}");
         assert!(
-            self.worst_served_binary64 < served_binary64,
+            self.worst_served_binary64 < SERVED_BINARY64,
             "{name}: served binary64 {:e}",
             self.worst_served_binary64
         );
@@ -357,11 +356,10 @@ fn small_momentum_c0_is_accurate_in_binary64_and_double_double() {
         let outcome = evaluators.check(&case);
         summary.add(&case, &outcome);
     }
-    summary.assert_accurate("fixed mass sets", SERVED_BINARY64);
-    // The work budget declines only at larger ρ (sooner in double-double,
-    // whose expansions are longer).
-    assert!(summary.smallest_declined_rho_binary64 > SMALLEST_DECLINED_RHO_BINARY64);
-    assert!(summary.smallest_declined_rho_double_double > SMALLEST_DECLINED_RHO_DOUBLE_DOUBLE);
+    summary.assert_accurate("fixed mass sets");
+    // Within its orders the series serves every fixed point.
+    assert!(summary.smallest_declined_rho_binary64 > ORDERS_BINARY64);
+    assert!(summary.smallest_declined_rho_double_double > ORDERS_DOUBLE_DOUBLE);
     // The general expression is what the small-momentum path repairs.
     assert!(summary.worst_general_binary64 > 1e-6);
 }
@@ -476,6 +474,178 @@ fn review_of_21_cases() {
             assert!(
                 outcome.served_double_double,
                 "{name}: double-double declined"
+            );
+        }
+    }
+}
+
+/// The cases of the second review of #21, which the series must serve:
+/// two light masses where the general expression keeps 1e-7 (A), a far mass
+/// 4 times lighter than a close pair (B) and masses about 1.5 times apart at
+/// binary64's highest orders (C), and points on both sides of the far-mass
+/// separation (8) and of binary64's closeness (a factor 2).
+#[test]
+fn second_review_of_21_cases() {
+    let mut evaluators = Evaluators::new();
+    let pair = |s: f64, close: f64, far: f64| {
+        [
+            real(0.0),
+            real(s),
+            real(0.0),
+            real(1.0),
+            real(far),
+            real(close),
+            real(7.3),
+        ]
+    };
+    // (1, x, 0) with p1² only at ρ = 0.037.
+    let apart = |x: f64| {
+        [
+            real(-0.037 * (1.0 + x)),
+            real(0.0),
+            real(0.0),
+            real(1.0),
+            real(x),
+            real(0.0),
+            real(7.3),
+        ]
+    };
+    let mut cases: Vec<(String, Point, bool, bool)> = vec![
+        (
+            "A1".into(),
+            [
+                real(0.0),
+                real(2.7154560641709367e-12),
+                real(0.0),
+                real(0.002833936460072468),
+                real(4.960376656625851e-11),
+                real(6.391638675976065e-11),
+                real(7.3),
+            ],
+            true,
+            false,
+        ),
+        (
+            "A2".into(),
+            [
+                real(0.0),
+                real(7.725726775100916e-12),
+                real(0.0),
+                real(0.0009112614124386656),
+                real(1.8375402578626648e-10),
+                real(1.5832519539193448e-11),
+                real(7.3),
+            ],
+            true,
+            false,
+        ),
+        (
+            "B1".into(),
+            pair(-0.0025784667908368836, 0.9999732, 0.2498547556760716),
+            true,
+            true,
+        ),
+        (
+            "B3".into(),
+            pair(-0.046237225960014644, 0.9998, 0.2498547556760716),
+            true,
+            false,
+        ),
+        (
+            "C1".into(),
+            [
+                real(-0.09274666666666667),
+                real(0.0),
+                real(0.0),
+                real(1.0),
+                real(1.5066666666666666),
+                real(0.0),
+                real(7.3),
+            ],
+            true,
+            false,
+        ),
+        (
+            "C2".into(),
+            [
+                real(-0.009335604456199737),
+                real(0.0),
+                real(0.0),
+                (0.1171875, -0.048828125),
+                real(0.126953125),
+                (0.1171875, -0.048828125),
+                real(7.3),
+            ],
+            true,
+            false,
+        ),
+        (
+            "C3".into(),
+            [
+                real(-3.5837784979204557),
+                real(0.0),
+                real(0.0),
+                real(48.748828181845894),
+                (48.748828181845894, -17.609712998081104),
+                real(48.748828181845894),
+                real(7.3),
+            ],
+            true,
+            false,
+        ),
+    ];
+    for q in [7.9f64, 8.1] {
+        for far in [1.0 / q, q] {
+            cases.push((
+                format!("far mass {far:.4} (double-double)"),
+                pair(-0.0025784667908368836 * far.max(1.0), 0.9999732, far),
+                true,
+                true,
+            ));
+            cases.push((
+                format!("far mass {far:.4} (binary64)"),
+                pair(-0.025 * far.max(1.0), 0.9998, far),
+                true,
+                false,
+            ));
+        }
+    }
+    for x in [1.49, 1.51, 1.99, 2.01] {
+        cases.push((format!("(1, {x}, 0)"), apart(x), true, false));
+    }
+    // The flags say which carriers must serve the point; every point must be
+    // accurate on the route it takes.
+    for (name, point, binary64, double_double) in cases {
+        let outcome = evaluators.check(&point);
+        println!("{name}: rho {:.3e} {outcome:?}", rho(&point));
+        assert!(
+            !binary64 || outcome.served_binary64,
+            "{name}: binary64 declined"
+        );
+        assert!(
+            !double_double || outcome.served_double_double,
+            "{name}: double-double declined"
+        );
+        let bound = if outcome.served_binary64 {
+            SERVED_BINARY64
+        } else {
+            1e-12
+        };
+        assert!(
+            outcome.binary64 < bound,
+            "{name}: binary64 {:e}",
+            outcome.binary64
+        );
+        if rho(&point) <= ORDERS_DOUBLE_DOUBLE {
+            let bound = if outcome.served_double_double {
+                SERVED_DOUBLE_DOUBLE
+            } else {
+                1e-27
+            };
+            assert!(
+                outcome.double_double < bound,
+                "{name}: double-double {:e}",
+                outcome.double_double
             );
         }
     }
@@ -602,7 +772,7 @@ fn random_three_mass_points() {
                 summary.add(&point, &evaluators.check(&point));
             }
         }
-        summary.assert_accurate(name, SERVED_BINARY64_RANDOM);
+        summary.assert_accurate(name);
     }
 }
 

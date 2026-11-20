@@ -309,6 +309,14 @@ explicit resource limits; see [expression inspection](README.md#combining-integr
   exact. Coefficients that are invariants (`m2 - m3 - p2` for equal masses, or
   a coefficient sum equal to a tiny invariant) are therefore formed without
   such cancellation in the contour box (`tests/d0_tiny_invariant.rs`).
+- The native C0 depends on the carrier at small external invariants
+  (`Σ |s_ij| / (Re m_i² + Re m_j²) ≤ 1/16`, NATIVE_BACKEND.md): binary64 and
+  DoubleFloat evaluate a momentum series there, to a few units of their
+  precision, while `Float` keeps the general expression, which cancels like
+  `max(m²)/|p²|` (and `m²/|m1² − m2²|` for nearly equal masses) and keeps only
+  the tracked bits left after that loss. Comparing `Float` with binary64 or
+  DoubleFloat there needs those bits in addition, or
+  `set_small_momentum(false)` on the fixed-precision evaluators.
 
 `EvaluationBackend::{Native, SymJit, Expression}` selects the manual Rust route.
 `DEFAULT_BACKEND` is Native, selected from measured mixed-family throughput.

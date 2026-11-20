@@ -27,8 +27,9 @@
 //! node contributes nothing: there `α_i ≤ n`, and `g_n` and its first `n`
 //! derivatives vanish at zero.
 //!
-//! Masses closer than a third of the larger one form a cluster expanded about
-//! its largest member `c`, the other members entering through
+//! Masses closer than half the larger one (a third in double-double) form a
+//! cluster expanded about its largest member `c`, the other members entering
+//! through
 //! `Π (1 − δ t)^{−M}` (offsets `δ`): `Σ_k H_k G_{N−1+k}`, truncated after
 //! `K` shells (two offsets by the recurrence of the product). Without a
 //! nonzero far node the shells are bounded by `C(n + k, n) rᵏ` (`r` the
@@ -45,41 +46,53 @@
 //! order one.
 //!
 //! Residues of masses at moderate distances, and a cluster with a nearby far
-//! node, lose up to about 100 units of the precision to cancellation. All
-//! nonzero masses expanded as one cluster about the largest do not, so that
-//! grouping is planned first and evaluated if its work fits
-//! [`WORK_BUDGET`]; otherwise the grouping above, if it fits.
+//! node, lose up to about 100 units of the precision to cancellation, and
+//! more at high orders: at binary64's twelfth order each residue of two
+//! masses 1.5 times apart exceeds the result 10² to 10⁴ times, which is why
+//! binary64 clusters masses up to a factor 2 apart. All nonzero masses
+//! expanded as one cluster about the largest do not cancel, so that grouping
+//! is planned first and evaluated if its work fits [`WORK_BUDGET`]; otherwise
+//! the grouping above, if it fits. The tables of an order are as long as the
+//! multiplicities of its monomials with nonzero invariants require.
 //!
 //! The finite part is returned (the integral has no poles in this domain), or
-//! `None` where the caller keeps the general expression: two or more massless
-//! propagators, an invariant with an imaginary part, `ρ > 1/16`, more than
-//! [`MAX_ORDER`] orders for the precision (binary64 `ρ ≲ 1/24`, double-double
-//! `ρ ≲ 1/415`), or no grouping within [`MAX_CLUSTER_TERMS`] shells and
-//! [`WORK_BUDGET`]. The work grows with the number of orders and with the
-//! spread of the masses, so the budget declines at larger `ρ`, where the
-//! general expression loses fewer digits: in the tests, declined points keep
-//! 3e-11 relative in binary64 (ρ above 4e-4) and 2e-23 in double-double (ρ
-//! above 3e-8).
+//! `None` where the caller keeps the general expression (see
+//! [`c0_small_momentum`] for the domain). The work grows with the number of
+//! orders, the number of nonzero invariants and the spread of the masses: in
+//! the tests the budget and the shell limit decline only distinct masses at
+//! high orders, binary64 points from `ρ ≈ 1e-3`, where the general expression
+//! keeps 1e-10 relative, and double-double points from `ρ ≈ 1e-7`, where it
+//! keeps 1.4e-24.
 
 use super::primitives::{C, NativeFloat, add, inverse, log, mul};
 
 /// Largest order `n` of the momentum series: binary64 takes it up to
 /// `ρ ≈ 1/24`, double-double up to `ρ ≈ 1/415`. Just beyond, the general
 /// expression loses about `log10(1/ρ)` digits for comparable masses, and more
-/// where two light masses are small against the third (about 1e-9 relative
-/// in binary64 for squared masses 1e-8 of the third).
+/// where two light masses are small against the third (up to about 1.5e-7
+/// relative in binary64 at `ρ ≈ 0.04` to `0.06`, review of #21).
 const MAX_ORDER: usize = 12;
 /// Largest number of shells of a cluster's expansion about its largest member.
 const MAX_CLUSTER_TERMS: usize = 256;
 /// Largest number of terms of an evaluation: expansion shells, residue
 /// products and table entries, summed over the monomials of every order (see
-/// `Cluster::cost` and `Cluster::table_cost`). About 3 to 5 ns each in
-/// binary64 and 50 ns in double-double, so the series costs at most about
-/// 10 to 20 times the general expression.
-const WORK_BUDGET: usize = 8192;
-/// A nonzero far node this many times heavier or lighter than a cluster's
-/// centre does not cancel against the cluster's part.
-const FAR_SEPARATION: f64 = 4.0;
+/// `Cluster::cost` and `Cluster::table_cost`). It is reached only by distinct
+/// masses at high orders (in the tests binary64 from `ρ ≈ 1e-3`,
+/// double-double from `ρ ≈ 1e-7`); below it the series costs up to about
+/// 70 µs per call in binary64 and 1 ms in double-double (the general
+/// expression 1 to 2 µs and 20 to 40 µs). A smaller budget would decline
+/// points where the general expression is far off: with two light masses it
+/// loses `log10(max m² / |p²|)` digits (2.7e-2 relative in binary64 for
+/// squared masses a few 1e-12 of the third at `ρ ≈ 0.035`), and at 8192 even
+/// comparable masses kept only about 1e-9 near `ρ ≈ 1/24`.
+const WORK_BUDGET: usize = 32768;
+/// A nonzero far node `z_f` this many times heavier or lighter than a
+/// cluster's centre `c` does not cancel against the cluster's part. The
+/// cluster's coefficients carry the far pole, so that its part exceeds the
+/// divided difference by about `C(2n + 1, n) |q|^{n+1} / |1 − q|^{2n+2}`
+/// (`q = z_f / c`, the same for `q` and `1/q`): at order 12, 137 for `q = 4`,
+/// 1.4 for `q = 5` and 3e-4 for `q = 8`.
+const FAR_SEPARATION: f64 = 8.0;
 
 fn modulus<T: NativeFloat>(z: &C<T>) -> T {
     NativeFloat::hypot(&z.re, &z.im)
@@ -210,10 +223,39 @@ struct Cluster<T: NativeFloat> {
     terms: Vec<usize>,
 }
 
-/// Largest multiplicity of `node` at order `n`: `α_i ≤ n` for one
-/// propagator, `α_i + α_j ≤ 2n` for two or three.
-fn largest_multiplicity<T: NativeFloat>(node: &Node<T>, n: usize) -> usize {
-    node.members.len() + if node.members.len() == 1 { n } else { 2 * n }
+/// Monomials of `Qⁿ` per order `n ≤ order` and the largest multiplicity of
+/// each node over them, counting only monomials whose invariants are nonzero
+/// (`zero[k]` for `s01`, `s12`, `s02`): with one nonzero invariant a node of
+/// one propagator has multiplicity 1 or `n + 1`, not every value up to
+/// `n + 1`, so the tables stay as short as the evaluation needs.
+fn monomial_shapes<T: NativeFloat>(
+    nodes: &[Node<T>],
+    order: usize,
+    zero: [bool; 3],
+) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let mut counts = Vec::with_capacity(order + 1);
+    let mut tops = Vec::with_capacity(order + 1);
+    for n in 0..=order {
+        let mut count = 0;
+        let mut top = vec![0usize; nodes.len()];
+        for k01 in 0..=n {
+            for k12 in 0..=n - k01 {
+                let k02 = n - k01 - k12;
+                if (k01 > 0 && zero[0]) || (k12 > 0 && zero[1]) || (k02 > 0 && zero[2]) {
+                    continue;
+                }
+                count += 1;
+                let alpha = [k01 + k02, k01 + k12, k12 + k02];
+                for (slot, node) in top.iter_mut().zip(nodes) {
+                    let m: usize = node.members.iter().map(|&i| alpha[i] + 1).sum();
+                    *slot = (*slot).max(m);
+                }
+            }
+        }
+        counts.push(count);
+        tops.push(top);
+    }
+    (counts, tops)
 }
 
 /// One cluster's tables at order `n`: `divided[M]` is the series of
@@ -315,9 +357,9 @@ fn offset_powers<T: NativeFloat>(
 impl<T: NativeFloat> Cluster<T> {
     /// Terms of one monomial's contribution at order `n` (shells and residue
     /// products), for the work estimate.
-    fn cost(&self, nodes: &[Node<T>], n: usize) -> usize {
+    fn cost(&self, top: &[usize], n: usize) -> usize {
         match (self.offsets.len(), self.far.len()) {
-            (0, 2) => largest_multiplicity(&nodes[self.centre], n),
+            (0, 2) => top[self.centre],
             (0, _) => 1,
             (1, _) => self.terms[n] + 1,
             _ => 3 * (self.terms[n] + 1),
@@ -325,8 +367,8 @@ impl<T: NativeFloat> Cluster<T> {
     }
 
     /// Terms of the tables at order `n`, for the work estimate.
-    fn table_cost(&self, nodes: &[Node<T>], n: usize) -> usize {
-        let largest = |node: usize| largest_multiplicity(&nodes[node], n);
+    fn table_cost(&self, top: &[usize], n: usize) -> usize {
+        let largest = |node: usize| top[node];
         let terms = self.terms[n];
         let length = 2 * n + 3 + terms;
         let mut cost = length;
@@ -344,9 +386,9 @@ impl<T: NativeFloat> Cluster<T> {
 
     /// Tables at order `n`, each only as large as the multiplicities of its
     /// nodes require.
-    fn tables(&self, nodes: &[Node<T>], n: usize, reciprocal: &[T]) -> Tables<T> {
+    fn tables(&self, top: &[usize], n: usize, reciprocal: &[T]) -> Tables<T> {
         let terms = self.terms[n];
-        let largest = |node: usize| largest_multiplicity(&nodes[node], n);
+        let largest = |node: usize| top[node];
         // The multiplicities of all nodes add up to 2n + 3.
         let size = (largest(self.centre)
             + self.offsets.iter().map(|(k, _)| largest(*k)).sum::<usize>())
@@ -457,13 +499,7 @@ impl Lengths {
     /// Shells at order `n`, or `None` beyond [`MAX_CLUSTER_TERMS`]: `full`
     /// is the log of the tolerance, `relaxed` that of the share of order `n`
     /// where nothing cancels against the cluster's part.
-    fn at<T: NativeFloat>(
-        &self,
-        nodes: &[Node<T>],
-        n: usize,
-        full: f64,
-        relaxed: f64,
-    ) -> Option<usize> {
+    fn at(&self, tops: &[usize], n: usize, full: f64, relaxed: f64) -> Option<usize> {
         if self.nonzero_far.is_empty() {
             // Shells bounded by C(n + k, n) rᵏ relative to the divided
             // difference.
@@ -471,10 +507,10 @@ impl Lengths {
         }
         let top = |list: &[usize]| {
             list.iter()
-                .map(|&k| largest_multiplicity(&nodes[k], n))
+                .map(|&k| tops[k])
                 .max()
                 .unwrap_or(1)
-                - 1
+                .saturating_sub(1)
         };
         let polynomial = top(&self.offsets) + top(&self.nonzero_far);
         let target = if self.separated { relaxed } else { full };
@@ -485,10 +521,12 @@ impl Lengths {
 /// Clusters for `groups` (node indices; massless nodes are never expanded),
 /// with their shells per order, or `None` where an expansion would be longer
 /// than [`MAX_CLUSTER_TERMS`] or the evaluation would exceed
-/// [`WORK_BUDGET`]. `counts[n]` is the number of monomials at order `n`,
-/// `log_rho = ln ρ`.
+/// [`WORK_BUDGET`]. `counts[n]` is the number of monomials at order `n` and
+/// `tops[n]` the largest multiplicity of each node over them (see
+/// [`monomial_shapes`]), `log_rho = ln ρ`.
 fn plan<T: NativeFloat>(
     nodes: &[Node<T>],
+    tops: &[Vec<usize>],
     groups: &[Vec<usize>],
     order: usize,
     log_rho: f64,
@@ -568,11 +606,11 @@ fn plan<T: NativeFloat>(
         let relaxed = full - share - ((order + 1) as f64).ln();
         for (cluster, rule) in clusters.iter_mut().zip(&lengths) {
             if let Some(rule) = rule {
-                cluster.terms[n] = rule.at(nodes, n, full, relaxed)?;
+                cluster.terms[n] = rule.at(&tops[n], n, full, relaxed)?;
             }
         }
         for cluster in &clusters {
-            work += count * cluster.cost(nodes, n) + cluster.table_cost(nodes, n);
+            work += count * cluster.cost(&tops[n], n) + cluster.table_cost(&tops[n], n);
         }
         if work > WORK_BUDGET {
             return None;
@@ -584,13 +622,27 @@ fn plan<T: NativeFloat>(
 /// Finite part of `C0(p1², p2², p3²; m1², m2², m3²)` for small external
 /// invariants, accurate to about `tolerance` relative (pass about the working
 /// precision's unit roundoff), or `None` where the caller should keep the
-/// general expression (see the module documentation). `input` is laid out as
-/// for [`NativeEvaluator`](super::NativeEvaluator) with
+/// general expression. `input` is laid out as for
+/// [`NativeEvaluator`](super::NativeEvaluator) with
 /// [`ScalarIntegral::C0`](crate::ScalarIntegral::C0):
 /// `[p1², p2², p3², m1², m2², m3², μ²]` (`μ²` is not used), with `p1²` the
 /// invariant between propagators 1 and 2, `p2²` between 2 and 3 and `p3²`
-/// between 1 and 3, and complex squared masses `m² − i m Γ`. Only binary64
-/// and double-double are supported (`None` otherwise).
+/// between 1 and 3, and complex squared masses `m² − i m Γ`. The poles of the
+/// integral vanish in this domain.
+///
+/// The value is the series `C0 = −Σ_n ∫ dA Qⁿ / Dⁿ⁺¹` over the
+/// Feynman-parameter triangle (`D = Σ x_i m_i²`, `Q = Σ_{i<j} x_i x_j s_ij`).
+/// It is returned only where
+/// - the carrier is binary64 or double-double (`Float` returns `None`);
+/// - at most one squared mass is zero and the others have `Re m² > 0` (either
+///   sign of `Im m²`: the evaluator rejects `Im m² > 0` before calling this);
+/// - the invariants are real;
+/// - `ρ = Σ_{i<j} |s_ij| / (Re m_i² + Re m_j²) ≤ 1/16`, so that `|Q| ≤ ρ |D|`,
+///   and at most 12 orders reach `tolerance` (binary64 `ρ ≲ 1/24`,
+///   double-double `ρ ≲ 1/415`);
+/// - a grouping of the masses needs at most 256 shells per expansion and
+///   32768 terms of work, which only distinct masses at high orders exceed
+///   (in the tests binary64 from `ρ ≈ 1e-3`, double-double from `ρ ≈ 1e-7`).
 pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Option<C<T>> {
     if input.len() < 6 || T::FIXED_BITS.is_none() {
         return None;
@@ -614,11 +666,9 @@ pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Optio
     // s01 = p1², s12 = p2², s02 = p3² (the evaluator's leg order).
     let pairs = [(0usize, 1usize), (1, 2), (0, 2)];
     let mut rho = zero_real.clone();
-    let mut nonzero = 0;
     for (k, &(i, j)) in pairs.iter().enumerate() {
         let s = &input[k].re;
         if !s.is_zero() {
-            nonzero += 1;
             let size = if *s < zero_real {
                 -s.clone()
             } else {
@@ -631,15 +681,6 @@ pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Optio
         return None;
     }
     let order = geometric_terms(&rho, tolerance, MAX_ORDER)?;
-    // Monomials per order: C(n + z − 1, z − 1) for z nonzero invariants.
-    let counts: Vec<usize> = (0..=order)
-        .map(|n| match nonzero {
-            0 => usize::from(n == 0),
-            1 => 1,
-            2 => n + 1,
-            _ => (n + 1) * (n + 2) / 2,
-        })
-        .collect();
 
     let largest = masses
         .iter()
@@ -668,14 +709,30 @@ pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Optio
             }),
         }
     }
-    let third = constant(prototype, 1, 3);
+    // The zero pattern of the unscaled invariants, so that every order has a
+    // monomial unless all invariants vanish (then the order is 0).
+    let zero = [
+        input[0].re.is_zero(),
+        input[1].re.is_zero(),
+        input[2].re.is_zero(),
+    ];
+    let (counts, tops) = monomial_shapes(&nodes, order, zero);
+    // Masses closer than this fraction of the larger one are expanded
+    // together: residues of masses 1.5 times apart cancel at the twelve
+    // orders binary64 takes up to ρ ≈ 1/24, but not at double-double's up to
+    // ρ ≈ 1/415, where wider clusters would need more shells.
+    let closeness = if T::FIXED_BITS == Some(53) {
+        constant(prototype, 1, 2)
+    } else {
+        constant(prototype, 1, 3)
+    };
     let close = |x: &Node<T>, y: &Node<T>| {
         if x.zero || y.zero {
             return false;
         }
         let (mx, my) = (modulus(&x.value), modulus(&y.value));
         let bigger = if mx > my { mx } else { my };
-        modulus(&sub(&x.value, &y.value)) < bigger * &third
+        modulus(&sub(&x.value, &y.value)) < bigger * &closeness
     };
     // Groups: the closest close pair, joined by the third node when it is
     // close to either; every other node alone.
@@ -724,9 +781,17 @@ pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Optio
         rho.to_f64().ln()
     };
     let log_tolerance = tolerance.to_f64().ln();
-    let mut clusters = candidates
-        .iter()
-        .find_map(|groups| plan(&nodes, groups, order, log_rho, log_tolerance, &counts))?;
+    let mut clusters = candidates.iter().find_map(|groups| {
+        plan(
+            &nodes,
+            &tops,
+            groups,
+            order,
+            log_rho,
+            log_tolerance,
+            &counts,
+        )
+    })?;
     for cluster in &mut clusters {
         cluster.log = log(&nodes[cluster.centre].value);
     }
@@ -761,11 +826,11 @@ pub fn c0_small_momentum<T: NativeFloat>(input: &[C<T>], tolerance: &T) -> Optio
     let mut total = complex_zero(prototype);
     let mut multiplicity = vec![0usize; count];
     let mut sums = vec![complex_zero(prototype); clusters.len()];
-    for n in 0..=order {
+    for (n, top) in tops.iter().enumerate() {
         let p = n + 1;
         let tables: Vec<Tables<T>> = clusters
             .iter()
-            .map(|cluster| cluster.tables(&nodes, n, &reciprocal))
+            .map(|cluster| cluster.tables(top, n, &reciprocal))
             .collect();
         for sum in sums.iter_mut() {
             *sum = complex_zero(prototype);

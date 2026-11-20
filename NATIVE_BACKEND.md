@@ -210,6 +210,52 @@ helper's signature. The Symbolica instruction export includes symbolic
 constant metadata: its numeric zero placeholders must never be mistaken for
 exact zeros by another backend.
 
+## C0 at small external momenta (`native/small_momentum_c0.rs`)
+
+When every external invariant is small against the squared masses, the
+general C0 expression cancels like `max(m²)/|p²|`: binary64 kept 5.7e-5
+relative for masses `(0, m, m)` at `|p²| = 1.2e-12 m²` and 1.5e-3 for
+`(m, m, m)`, two light masses lost `log10(max m²/|p²|)` digits (2.7e-2 for
+squared masses a few 1e-12 of the third at `ρ ≈ 0.035`), nearly equal masses lose
+`m²/|m1² − m2²|` even at zero invariants, and `(0, m, m)` at `p² = 0`
+returned 0 in binary64 and DoubleFloat instead of `−1/m²`. The binary64 and
+DoubleFloat evaluators therefore take the momentum series
+`C0 = −Σ_n ∫ dA Qⁿ / Dⁿ⁺¹` (`D = Σ x_i m_i²`, `Q = Σ_{i<j} x_i x_j s_ij` over
+the Feynman-parameter triangle) wherever
+
+- at most one propagator is massless, the others have `Re m² > 0`, and the
+  invariants are real;
+- `ρ = Σ |s_ij| / (Re m_i² + Re m_j²) ≤ 1/16` (then `|Q| ≤ ρ |D|`) and twelve
+  orders reach the precision (binary64 `ρ ≲ 1/24`, DoubleFloat `ρ ≲ 1/415`);
+- a grouping of the masses needs at most 256 shells per expansion and 32768
+  terms of work (only distinct masses at high orders exceed them: binary64
+  from `ρ ≈ 1e-3`, DoubleFloat from `ρ ≈ 1e-7`).
+
+Each monomial of `Qⁿ` integrates (Hermite–Genocchi) to a confluent divided
+difference of `z^{n+1} ln z` over the squared masses. All nonzero masses are
+first expanded as one cluster about the largest, which cannot cancel against
+a residue. Otherwise masses within a factor 2 of each other (1.5 in
+DoubleFloat) form a cluster and the others residues: at binary64's twelfth
+order, residues of masses 1.5 times apart each exceed the result 10² to 10⁴
+times. A cluster's length follows the binomial tail bound of the review of
+#21, with only `ρⁿ` of the tolerance at order `n` where no far mass within a
+factor 8 can cancel against the cluster's part. Each cluster is evaluated in
+units of its centre, and the tables of an order are as long as the
+multiplicities of its monomials with nonzero invariants require.
+
+Elsewhere, and for `Float`, the general expression is evaluated, bit for bit
+as before; `NativeEvaluator::set_small_momentum(false)` restores it
+everywhere. `c0_small_momentum` evaluates the series alone (`None` outside its
+domain), next to `b0_momentum_shift`. Against 1024 bits, the tests
+(`tests/small_momentum_c0.rs`) find served values within 1.3e-15 in binary64
+and 2.3e-31 in DoubleFloat. On 1.6 million random points of 34 mass classes
+(those of both reviews and the thresholds) they stay within 6.1e-15 and
+1.5e-30, and points the work budget declines keep the general expression's
+1e-10 and 1.4e-24. Outside the domain the cost is the general expression's;
+inside, most binary64 calls take 2 to 15 µs (the general expression 1 to
+2 µs), and distinct masses at the highest orders up to about 70 µs in
+binary64 and 1 ms in DoubleFloat.
+
 ## Numeric domains
 
 The generated functions are generic over `NativeFloat`, implemented for `f64`,
