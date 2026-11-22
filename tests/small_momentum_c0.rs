@@ -4,10 +4,10 @@
 //! 1e-14 to 1/16 of the squared masses (one or none massless, equal,
 //! separated, nearby, hierarchical and complex masses; one, two or three
 //! nonzero invariants of either sign, in every propagator order), the cases
-//! of the three reviews of #21 with points on both sides of the far-mass
+//! of the four reviews of #21 with points on both sides of the far-mass
 //! separation, of binary64's closeness and of the rescaling for squared
-//! masses far below the largest, and random three-mass points (down to 1e-34
-//! of the largest).
+//! masses far below the largest (down to 1e-308 of it, against 4096 bits),
+//! and random three-mass points (down to 1e-34 of the largest).
 //!
 //! Where the series serves a point (`c0_small_momentum` returns a value), it
 //! must be accurate to a few units of the precision. Where it declines, the
@@ -69,6 +69,7 @@ struct Evaluators {
     double_double: NativeEvaluator<DoubleFloat>,
     double_double_general: NativeEvaluator<DoubleFloat>,
     reference: NativeEvaluator<Float>,
+    bits: u32,
 }
 
 fn wide(x: &DoubleFloat) -> Float {
@@ -95,13 +96,19 @@ fn relative(value: &[Complex<Float>], reference: &[Complex<Float>]) -> f64 {
 
 impl Evaluators {
     fn new() -> Self {
+        Self::with_bits(BITS)
+    }
+
+    /// With the reference at `bits`: the general expression cancels like the
+    /// ratio of the squared masses (about 1024 bits at 1e-300).
+    fn with_bits(bits: u32) -> Self {
         let mut binary64_general = NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
         binary64_general.set_small_momentum(false);
         let mut double_double_general =
             NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap();
         double_double_general.set_small_momentum(false);
         let mut reference =
-            NativeEvaluator::<Float>::with_binary_precision(ScalarIntegral::C0, BITS).unwrap();
+            NativeEvaluator::<Float>::with_binary_precision(ScalarIntegral::C0, bits).unwrap();
         reference.set_small_momentum(false);
         Self {
             binary64: NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap(),
@@ -109,6 +116,7 @@ impl Evaluators {
             double_double: NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::C0).unwrap(),
             double_double_general,
             reference,
+            bits,
         }
     }
 
@@ -134,9 +142,14 @@ impl Evaluators {
         let exact = {
             let input: Vec<_> = point
                 .iter()
-                .map(|&(re, im)| Complex::new(Float::with_val(BITS, re), Float::with_val(BITS, im)))
+                .map(|&(re, im)| {
+                    Complex::new(
+                        Float::with_val(self.bits, re),
+                        Float::with_val(self.bits, im),
+                    )
+                })
                 .collect();
-            let mut out = vec![Complex::new(Float::new(BITS), Float::new(BITS)); 3];
+            let mut out = vec![Complex::new(Float::new(self.bits), Float::new(self.bits)); 3];
             self.reference.evaluate(&input, &mut out).unwrap();
             out
         };
@@ -789,6 +802,195 @@ fn third_review_of_21_cases() {
         ));
     }
     assert_cases(&mut evaluators, cases);
+}
+
+/// The fourth review of #21: squared masses 1e-280 to 1e-308 of the largest.
+/// Binary64 must serve every point within its bound. Double-double must serve
+/// within its bound, or within 1e-18 where a squared mass is subnormal in
+/// units of the largest (E2: 3e-308 / 4).
+#[test]
+fn fourth_review_of_21_cases() {
+    let mut evaluators = Evaluators::with_bits(4096);
+    let real_point = |s: [f64; 3], m: [f64; 3]| {
+        [
+            real(s[0]),
+            real(s[1]),
+            real(s[2]),
+            real(m[0]),
+            real(m[1]),
+            real(m[2]),
+            real(7.3),
+        ]
+    };
+    let mut cases: Vec<(String, Point, f64)> = vec![
+        (
+            "E1".into(),
+            real_point(
+                [2.3343167234073204e-9, 0.0, -4.4696995539028515e-8],
+                [1.0, 1.023539454613651e-308, 1.0],
+            ),
+            SERVED_DOUBLE_DOUBLE,
+        ),
+        (
+            "E2".into(),
+            real_point([-0.0023, 0.0, 0.0], [4.0, 0.0, 3e-308]),
+            1e-18,
+        ),
+        (
+            "(1, 0, 7.5e-309)".into(),
+            real_point([-0.0023, 0.0, 0.0], [1.0, 0.0, 7.5e-309]),
+            SERVED_DOUBLE_DOUBLE,
+        ),
+        (
+            "F1".into(),
+            real_point([-1e-6, 0.0, 0.0], [1.0, 1e-298, 0.0]),
+            SERVED_DOUBLE_DOUBLE,
+        ),
+        (
+            "F2".into(),
+            real_point([0.0, -3e-306, 0.0], [1.0, 1e-300, 2e-300]),
+            SERVED_DOUBLE_DOUBLE,
+        ),
+        (
+            "F3".into(),
+            real_point([-0.0023, 0.0, 0.0], [1.0, 1e-307, 0.0]),
+            SERVED_DOUBLE_DOUBLE,
+        ),
+        (
+            "(1, 1, 1e-300)".into(),
+            real_point([-0.001, 0.0, -0.001], [1.0, 1.0, 1e-300]),
+            SERVED_DOUBLE_DOUBLE,
+        ),
+        (
+            "top and W with widths, 1e-300".into(),
+            [
+                real(0.0),
+                real(0.0),
+                real(-0.002),
+                (1.0, -0.0081),
+                (0.2159, -0.0016),
+                real(1e-300),
+                real(7.3),
+            ],
+            SERVED_DOUBLE_DOUBLE,
+        ),
+    ];
+    for r in [1e-280, 1e-290, 1e-296, 1e-300, 1e-304, 1e-307] {
+        cases.push((
+            format!("(1, 0, {r:e})"),
+            real_point([-0.0023, 0.0, 0.0], [1.0, 0.0, r]),
+            SERVED_DOUBLE_DOUBLE,
+        ));
+        cases.push((
+            format!("(1, 0, {r:e}) at 1e-6"),
+            real_point([-1e-6, 0.0, 0.0], [1.0, 0.0, r]),
+            SERVED_DOUBLE_DOUBLE,
+        ));
+    }
+    // No points at ρ = 0.039: beyond double-double's orders its general
+    // expression is not finite at these masses, and the evaluator's retry with
+    // the invariants set to zero takes the series (see `NATIVE_BACKEND.md`),
+    // which `check` does not expect.
+    for r in [1e-290, 1e-300, 1e-305] {
+        cases.push((
+            format!("({r:e}, 2r, 1) at 1e-6"),
+            real_point([-1e-6 * 3.0 * r, 0.0, 0.0], [r, 2.0 * r, 1.0]),
+            SERVED_DOUBLE_DOUBLE,
+        ));
+    }
+    for (name, point, bound) in cases {
+        let outcome = evaluators.check(&point);
+        println!("{name}: rho {:.3e} {outcome:?}", rho(&point));
+        assert!(outcome.served_binary64, "{name}: binary64 declined");
+        assert!(
+            outcome.binary64 < SERVED_BINARY64,
+            "{name}: binary64 {:e}",
+            outcome.binary64
+        );
+        assert!(
+            outcome.served_double_double,
+            "{name}: double-double declined"
+        );
+        assert!(
+            outcome.double_double < bound,
+            "{name}: double-double {:e}",
+            outcome.double_double
+        );
+    }
+}
+
+/// The review of #23: two nearly equal complex squared masses whose
+/// difference is subnormal in units of the largest (I1, I2, and the pairs
+/// where that starts; double-double was up to 1e99 off), and complex far nodes
+/// beyond `2^500` times heavier than the centre (H1, H2). Both carriers must
+/// serve within their bounds.
+#[test]
+fn review_of_23_cases() {
+    let mut evaluators = Evaluators::with_bits(4096);
+    let point = |m: [(f64, f64); 3]| {
+        [
+            real(-0.0023),
+            real(0.0),
+            real(0.0),
+            m[0],
+            m[1],
+            m[2],
+            real(7.3),
+        ]
+    };
+    let mut cases: Vec<(String, Point)> = vec![
+        ("H1".into(), point([(1.0, -0.008), real(1e-160), real(0.0)])),
+        ("H2".into(), point([(1.0, -0.008), real(1e-152), real(0.0)])),
+        (
+            "I1".into(),
+            point([
+                real(1.0),
+                (1e-300, -3e-301),
+                (1.0000000000010002e-300, -3.0000000000030002e-301),
+            ]),
+        ),
+        (
+            "I2".into(),
+            point([
+                real(1.0),
+                (1e-303, -2.9999999999999997e-304),
+                (1.0000009999999998e-303, -3.0000029999999995e-304),
+            ]),
+        ),
+    ];
+    for (a, r) in [
+        (1e-298, 1e-12),
+        (1e-300, 1e-10),
+        (1e-303, 1e-6),
+        (1e-306, 1e-4),
+    ] {
+        let b = a * (1.0 + r);
+        for width in [0.01, 0.3, 5.0] {
+            cases.push((
+                format!("(1, {a:e} (1 - {width}i), {a:e} (1 + {r:e})(1 - {width}i))"),
+                point([real(1.0), (a, -width * a), (b, -width * b)]),
+            ));
+        }
+    }
+    for (name, point) in cases {
+        let outcome = evaluators.check(&point);
+        println!("{name}: rho {:.3e} {outcome:?}", rho(&point));
+        assert!(outcome.served_binary64, "{name}: binary64 declined");
+        assert!(
+            outcome.binary64 < SERVED_BINARY64,
+            "{name}: binary64 {:e}",
+            outcome.binary64
+        );
+        assert!(
+            outcome.served_double_double,
+            "{name}: double-double declined"
+        );
+        assert!(
+            outcome.double_double < SERVED_DOUBLE_DOUBLE,
+            "{name}: double-double {:e}",
+            outcome.double_double
+        );
+    }
 }
 
 /// xorshift64, so that the points are reproducible without an RNG crate.
