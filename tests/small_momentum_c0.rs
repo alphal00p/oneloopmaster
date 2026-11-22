@@ -919,6 +919,80 @@ fn fourth_review_of_21_cases() {
     }
 }
 
+/// The review of #23: two nearly equal complex squared masses whose
+/// difference is subnormal in units of the largest (I1, I2, and the pairs
+/// where that starts; double-double was up to 1e99 off), and complex far nodes
+/// beyond `2^500` times heavier than the centre (H1, H2). Both carriers must
+/// serve within their bounds.
+#[test]
+fn review_of_23_cases() {
+    let mut evaluators = Evaluators::with_bits(4096);
+    let point = |m: [(f64, f64); 3]| {
+        [
+            real(-0.0023),
+            real(0.0),
+            real(0.0),
+            m[0],
+            m[1],
+            m[2],
+            real(7.3),
+        ]
+    };
+    let mut cases: Vec<(String, Point)> = vec![
+        ("H1".into(), point([(1.0, -0.008), real(1e-160), real(0.0)])),
+        ("H2".into(), point([(1.0, -0.008), real(1e-152), real(0.0)])),
+        (
+            "I1".into(),
+            point([
+                real(1.0),
+                (1e-300, -3e-301),
+                (1.0000000000010002e-300, -3.0000000000030002e-301),
+            ]),
+        ),
+        (
+            "I2".into(),
+            point([
+                real(1.0),
+                (1e-303, -2.9999999999999997e-304),
+                (1.0000009999999998e-303, -3.0000029999999995e-304),
+            ]),
+        ),
+    ];
+    for (a, r) in [
+        (1e-298, 1e-12),
+        (1e-300, 1e-10),
+        (1e-303, 1e-6),
+        (1e-306, 1e-4),
+    ] {
+        let b = a * (1.0 + r);
+        for width in [0.01, 0.3, 5.0] {
+            cases.push((
+                format!("(1, {a:e} (1 - {width}i), {a:e} (1 + {r:e})(1 - {width}i))"),
+                point([real(1.0), (a, -width * a), (b, -width * b)]),
+            ));
+        }
+    }
+    for (name, point) in cases {
+        let outcome = evaluators.check(&point);
+        println!("{name}: rho {:.3e} {outcome:?}", rho(&point));
+        assert!(outcome.served_binary64, "{name}: binary64 declined");
+        assert!(
+            outcome.binary64 < SERVED_BINARY64,
+            "{name}: binary64 {:e}",
+            outcome.binary64
+        );
+        assert!(
+            outcome.served_double_double,
+            "{name}: double-double declined"
+        );
+        assert!(
+            outcome.double_double < SERVED_DOUBLE_DOUBLE,
+            "{name}: double-double {:e}",
+            outcome.double_double
+        );
+    }
+}
+
 /// xorshift64, so that the points are reproducible without an RNG crate.
 struct Rng(u64);
 

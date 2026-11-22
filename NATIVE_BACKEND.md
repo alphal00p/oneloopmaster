@@ -247,18 +247,24 @@ cluster also takes the invariants in units of its centre, and a far mass at
 least `2^16` times heavier in units of its distance: terms of size `ρⁿ`
 underflowed there before (squared masses below 1e-24 of the largest lost up
 to 2e-6 relative in binary64 and 2e-15 in DoubleFloat, third review of #21).
-Other points are evaluated exactly as before. The rescaled evaluation forms a
-far mass's factors from `d/t` rather than `1/d` (the same values unless `1/d`
-is subnormal), and in DoubleFloat a centre below `2^-960` takes its logarithm as
-`ln(c 2^-e) + e ln 2`: the double-double logarithm (xprec) loses about
-`2^-1074 / c` absolute below `2^-969`. Before, DoubleFloat lost up to 8e-17
-relative below 1e-292 of the largest, and a centre below `2^-1023` declined
-(fourth review of #21); on 8,000 random points with squared masses 1e-280 to
-1e-308 of the largest, served values now stay within 1.1e-15 and 1.8e-31 where
-the inputs are normal in units of the largest. A squared mass below about
-`2^-1024` of the largest still declines, and a squared mass or invariant that
-is subnormal in units of the largest keeps only its remaining bits, which
-limits DoubleFloat to about 1e-19 relative.
+Other points are evaluated exactly as before. Where a cluster's centre is below
+`2^-960` of the largest, the rescaled evaluation forms a far mass's factors
+from `d/t` rather than `1/d`, and in DoubleFloat the centre takes its
+logarithm as `ln(c 2^-e) + e ln 2`: below about `2^-969`, the double-double
+low word of `1/d` is subnormal, and the double-double logarithm (xprec) loses
+about `2^-1074 / c` absolute. In DoubleFloat, the modulus of a complex number whose parts are both
+subnormal is taken in units of `2^-600`: the double-double modulus divides
+one part by the other, which is NaN below about `2^-1024`, and two nearly
+equal complex squared masses whose difference is that small were not expanded
+together (up to 1e201 off, review of #23). Before, DoubleFloat lost up to
+8e-17 relative below 1e-292 of the largest, and a centre below `2^-1023`
+declined (fourth review of #21); on 8,000 random points with squared masses
+1e-280 to 1e-308 of the largest and 5,760 nearly equal pairs, served values
+now stay within 1.5e-15 and 1.8e-31 where the inputs are normal in units of
+the largest. A squared mass below about `2^-1024` of the largest still
+declines, and a squared mass or invariant that is subnormal in units of the
+largest keeps only its remaining bits, which limits DoubleFloat to about
+1e-19 relative, and to binary64 precision for inputs deep in the subnormals.
 
 Outside the domain, and for `Float`, the general expression is evaluated,
 bit for bit as before, with one exception: where the general kernels return

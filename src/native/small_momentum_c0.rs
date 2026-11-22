@@ -112,7 +112,26 @@ const RESCALE_RATIO: i64 = 1 << 40;
 /// `|d|^{−M} > 2^{−16 (2n + 3)} ≥ 2^{−432}`.
 const FAR_SCALE: i64 = 1 << 16;
 
+/// `|z|`. The double-double modulus divides the smaller part by the larger,
+/// which is NaN where that is below about `2^-1024` (the division overflows):
+/// there, both parts nonzero and subnormal, it is taken in units of `2^-600`.
+/// The difference of two nearly equal complex squared masses near 1e-300 of
+/// the largest is that small, and a NaN distance kept them out of one cluster,
+/// whose residues then cancelled (review of #23). Binary64's modulus is
+/// accurate down to the subnormals.
 fn modulus<T: NativeFloat>(z: &C<T>) -> T {
+    if T::FIXED_BITS.is_some_and(|bits| bits > 53) {
+        let (re, im) = (z.re.to_f64().abs(), z.im.to_f64().abs());
+        if re != 0.0 && im != 0.0 && re.max(im) < f64::MIN_POSITIVE {
+            let step = z.re.from_i64(1 << 60);
+            let mut up = z.re.one();
+            for _ in 0..10 {
+                up *= &step;
+            }
+            let down = z.re.one() / &up;
+            return NativeFloat::hypot(&(z.re.clone() * &up), &(z.im.clone() * &up)) * down;
+        }
+    }
     NativeFloat::hypot(&z.re, &z.im)
 }
 
@@ -245,11 +264,13 @@ struct Node<T: NativeFloat> {
 /// at order `n`. Where the evaluation is rescaled (see [`RESCALE_RATIO`]),
 /// `far_scale[f]` is a power of two `t ≈ |d|` for a far node at least
 /// [`FAR_SCALE`] times heavier than the centre, by which its tables are
-/// multiplied per power (otherwise `None`; empty where nothing is rescaled).
+/// multiplied per power (otherwise `None`; empty where nothing is rescaled),
+/// and `deep` says that the centre is below `2^-960` of the largest.
 struct Cluster<T: NativeFloat> {
     centre: usize,
     inverse: C<T>,
     far_scale: Vec<Option<T>>,
+    deep: bool,
     log: C<T>,
     offsets: Vec<(usize, C<T>)>,
     far: Vec<(usize, C<T>)>,
@@ -355,20 +376,35 @@ fn divide_by_linear_scaled<T: NativeFloat>(
     }
 }
 
+/// `t/d` for a far node at distance `d` with scale `t ≈ |d|`, given `1/d`.
+/// Where the cluster's centre is at least `2^-960` of the largest, `t · (1/d)`:
+/// a power of two times the unscaled factor, so the values are those of the
+/// unscaled tables (in binary64, `1/(d/t)` takes the one-division inverse
+/// where `1/d` takes the scaled algorithm, a complex `d` beyond `2^500`, and
+/// differed by an ulp: review of #23). Below (`deep`), from `d/t`: `1/d` is
+/// about the centre over the far mass, and its double-double low word is lost
+/// below about `2^-969`.
+fn far_factor<T: NativeFloat>(d: &C<T>, inverse_d: &C<T>, t: &T, deep: bool) -> C<T> {
+    if deep {
+        inverse(&scale(d, &(d.re.one() / t)))
+    } else {
+        scale(inverse_d, t)
+    }
+}
+
 /// `table[M][q] = [u^q] (d + u)^{−M}` for `M ≤ powers`, `q ≤ order`.
 fn inverse_powers<T: NativeFloat>(
     d: &C<T>,
     t: Option<&T>,
+    deep: bool,
     powers: usize,
     order: usize,
     reciprocal: &[T],
 ) -> Vec<Vec<C<T>>> {
     let prototype = &d.re;
     let inverse_d = inverse(d);
-    // With a far-node scale, the leading factors are powers of `t/d`, formed
-    // from `d/t`: `1/d` is about the centre over the far mass, and its low
-    // bits are lost where that is subnormal.
-    let scaled_inverse_d = t.map(|t| inverse(&scale(d, &(prototype.one() / t))));
+    // With a far-node scale, the leading factors are powers of `t/d`.
+    let scaled_inverse_d = t.map(|t| far_factor(d, &inverse_d, t, deep));
     let leading_factor = scaled_inverse_d.as_ref().unwrap_or(&inverse_d);
     let mut leading = C::new(prototype.one(), prototype.zero());
     let mut table = Vec::with_capacity(powers + 1);
@@ -451,7 +487,7 @@ impl<T: NativeFloat> Cluster<T> {
             match self.far_scale.first() {
                 Some(Some(t)) => {
                     let inverse_t = d.re.one() / t;
-                    let scaled_inverse_d = inverse(&scale(d, &inverse_t));
+                    let scaled_inverse_d = far_factor(d, &inverse(d), t, self.deep);
                     for m in 1..=largest(*k) {
                         let mut next = divided[m - 1].clone();
                         divide_by_linear_scaled(&mut next, &scaled_inverse_d, &inverse_t);
@@ -472,6 +508,7 @@ impl<T: NativeFloat> Cluster<T> {
             Some((k, d)) => inverse_powers(
                 d,
                 self.far_scale.get(1).and_then(Option::as_ref),
+                self.deep,
                 largest(*k),
                 largest(self.centre),
                 reciprocal,
@@ -665,6 +702,7 @@ fn plan<T: NativeFloat>(
             centre,
             inverse: unit,
             far_scale: Vec::new(),
+            deep: false,
             log: complex_zero(prototype),
             offsets,
             far,
@@ -737,11 +775,12 @@ fn rescale_clusters<T: NativeFloat>(
         let centre = &nodes[cluster.centre].value;
         let size = modulus(centre);
         let unit = power_of_two_inverse(&size, true)?;
+        cluster.deep = size.to_f64() < 2f64.powi(-960);
         // The double-double log loses about 2^-1074 / c absolute below
         // 2^-969 (xprec corrects ln c.hi with c − exp(ln c.hi), whose low
         // word is subnormal there): below 2^-960, ln c = ln(c 2^-e) + e ln 2.
         // Binary64's log is accurate down to the subnormals.
-        if T::FIXED_BITS.is_some_and(|bits| bits > 53) && size.to_f64() < 2f64.powi(-960) {
+        if T::FIXED_BITS.is_some_and(|bits| bits > 53) && cluster.deep {
             let exponent = binary_exponent(size.to_f64(), true)?;
             let two = C::new(prototype.from_i64(2), prototype.zero());
             let shift = log(&two).re * prototype.from_i64(exponent);
