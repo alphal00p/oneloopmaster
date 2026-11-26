@@ -30,6 +30,7 @@ mod box_contour;
 mod boxes;
 mod real;
 pub(crate) mod sheet;
+pub(crate) mod soft_box;
 pub(crate) mod triangle;
 
 /// Working-precision constants, prepared once per evaluator.

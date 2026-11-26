@@ -288,6 +288,42 @@ DoubleFloat (35 to 100 times). Rescaled points cost up to about 40 % more in
 binary64 (a few µs, where the setup weighs on a 3 µs call) and 20 % in
 DoubleFloat.
 
+## Soft three-mass boxes with a light-like channel (`native/handwritten/soft_box.rs`)
+
+A box with one massless line soft between two massive lines on its legs is
+OneLOop's sector 16 (`box_three_masses_ir` → `box_three_masses_16`). Its
+channel through the soft line and the opposite massive line can vanish, for
+example where the process has a light-like leg there. Every labelling with
+both on-shell pairs on the legs then has that vanishing channel, and OneLOop's
+d0 (also 3.6 in Fortran) exchanges the channels of such a labelling before
+the mass-sector dispatch. Either exchange moves one on-shell pair onto a
+channel, where the finite three-mass formula applies and misses the pole. Every
+route returned NaN or an unrelated finite value, with zero poles, depending on
+the precision (huashengshao/TIRust#81).
+
+`box_series` now keeps the labelling of a soft three-mass box instead of
+exchanging it. Sector 16 stays regular at a vanishing channel, since it enters
+only as `m3 - s12` with a massive `m3`. `crate::labelling` takes such a box as a
+relabelling target even when a channel vanishes, and the hand-written
+`hard_kinematics` keeps it too.
+
+`generated_d0.rs` and `assets/evaluators/d0.bin` were not regenerated: under
+the current Symbolica pin the generator's output changes every family, as for
+the C0 changes above. Instead, the native D0 dispatch and the SymJIT entry
+points (`ScalarEvaluator::evaluate` and `evaluate_batch`) send these points to
+`soft_box.rs`:
+- a transcription of `box_three_masses_16`, branch for branch, generic over
+  `NativeFloat` (binary64, `DoubleFloat`, `Float`), with the sheets of `Sheet`
+  and the divided difference `dd`;
+- in the labelling `crate::labelling` selects;
+- after a test of a massless line and a vanishing invariant that leaves every
+  other point at once.
+
+The interpreted expressions and evaluators built from them at run time carry
+the fix in `box_series` itself. `tests/d0_infrared_relabelling.rs` checks the
+case in all 24 labellings on every route against the limit `s12 → 0` at 512
+bits, which COLLIER's COLI confirms.
+
 ## Numeric domains
 
 The generated functions are generic over `NativeFloat`, implemented for `f64`,

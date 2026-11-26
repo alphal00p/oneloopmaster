@@ -181,7 +181,15 @@ pub(crate) fn box_series(p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeri
         sheet_exact::negative(&(&min24 - &min13)) * sheet_exact::negative(&(&min56 - &min13));
     let choose24 =
         sheet_exact::negative(&(&min13 - &min24)) * sheet_exact::negative(&(&min56 - &min24));
+    // A soft three-mass box keeps its labelling: its channel through the soft
+    // line and the opposite line may vanish (the infrared formula, OneLOop's
+    // sector 16, stays regular there, its opposite line being massive), and
+    // either exchange would move an on-shell pair of the soft line onto a
+    // channel, where the finite three-mass formula applies and misses the
+    // pole (a NaN or an unrelated finite value). The test runs only when a
+    // channel vanishes.
     let hard = if_nonzero(p[4], if_nonzero(p[5], Atom::num(1)));
+    let hard = if_nonzero_else(&hard, Atom::num(1), soft_three_mass_box(p, m));
     let select = |ordinary: &Atom, paired13: &Atom, paired24: &Atom| {
         if_nonzero_else(
             &hard,
@@ -209,6 +217,32 @@ pub(crate) fn box_series(p: [&Atom; 6], m: [&Atom; 4], mu: &Atom) -> LaurentSeri
         mm.each_ref(),
         core::array::from_fn(|sector| series_call("d0", sector, &args)),
     )
+}
+
+/// Legs `(invariant, partner mass)` of each line of the labelling: line `i`
+/// meets the lines `i - 1` and `i + 1` on `p[i - 1]` and `p[i]` (cyclically).
+pub(crate) const SOFT_LEGS: [[(usize, usize); 2]; 4] = [
+    [(0, 1), (3, 3)],
+    [(0, 0), (1, 2)],
+    [(1, 1), (2, 3)],
+    [(2, 2), (3, 0)],
+];
+
+/// One if exactly one line is massless and both of its legs are on their
+/// partners' mass shells (exact tests), zero otherwise: the soft box of
+/// `box_three_masses_ir` (OneLOop's sector 16) in this labelling.
+fn soft_three_mass_box(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
+    let soft_line = |i: usize| {
+        let [(a, pa), (b, pb)] = SOFT_LEGS[i];
+        let on_shell = if_nonzero_else(
+            &(p[a] - m[pa]),
+            Atom::num(0),
+            if_nonzero_else(&(p[b] - m[pb]), Atom::num(0), Atom::num(1)),
+        );
+        let others_massive = (1..4).fold(on_shell, |inner, k| if_nonzero(m[(i + k) % 4], inner));
+        if_nonzero_else(m[i], Atom::num(0), others_massive)
+    };
+    any_nonzero((0..4).map(soft_line))
 }
 
 fn series_call(family: &str, sector: usize, args: &[Atom]) -> LaurentSeries {
