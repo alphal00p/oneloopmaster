@@ -7,8 +7,11 @@
 //! with a massive k on a channel (s12 or s23), where the finite formulas apply
 //! and miss the pole. Every numerical D0 entry point therefore evaluates such a
 //! point in the other labelling, of the two that exchange the channel pair,
-//! whose channels are nonzero and hold no such pair, using exact tests on the
-//! input values. Every other point keeps its labelling. Symbolic uses of the
+//! whose channels hold no such pair and are nonzero (`box_series` would
+//! exchange a vanishing one back), using exact tests on the input values. A
+//! soft three-mass box (one massless line, both of its legs on shell) is the
+//! exception: `box_series` keeps its labelling with a vanishing channel, so it
+//! is a target too. Every other point keeps its labelling. Symbolic uses of the
 //! D0 expressions (transparent definitions, inspection, Dual evaluators) do
 //! not pass these entry points; callers evaluating them numerically can apply
 //! [`regular_d0_labelling`] to each point first.
@@ -63,11 +66,27 @@ pub(crate) fn soft_order<T: NativeFloat>(point: &[Complex<T>]) -> Option<&'stati
             && soft_free(b, d, a, c)
             && soft_free(d, b, a, c)
     };
+    // `box_series` exchanges the channels of a labelling with a vanishing
+    // channel, unless it is a soft three-mass box: one massless line, whose
+    // legs in that labelling are on their massive partners' shells.
+    let soft_three_mass = |order: [usize; 4]| {
+        let mut massless = (0..4).filter(|&i| is_zero(&m[i]));
+        let (Some(i), None) = (massless.next(), massless.next()) else {
+            return false;
+        };
+        let at = order.iter().position(|&x| x == i).unwrap_or(0);
+        let (previous, next) = (order[(at + 3) % 4], order[(at + 1) % 4]);
+        on_shell(pair(i, previous), &m[previous]) && on_shell(pair(i, next), &m[next])
+    };
     if labelling_free([0, 1, 2, 3]) {
         None
-    } else if !is_zero(&p[0]) && !is_zero(&p[2]) && labelling_free([0, 2, 1, 3]) {
+    } else if ((!is_zero(&p[0]) && !is_zero(&p[2])) || soft_three_mass([0, 2, 1, 3]))
+        && labelling_free([0, 2, 1, 3])
+    {
         Some(&EXCHANGES[0])
-    } else if !is_zero(&p[3]) && !is_zero(&p[1]) && labelling_free([0, 1, 3, 2]) {
+    } else if ((!is_zero(&p[3]) && !is_zero(&p[1])) || soft_three_mass([0, 1, 3, 2]))
+        && labelling_free([0, 1, 3, 2])
+    {
         Some(&EXCHANGES[1])
     } else {
         None
@@ -78,8 +97,9 @@ pub(crate) fn soft_order<T: NativeFloat>(point: &[Complex<T>]) -> Option<&'stati
 /// mu²]` in place, as every numerical D0 entry point of this crate does: when
 /// a channel holds an exactly on-shell pair of a soft line, permute the point
 /// into the labelling of the same box, of the two that exchange the channel
-/// pair, whose channels are nonzero and hold no such pair. Returns whether it
-/// permuted. Apply it to points evaluated with the symbolic D0 expressions
+/// pair, whose channels hold no such pair and are nonzero (or which is a soft
+/// three-mass box, see the module notes). Returns whether it permuted. Apply
+/// it to points evaluated with the symbolic D0 expressions
 /// ([`crate::OneLoopExpressions::d0`], the transparent definitions), which do
 /// not relabel. Points of any other length are left unchanged.
 pub fn regular_d0_labelling<T: NativeFloat>(point: &mut [Complex<T>]) -> bool {

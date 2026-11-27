@@ -4,6 +4,60 @@ This page preserves the September 8 development snapshot. See the
 [Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
 dependency setup and validation.
 
+## Soft three-mass boxes with a light-like channel (2026-11-26)
+
+A unit-power box of a TIRust hexagon (huashengshao/TIRust#81) has line 2
+massless and soft between the massive lines 1 and 3 (`p2² = m1²`,
+`p3² = m3²`), and its channel to the massive line 0 light-like (`s12 = 0`).
+`D0(-1.140625, 2.328125, 24.25, 15.28125, 0, -5.890625; 6, 2.328125, 0, 24.25; mu² = 4)`
+had no reliable value on any route:
+
+| route | finite part, 1/eps |
+|---|---|
+| binary64, `DoubleFloat`; `Float` at 256, 384, 1024 bits | NaN, 0 |
+| `Float` at 512 / 640 / 768 / 1536 / 2048 bits | 32 - 1.5i / -1152 - 24i / 512 - 7i / -3072 - 24i / -1024 - 12i; 0 |
+| OneLOop 3.6, double / quadruple precision | 0.621 - 0.163i / 1.125 - 0.0915i; 0 |
+| the limit `s12 → 0` (512 bits), COLLIER 1.2.9 COLI at `s12 = 0` | -1.0694335719761088e-2, -8.1364262582436461e-3 |
+
+Every labelling with both on-shell pairs on the legs has the vanishing
+channel, and d0 exchanges its channels before the mass-sector dispatch, which
+puts one pair on a channel. There the sector test (`p1² = m2²` and
+`p4² = m4²` in the canonical labelling) fails, and the finite three-mass
+formula runs on a soft-divergent box. The relabelling of
+`crate::labelling` did not apply, because the input's own labelling holds no
+on-shell pair on a channel.
+
+- `box_series` keeps the labelling of a soft three-mass box, and the
+  hand-written `hard_kinematics` does too. Sector 16 is regular at a
+  vanishing channel, which enters only as `m3 - s12` with a massive `m3`.
+- `crate::labelling` relabels into such a box even when one of its channels
+  vanishes. Points that put a pair on a channel now reach it from every
+  labelling.
+- The generated code and the SymJIT asset were not regenerated: under the
+  current Symbolica pin the generator's output changes every family.
+  `native/handwritten/soft_box.rs` transcribes `box_three_masses_16` for every
+  carrier, and the native D0 dispatch and the SymJIT entry points take it for
+  these points (NATIVE_BACKEND.md). A full regeneration would make that
+  path redundant.
+
+Checks:
+- `tests/d0_infrared_relabelling.rs` gains the case, scaled by 1e4 to its
+  `mu² = 1e6`. It passes in all 24 labellings on every route: hand-written,
+  generated, expression, SymJIT and callbacks in binary64 within 1e-12,
+  `DoubleFloat` within 1e-26, `Float` at 128 and 256 bits and interpreted
+  `Float` within 1e-29.
+- The reference is the mean of `s12 = ±1e-21` at 512 bits (no exchange
+  there; the `s12²` term is below 1e-50 of the value). COLLIER's COLI agrees
+  to 1e-15. Its DD branch stops with a fatal error (-10) on this box.
+- Full release suite with `generated-evaluators`: 71 binaries, 323 passed,
+  4 failed, 8 ignored. The four failures are the pre-existing ones
+  (`c0_coincident_roots`, two `d0_contour_regressions`,
+  `permutation_regressions`' expression and SymJIT test), with output
+  identical to the run before this change.
+- Cost: binary64 `NativeEvaluator` over the 288 D0 rows of
+  `tests/data/ninja_master_rows.txt`, 103,738 retired instructions per call
+  against 103,629 on a8a32cc (+0.11 %, the point test), with identical values.
+
 ## C0 at a vanishing Källén function on the arbitrary-precision routes (2026-11-07)
 
 `NativeEvaluator<Float>` returned `C0(0, p, p; m, 0, 0) = -5.871` with all 512

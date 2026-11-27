@@ -377,6 +377,15 @@ fn hard_kinematics<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4]) -> ([Z<T>; 6], [Z<T>;
     if nz(p[4]) && nz(p[5]) {
         return (p, m);
     }
+    // `box_series`: a soft three-mass box keeps its labelling (its infrared
+    // sector is the generated code's).
+    let soft_line = |i: usize| {
+        let [(a, pa), (b, pb)] = crate::expressions::SOFT_LEGS[i];
+        !nz(m[i]) && (1..4).all(|k| nz(m[(i + k) % 4])) && !nz(p[a] - m[pa]) && !nz(p[b] - m[pb])
+    };
+    if (0..4).any(soft_line) {
+        return (p, m);
+    }
     let abs = p.map(|v| <T as NativeFloat>::hypot(&v.re, &v.im));
     let min = |a: T, b: T| if negative(a - b) { a } else { b };
     let min13 = min(abs[0], abs[2]);

@@ -307,13 +307,18 @@ impl ScalarEvaluator {
     /// Evaluate a single point into `[finite, simple pole, double pole]`.
     pub fn evaluate(&mut self, args: &[C], output: &mut [C]) -> Result<(), String> {
         crate::record_usage();
+        let input = args;
         let mut relabelled = Vec::new();
         let args = if self.family == ScalarIntegral::D0 {
             crate::labelling::regular_point(args, &mut relabelled)
         } else {
             args
         };
-        self.evaluator.evaluate(args, output)
+        self.evaluator.evaluate(args, output)?;
+        if self.family == ScalarIntegral::D0 {
+            soft_boxes(input, output);
+        }
+        Ok(())
     }
 
     /// Evaluate row-major points, writing three consecutive coefficients per row.
@@ -324,13 +329,18 @@ impl ScalarEvaluator {
         rows: usize,
     ) -> Result<(), String> {
         crate::record_usage();
+        let input = args;
         let mut relabelled = Vec::new();
         let args = if self.family == ScalarIntegral::D0 {
             crate::labelling::regular_rows(args, &mut relabelled)
         } else {
             args
         };
-        self.evaluator.evaluate_batch(args, output, rows)
+        self.evaluator.evaluate_batch(args, output, rows)?;
+        if self.family == ScalarIntegral::D0 {
+            soft_boxes(input, output);
+        }
+        Ok(())
     }
 
     /// Serialize this family cache, including its family and dimension checks.
@@ -360,6 +370,21 @@ impl ScalarEvaluator {
         }
         Ok(Self { family, evaluator })
     }
+}
+
+/// D0 rows (`input` row-major, `output` three coefficients per row) that are
+/// soft three-mass boxes with a vanishing channel take that sector from the
+/// native kernel: the prebuilt asset predates `box_series`' test for them and
+/// exchanges their channels into the finite formula.
+fn soft_boxes(input: &[C], output: &mut [C]) {
+    #[cfg(feature = "generated-evaluators")]
+    for (point, values) in input.chunks_exact(11).zip(output.chunks_exact_mut(3)) {
+        if let Some(soft) = crate::native::soft_box_d0(point) {
+            values.clone_from_slice(&soft);
+        }
+    }
+    #[cfg(not(feature = "generated-evaluators"))]
+    let _ = (input, output);
 }
 
 #[cfg(feature = "prebuilt")]

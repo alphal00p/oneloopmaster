@@ -18,7 +18,10 @@
 //! Cases: the e+ e- -> t t~ h box (m, m, 0, m) of pyAmpliCol (its exact
 //! rational invariants rounded to binary64), three massive lines with
 //! different masses, the same with a vanishing invariant between two massive
-//! lines (8 labellings with a vanishing channel), two opposite massless lines
+//! lines (8 labellings with a vanishing channel), the same with the soft
+//! line's channel to the opposite line light-like (a vanishing channel in
+//! every labelling with both pairs on the legs, which `box_series` keeps
+//! rather than exchanging it; huashengshao/TIRust#81), two opposite massless lines
 //! with both or one of them soft, and two adjacent massless lines with a
 //! collinear leg and both soft (its double pole; PR #10 covered its
 //! labellings, now relabelled up front). Every route: hand-written, generated
@@ -30,7 +33,9 @@
 //! 1/eps, 1/eps^2]. COLLIER 1.2.9 in quadruple precision (COLI and DD,
 //! DeltaIR1 and DeltaIR2 = 0, 1, finite part + pi^2/6 times the double pole)
 //! agrees in all 24 labellings (DD to 1e-18 and below, COLI to 5e-17, 2.4e-16
-//! for the double-pole case).
+//! for the double-pole case). The light-like soft channel, where OneLOop fails
+//! too, takes the limit s12 -> 0 instead (its entry), checked against COLLIER
+//! 1.2.9's COLI in double precision.
 #![cfg(feature = "generated-evaluators")]
 use oneloop::{
     EvaluationBackend, NativeEvaluator, NativeFloat, OneLoopExpressions, PrecisionEvaluator,
@@ -55,7 +60,7 @@ struct Case {
     reference: [[&'static str; 2]; 3],
 }
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 7] = [
     Case {
         // gamma* -> H t t~: legs (H, t, t~, gamma*), lines (t, t, g, t). The
         // inputs 1299773111931/1562500, 1756052/5 and 976955119487/3125000
@@ -115,6 +120,26 @@ const CASES: [Case; 6] = [
                 "4.06536678549715165979961602076657314E-9",
                 "-8.69699974176854477071953708593246945E-9",
             ],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // Line 2 massless and soft between the massive lines 1 and 3, and its
+        // channel to line 0 light-like (s12 = 0; huashengshao/TIRust#81, a
+        // hexagon's box scaled by 1e4). Every labelling with both on-shell
+        // pairs on the legs has that channel, and the vanishing-channel
+        // exchange moved one pair onto the other channel: binary64,
+        // DoubleFloat and Float returned NaN or an unrelated finite value
+        // without the pole, as does OneLOop 3.6 (its double and quadruple
+        // precision disagree). Reference: the limit s12 -> 0, the mean of
+        // s12 = +-1e-21 at 512 bits (no exchange there, the s12^2 term below
+        // 1e-50 of the value); COLLIER's COLI at s12 = 0 agrees to 1e-15.
+        name: "three-masses-light-like-soft-channel",
+        invariants: [-11406.25, 23281.25, 242500.0, 152812.5, 0.0, -58906.25],
+        masses: [60000.0, 23281.25, 0.0, 242500.0],
+        reference: [
+            ["-3.68844815032443930075378605383714008E-10", "0"],
+            ["-8.13642625824364612816020103648584122E-11", "0"],
             ["0", "0"],
         ],
     },
