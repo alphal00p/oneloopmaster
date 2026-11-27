@@ -113,6 +113,9 @@ pub struct NativeEvaluator<T: NativeFloat> {
     /// Relative accuracy target of the small-momentum B0 series (2^-(bits+4)).
     tolerance: T,
     small_momentum: bool,
+    /// Binary64 D0: the double-double evaluator of the points next to a
+    /// two-particle threshold ([`d0_next_to_threshold`]), built on first use.
+    threshold_d0: Option<Box<NativeEvaluator<symbolica::domains::float::DoubleFloat>>>,
 }
 
 #[cfg(feature = "generated-evaluators")]
@@ -161,6 +164,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
                 (0..bits + 4).fold(T::zero_at(bits).one(), |acc, _| acc * &half)
             },
             small_momentum: true,
+            threshold_d0: None,
         })
     }
 
@@ -254,6 +258,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
     }
 
     fn evaluate_row(&mut self, input: &[C<T>], output: &mut [C<T>]) {
+        let threshold = self.threshold_values(input);
         let input = if T::FIXED_BITS.is_some() {
             input
         } else {
@@ -263,7 +268,10 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             }
             &self.arguments
         };
-        let mut values = self.family_values(input);
+        let mut values = match threshold {
+            Some(values) => values,
+            None => self.family_values(input),
+        };
         // A finite C0/D0 point whose kernels return NaN or infinity: invariants
         // within 2^-30 of the largest argument are taken as exactly zero and
         // the point is evaluated again (e.g. binary64 D0 with two opposite
@@ -311,6 +319,36 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         for (out, value) in output.iter_mut().zip(values) {
             *out = value;
         }
+    }
+
+    /// A binary64 D0 point next to a two-particle threshold
+    /// ([`d0_next_to_threshold`]): the double-double kernels' values, rounded
+    /// once. `None` for every other point, and where double-double is not
+    /// finite (the binary64 kernels and their repair then decide).
+    fn threshold_values(&mut self, input: &[C<T>]) -> Option<[C<T>; 3]> {
+        use core::any::Any;
+        use symbolica::domains::float::DoubleFloat;
+        if self.family != ScalarIntegral::D0 || T::FIXED_BITS != Some(53) {
+            return None;
+        }
+        let point: &[C<T>; 11] = input.try_into().ok()?;
+        let point = (point as &dyn Any).downcast_ref::<[C<f64>; 11]>()?;
+        if !d0_next_to_threshold(point) {
+            return None;
+        }
+        if self.threshold_d0.is_none() {
+            let wide = NativeEvaluator::<DoubleFloat>::new(ScalarIntegral::D0).ok()?;
+            self.threshold_d0 = Some(Box::new(wide));
+        }
+        let wide = self.threshold_d0.as_mut()?;
+        // The same kernels as this evaluator's (see the setters).
+        wide.handwritten = self.handwritten;
+        wide.massless_c0 = self.massless_c0;
+        wide.gram_c0 = self.gram_c0;
+        wide.negative_kallen_c0 = self.negative_kallen_c0;
+        wide.small_momentum = self.small_momentum;
+        let rounded = wide_d0(wide, point)?;
+        (&rounded as &dyn Any).downcast_ref::<[C<T>; 3]>().cloned()
     }
 
     /// The family's kernels for one point (no repair).
@@ -432,6 +470,85 @@ pub(crate) fn soft_box_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
     handwritten::soft_box::d0_any_labelling(point, &handwritten::Constants::new(&0.0))
 }
 
+/// Whether a binary64 D0 point has an invariant next to the two-particle
+/// threshold `p = (√m_i + √m_j)²` of the two massive propagators it joins: with
+/// `a = m_i + m_j - p` (squared masses), `Re a < 0` and the Källén function
+/// `λ = a² - 4 m_i m_j` below `2^-12 |a|²` (`p` within about 6e-5 of the
+/// threshold, relatively). The pairs are the legs `p1..p4` and the channels
+/// `s12, s23` with the propagators they join.
+///
+/// The sector formulas take the masses' square roots (`k = a / (√m_i √m_j)`
+/// and `√(k² - 4)`, or the contour's edge discriminants), so next to a
+/// threshold the binary64 kernels lose about `2^-53 |a| / √|λ|`, and the
+/// three-mass sectors about `2^-53 a² / |λ|`; at a threshold of masses
+/// without exact square roots `√(k² - 4)` is `√(2^-53)` instead of zero. Two
+/// onia at threshold (two quark pairs of mass² 2.78515625 at P/2 each, exact
+/// in binary64) had boxes 5.3e-9 and 4.0e-9 off at their exact thresholds,
+/// 5e-10 one part in 1e15 off them, 2e-11 at 1e-12. Double-double is exact
+/// there (to 3e-32). Pseudo-thresholds (`Re a > 0`, among them equal masses
+/// at `p = 0`) are not singular on the physical sheet, and binary64 keeps them
+/// (within 2.4e-13 in the same scan).
+#[cfg(feature = "generated-evaluators")]
+fn d0_next_to_threshold(point: &[C<f64>; 11]) -> bool {
+    // (invariant, propagator i, propagator j)
+    const PAIRS: [(usize, usize, usize); 6] =
+        [(0, 0, 1), (1, 1, 2), (2, 2, 3), (3, 3, 0), (4, 0, 2), (5, 1, 3)];
+    PAIRS.iter().any(|&(k, i, j)| {
+        let (mi, mj, p) = (point[6 + i], point[6 + j], point[k]);
+        let zero = |z: C<f64>| z.re == 0.0 && z.im == 0.0;
+        if zero(mi) || zero(mj) {
+            return false;
+        }
+        let (are, aim) = (mi.re + mj.re - p.re, mi.im + mj.im - p.im);
+        if are >= 0.0 {
+            return false;
+        }
+        let (mre, mim) = (mi.re * mj.re - mi.im * mj.im, mi.re * mj.im + mi.im * mj.re);
+        let (lre, lim) = (are * are - aim * aim - 4.0 * mre, 2.0 * are * aim - 4.0 * mim);
+        let a2 = are * are + aim * aim;
+        // |λ|² < 2^-24 |a|⁴
+        lre * lre + lim * lim < a2 * a2 * (1.0 / 16_777_216.0)
+    })
+}
+
+/// The double-double D0 kernels' values at a binary64 point, rounded once;
+/// `None` where they are not finite.
+#[cfg(feature = "generated-evaluators")]
+fn wide_d0(
+    wide: &NativeEvaluator<symbolica::domains::float::DoubleFloat>,
+    point: &[C<f64>; 11],
+) -> Option<[C<f64>; 3]> {
+    use symbolica::domains::float::{DoubleFloat, RealLike};
+    let lifted: Vec<C<DoubleFloat>> =
+        point.iter().map(|z| C::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im))).collect();
+    let rounded = wide.family_values(&lifted).map(|z| C::new(z.re.to_f64(), z.im.to_f64()));
+    rounded.iter().all(|z| z.re.is_finite() && z.im.is_finite()).then_some(rounded)
+}
+
+/// A binary64 D0 point next to a two-particle threshold
+/// ([`d0_next_to_threshold`]), for the SymJIT and expression entry points: the
+/// native double-double kernels' values, rounded once. `None` for every other
+/// point.
+#[cfg(feature = "generated-evaluators")]
+pub(crate) fn threshold_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
+    use std::cell::RefCell;
+    use symbolica::domains::float::DoubleFloat;
+    thread_local! {
+        static WIDE: RefCell<Option<NativeEvaluator<DoubleFloat>>> = const { RefCell::new(None) };
+    }
+    let point: &[C<f64>; 11] = point.try_into().ok()?;
+    if !d0_next_to_threshold(point) {
+        return None;
+    }
+    WIDE.with(|cell| {
+        let mut wide = cell.borrow_mut();
+        if wide.is_none() {
+            *wide = Some(NativeEvaluator::new(ScalarIntegral::D0).ok()?);
+        }
+        wide_d0(wide.as_ref()?, point)
+    })
+}
+
 /// Shared domain contract for the explicit manual backends. Call only after
 /// checking shape, so every point has the family's complete argument list.
 pub(crate) fn validate_point<T: NativeFloat>(
@@ -511,5 +628,38 @@ mod complex_mass_tests {
             }
         }
         assert!(evaluated >= 60, "{evaluated}");
+    }
+}
+
+#[cfg(all(test, feature = "generated-evaluators"))]
+mod threshold_tests {
+    use super::d0_next_to_threshold;
+    use symbolica::domains::float::Complex;
+
+    fn point(values: [f64; 11]) -> [Complex<f64>; 11] {
+        values.map(|x| Complex::new(x, 0.0))
+    }
+
+    /// Normal thresholds of two massive propagators only: not their
+    /// pseudo-thresholds (equal masses at a vanishing leg), a massless member,
+    /// a point 1e-4 away or a mass with a width.
+    #[test]
+    fn normal_thresholds_of_massive_pairs() {
+        const M: f64 = 2.78515625;
+        let rest = [-43.0, -32.0, 29.5, -57.25];
+        let leg = |p1: f64, [m1, m2, m3, m4]: [f64; 4]| {
+            point([p1, M, rest[0], rest[1], rest[2], rest[3], m1, m2, m3, m4, 4.0])
+        };
+        assert!(d0_next_to_threshold(&leg(4.0 * M, [M, M, 0.0, 0.0])));
+        assert!(d0_next_to_threshold(&leg(4.0 * M * (1.0 - 1e-9), [M, M, 0.0, 0.0])));
+        assert!(!d0_next_to_threshold(&leg(4.0 * M * (1.0 + 1e-4), [M, M, 0.0, 0.0])));
+        assert!(!d0_next_to_threshold(&leg(0.0, [M, M, 0.0, 0.0])));
+        assert!(!d0_next_to_threshold(&leg(4.0 * M, [M, 0.0, M, 0.0])));
+        // The channel s12 joins propagators 1 and 3.
+        let channel = point([1.0, 2.0, 3.0, 5.0, 4.0 * M, -7.0, M, 0.0, M, 0.0, 4.0]);
+        assert!(d0_next_to_threshold(&channel));
+        let mut wide = leg(4.0 * M, [M, M, 0.0, 0.0]);
+        wide[7].im = -0.1;
+        assert!(!d0_next_to_threshold(&wide));
     }
 }
