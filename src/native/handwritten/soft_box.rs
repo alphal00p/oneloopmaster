@@ -1,5 +1,5 @@
 //! The soft three-mass box (OneLOop's sector 16, `box_three_masses_16`) for
-//! every carrier, where the generated code takes another labelling.
+//! every carrier, where the generated code gets it wrong.
 //!
 //! One massless line with both of its legs on their massive partners' mass
 //! shells is soft divergent. `box_series` keeps such a box in its labelling
@@ -7,10 +7,16 @@
 //! opposite line is zero for an accidental light-like leg of the
 //! process): either channel exchange would move an on-shell pair of the soft
 //! line onto a channel, where the finite three-mass formula applies and
-//! misses the pole. The generated code and the SymJIT asset predate that
-//! test, so the numerical entry points evaluate these points here instead: a
-//! transcription of `box_three_masses_16`, with the sheets of [`Sheet`] and
-//! the divided difference [`dd`], branch for branch.
+//! misses the pole. At the pseudo-threshold of the soft line's two massive
+//! neighbours (their Källén function vanishes, for example equal masses and a
+//! light-like channel between them), `box_three_masses_16` takes their double
+//! root `r24 = 1` exactly: rounding would split it into `1 ± sqrt(rounding)`,
+//! where the divided differences of merging arguments lose half their digits
+//! (all of them in `Float`, through its significance tracking). The generated
+//! code and the SymJIT asset predate both, so the numerical entry points
+//! evaluate these points here instead: a transcription of
+//! `box_three_masses_16`, with the sheets of [`Sheet`] and the divided
+//! difference [`dd`], branch for branch.
 use super::super::primitives::{C, NativeFloat, mul, sqrt};
 use super::sheet::{Sheet, dd};
 use super::{Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, real, sub};
@@ -36,34 +42,60 @@ fn on_shell<T: NativeFloat>(value: &C<T>, mass: &C<T>) -> bool {
     is_zero(&sub(value, mass))
 }
 
-/// The massless line of a soft three-mass box with a vanishing channel in
-/// the labelling of `point` (`[p1², p2², p3², p4², s12, s23, m1², m2², m3²,
-/// m4², mu²]`), exact tests: the points that `box_series` keeps in this
-/// labelling and the generated code would not.
+/// Whether the Källén function `sum² - 4 ma mb` of two lines with squared
+/// masses `ma`, `mb` vanishes exactly, given `sum = ma + mb - s` for their
+/// channel `s`: their threshold or pseudo-threshold, where `r + 1/r = ±2` has
+/// a double root. (The factor 4 by two exact doublings.)
+fn kallen_vanishes<T: NativeFloat>(sum: &C<T>, ma: &C<T>, mb: &C<T>) -> bool {
+    let product = mul(ma, mb);
+    let double = add(&product, &product);
+    is_zero(&sub(&mul(sum, sum), &add(&double, &double)))
+}
+
+/// The massless line of a soft three-mass box in the labelling of `point`
+/// (`[p1², p2², p3², p4², s12, s23, m1², m2², m3², m4², mu²]`) that the
+/// generated code gets wrong, exact tests: a vanishing channel, which
+/// `box_series` keeps in this labelling, or the pseudo-threshold of the soft
+/// line's massive neighbours (`sum > 0`, not their threshold).
 pub(crate) fn soft_line<T: NativeFloat>(point: &[C<T>]) -> Option<usize> {
-    if point.len() != 11 || !(is_zero(&point[4]) || is_zero(&point[5])) {
+    if point.len() != 11 {
         return None;
     }
     let (p, m) = (&point[..6], &point[6..10]);
+    let vanishing = is_zero(&p[4]) || is_zero(&p[5]);
     (0..4).find(|&i| {
         let [(a, pa), (b, pb)] = LEGS[i];
+        let pseudo_threshold = || {
+            // The neighbours' channel: s23 for lines 0 and 2, s12 for 1 and 3.
+            let sum = sub(&add(&m[pa], &m[pb]), &p[5 - i % 2]);
+            !negative(&sum.re) && kallen_vanishes(&sum, &m[pa], &m[pb])
+        };
         is_zero(&m[i])
             && (1..4).all(|k| !is_zero(&m[(i + k) % 4]))
             && on_shell(&p[a], &m[pa])
             && on_shell(&p[b], &m[pb])
+            && (vanishing || pseudo_threshold())
     })
 }
 
-/// Whether `point` has a massless line and a vanishing invariant, which every
-/// [soft_line] point of any labelling has.
+/// Whether `point` has exactly one massless line and an invariant on the
+/// shell of a massive line, which every [soft_line] point of any labelling
+/// has.
 #[inline]
 pub(crate) fn candidate<T: NativeFloat>(point: &[C<T>]) -> bool {
-    point.len() == 11 && point[6..10].iter().any(is_zero) && point[..6].iter().any(is_zero)
+    if point.len() != 11 {
+        return false;
+    }
+    let masses = &point[6..10];
+    masses.iter().filter(|m| is_zero(m)).count() == 1
+        && point[..6]
+            .iter()
+            .any(|p| masses.iter().any(|m| !is_zero(m) && on_shell(p, m)))
 }
 
 /// [d0] of `point` in the labelling the numerical entry points evaluate
-/// (`crate::labelling::soft_order`). Points without a massless line or a
-/// vanishing invariant return `None` at once.
+/// (`crate::labelling::soft_order`). Points without exactly one massless line
+/// and an invariant on a massive line's shell return `None` at once.
 #[inline]
 pub(crate) fn d0_any_labelling<T: NativeFloat>(
     point: &[C<T>],
@@ -122,10 +154,14 @@ fn sector_16<T: NativeFloat>(
         &div(&sub(&add(mass_2, mass_3), p2), &mul(&sqrt_2, &sqrt_3)),
         c,
     );
-    let (r24, _) = r_function(
-        &div(&sub(&add(mass_2, mass_4), p23), &mul(&sqrt_2, &sqrt_4)),
-        c,
-    );
+    // The double root 1 at the endpoints' pseudo-threshold (as the expression).
+    let sum_24 = sub(&add(mass_2, mass_4), p23);
+    let x24 = div(&sum_24, &mul(&sqrt_2, &sqrt_4));
+    let r24 = if kallen_vanishes(&sum_24, mass_2, mass_4) && !negative(&x24.re) {
+        c.one_c.clone()
+    } else {
+        r_function(&x24, c).0
+    };
     let (r34, _) = r_function(
         &div(&sub(&add(mass_3, mass_4), p3), &mul(&sqrt_3, &sqrt_4)),
         c,

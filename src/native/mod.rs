@@ -346,7 +346,8 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         // a channel to the generated code, which evaluates the labelling
         // with both on the legs (crate::labelling). A soft three-mass box
         // with a vanishing channel, which the generated code would exchange
-        // into the finite formula, takes the infrared sector directly
+        // into the finite formula, or with its massive neighbours at their
+        // pseudo-threshold, takes the infrared sector directly
         // (handwritten::soft_box).
         ScalarIntegral::D0 => handwritten::soft_box::d0_any_labelling(input, &self.context.hand)
             .or_else(|| simple::massless_onshell_box(input, &self.context.simple))
@@ -422,8 +423,9 @@ impl<T: NativeFloat> NativeEvaluator<T> {
 }
 
 /// A binary64 D0 point that is a soft three-mass box with a vanishing channel
+/// or its massive neighbours at their pseudo-threshold
 /// (`handwritten::soft_box`), for the SymJIT entry points, whose prebuilt
-/// asset predates that sector's test; `None` for every other point.
+/// asset predates both; `None` for every other point.
 #[cfg(feature = "generated-evaluators")]
 pub(crate) fn soft_box_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
     if !handwritten::soft_box::candidate(point) {

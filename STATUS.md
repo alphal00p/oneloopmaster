@@ -4,6 +4,80 @@ This page preserves the September 8 development snapshot. See the
 [Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
 dependency setup and validation.
 
+## Soft three-mass boxes at the pseudo-threshold of the soft line's neighbours (2026-11-27)
+
+Review finding 1 of #25: the two massive lines next to the soft line (lines 1
+and 3 in the cases below, with line 2 soft) have equal masses, and their
+channel vanishes. Then `x24 = (m1² + m3² - s23) / (m1 m3) = 2`, and
+`r24 + 1/r24 = x24` has the double root `r24 = 1`. More generally, their
+Källén function `(m1² + m3² - s23)² - 4 m1² m3²` vanishes at the
+pseudo-threshold `s23 = (m1 - m3)²`. Rounding `x24` split the root into
+`1 ± sqrt(rounding)`: a real pair or a complex-conjugate one, depending on the
+sign of the rounded discriminant. Sector 16's divided differences
+`dd(q24², 1)`, `dd(y1, y2)` and `dd(z1, z2)` then have merging arguments:
+- binary64 lost half its digits where `near_difference` refuses the pair,
+  for example `y1, y2` on both sides of the unit circle with phase -2;
+- `Float` lost all of them through its significance tracking, which cuts the
+  precision of the exactly cancelling real parts, and returned round dyadic
+  values.
+
+Worst error over the 24 labellings on a4b16f70, relative to the largest
+coefficient (points with `mu² = 4`, unscaled entries of
+`tests/d0_infrared_relabelling.rs`):
+
+| box | binary64 | `DoubleFloat` | `Float` 128 / 256 / 512 / 1024 | interpreted `Float` 128 |
+|---|---|---|---|---|
+| equal neighbours, `s23 = 0`, physical | 1.8e-15 | exact | exact / 0.86 / 0.86 / 0.86 | 1.27 |
+| the same, Euclidean | 1.1e-15 | 2.2e-16 | exact / 1.21 / 1.21 / exact | 0.37 |
+| three equal masses, `s23 = 0` | 8.3e-9 | 7e-17 | exact | exact |
+| `m1² = 4 m3²`, `s23 = m3²` | 2.0e-15 | 10.5 | 1.16 / 1.02 / 1.02 / 0.38 | 0.40 |
+| equal neighbours, `s12 = s23 = 0` | 2.5e-16 | exact | exact / 0.096 / 0.096 / 0.096 | 0.20 |
+
+Main returned NaN or unrelated values for the first three and the last before
+#25, which exchanged their vanishing channels. The fourth has no vanishing
+channel and is older than both. Fortran OneLOop 3.6 fails on all of them, and
+COLLIER's COLI and DD stop with a fatal error (-10) at the double root.
+
+- `box_three_masses_16` takes `r24 = 1` exactly when that Källén function
+  vanishes exactly and `x24` is not negative (the pseudo-threshold, not the
+  threshold `x24 = -2`). That is an exact test, as the sector tests are. For
+  equal masses and a vanishing channel, both sides are `4 m⁴` with the same
+  rounding, since the factors of 2 and 4 are exact. The sector is analytic
+  in `x24` there, being symmetric in `r24 ↔ 1/r24`.
+- `native/handwritten/soft_box.rs` does the same and now also takes these
+  points when no channel vanishes. Its prefilter is exactly one massless line
+  and an invariant on the shell of a massive line, which every soft
+  three-mass box has in every labelling. The generated code and the SymJIT
+  asset still split the root (not regenerated, as for #25).
+
+Checks:
+- `tests/d0_infrared_relabelling.rs` gains the five boxes, scaled by 2.5e5 to
+  its `mu² = 1e6`. They pass in all 24 labellings on every route: binary64
+  within 1e-12, `DoubleFloat` within 1e-26, `Float` at 128 and 256 bits and
+  interpreted `Float` within 1e-29. On a4b16f70 all three tests fail, in
+  1,140 lanes, all of them in the new cases.
+- References: the mean of the channel moved by `±2^-100` at 1024 bits, where
+  no exact test applies. `±2^-80` agrees to 2e-62 of the value, and the exact
+  point with the fix to 2e-74. COLLIER's COLI, the mean of `±1e-7`, agrees to
+  3e-11. The review's references agree to all their digits: its
+  Feynman-parameter integral on the Euclidean box (18 digits) and its
+  references on the others (16).
+- Full release suite with `generated-evaluators`: 70 test binaries, 323
+  passed, 4 failed, 8 ignored, the same pre-existing failures with identical
+  output. Against a4b16f70, the 288 D0 rows of
+  `tests/data/ninja_master_rows.txt` and the seven earlier cases of the test
+  in all 24 labellings are bit-identical in binary64, `DoubleFloat`, `Float`
+  256 and SymJIT. The binary64 expression backend moves within 1.8e-16 on the
+  soft three-mass boxes, where the evaluator orders its arithmetic
+  differently around the new branch.
+- Cost: binary64 `NativeEvaluator`, 103,741 retired instructions per call on
+  the Ninja rows against 103,738 (+0.003 %), and 12,995 against 12,870
+  (+1.0 %) on the 168 soft boxes, from the prefilter and the relabelling.
+- Next to the pseudo-threshold, where no exact test applies, the old
+  behaviour remains. With three equal masses and `s23 = ±2^-40`, binary64 is
+  up to 7e-10 off, while `DoubleFloat` and `Float` are exact, as on
+  a4b16f70.
+
 ## Soft three-mass boxes with a light-like channel (2026-11-26)
 
 A unit-power box of a TIRust hexagon (huashengshao/TIRust#81) has line 2
