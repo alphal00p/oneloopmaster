@@ -7,16 +7,18 @@
 //! opposite line is zero for an accidental light-like leg of the
 //! process): either channel exchange would move an on-shell pair of the soft
 //! line onto a channel, where the finite three-mass formula applies and
-//! misses the pole. At the pseudo-threshold of the soft line's two massive
-//! neighbours (their Källén function vanishes, for example equal masses and a
-//! light-like channel between them), `box_three_masses_16` takes their double
-//! root `r24 = 1` exactly: rounding would split it into `1 ± sqrt(rounding)`,
-//! where the divided differences of merging arguments lose half their digits
-//! (all of them in `Float`, through its significance tracking). The generated
-//! code and the SymJIT asset predate both, so the numerical entry points
-//! evaluate these points here instead: a transcription of
-//! `box_three_masses_16`, with the sheets of [`Sheet`] and the divided
-//! difference [`dd`], branch for branch.
+//! misses the pole. At the pseudo-threshold of one of the sector's three
+//! massive pairs (their Källén function vanishes: the soft line's two
+//! neighbours, for example equal masses and a light-like channel between
+//! them, or one neighbour and the opposite line), `box_three_masses_16` takes
+//! the pair's double root `r = 1` exactly: rounding would split it into
+//! `1 ± sqrt(rounding)`. For the neighbours, `r24`, the divided differences of
+//! merging arguments then lose half their digits (all of them in `Float`); for
+//! the other two pairs, `r23` and `r34`, `Float` loses half its digits through
+//! its significance tracking. The generated code and the SymJIT asset predate
+//! both, so the numerical entry points evaluate these points here instead: a
+//! transcription of `box_three_masses_16`, with the sheets of [`Sheet`] and
+//! the divided difference [`dd`], branch for branch.
 use super::super::primitives::{C, NativeFloat, mul, sqrt};
 use super::sheet::{Sheet, dd};
 use super::{Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, real, sub};
@@ -55,8 +57,9 @@ fn kallen_vanishes<T: NativeFloat>(sum: &C<T>, ma: &C<T>, mb: &C<T>) -> bool {
 /// The massless line of a soft three-mass box in the labelling of `point`
 /// (`[p1², p2², p3², p4², s12, s23, m1², m2², m3², m4², mu²]`) that the
 /// generated code gets wrong, exact tests: a vanishing channel, which
-/// `box_series` keeps in this labelling, or the pseudo-threshold of the soft
-/// line's massive neighbours (`sum > 0`, not their threshold).
+/// `box_series` keeps in this labelling, or one of the sector's three massive
+/// pairs at its pseudo-threshold (`sum > 0`, not its threshold): the soft
+/// line's neighbours, or one of them and the opposite line.
 pub(crate) fn soft_line<T: NativeFloat>(point: &[C<T>]) -> Option<usize> {
     if point.len() != 11 {
         return None;
@@ -66,9 +69,20 @@ pub(crate) fn soft_line<T: NativeFloat>(point: &[C<T>]) -> Option<usize> {
     (0..4).find(|&i| {
         let [(a, pa), (b, pb)] = LEGS[i];
         let pseudo_threshold = || {
-            // The neighbours' channel: s23 for lines 0 and 2, s12 for 1 and 3.
-            let sum = sub(&add(&m[pa], &m[pb]), &p[5 - i % 2]);
-            !negative(&sum.re) && kallen_vanishes(&sum, &m[pa], &m[pb])
+            // (invariant, line, line): the leg `p[k]` joins lines `k` and
+            // `k + 1`; the neighbours' channel is s23 for lines 0 and 2, s12
+            // for 1 and 3.
+            let (next, opposite, previous) = ((i + 1) % 4, (i + 2) % 4, (i + 3) % 4);
+            [
+                (next, next, opposite),
+                (opposite, opposite, previous),
+                (5 - i % 2, pa, pb),
+            ]
+            .into_iter()
+            .any(|(k, ka, kb)| {
+                let sum = sub(&add(&m[ka], &m[kb]), &p[k]);
+                !negative(&sum.re) && kallen_vanishes(&sum, &m[ka], &m[kb])
+            })
         };
         is_zero(&m[i])
             && (1..4).all(|k| !is_zero(&m[(i + k) % 4]))
@@ -150,22 +164,20 @@ fn sector_16<T: NativeFloat>(
     let sqrt_3 = physical_sqrt(mass_3);
     let sqrt_4 = physical_sqrt(mass_4);
     let r13 = div(&sub(mass_3, p12), &mul(&mu, &sqrt_3));
-    let (r23, _) = r_function(
-        &div(&sub(&add(mass_2, mass_3), p2), &mul(&sqrt_2, &sqrt_3)),
-        c,
-    );
-    // The double root 1 at the endpoints' pseudo-threshold (as the expression).
-    let sum_24 = sub(&add(mass_2, mass_4), p23);
-    let x24 = div(&sum_24, &mul(&sqrt_2, &sqrt_4));
-    let r24 = if kallen_vanishes(&sum_24, mass_2, mass_4) && !negative(&x24.re) {
-        c.one_c.clone()
-    } else {
-        r_function(&x24, c).0
+    // The double root 1 at a pair's pseudo-threshold (as the expression's
+    // `pair_r`).
+    let pair_r = |p: &C<T>, ma: &C<T>, mb: &C<T>, sqrt_a: &C<T>, sqrt_b: &C<T>| {
+        let sum = sub(&add(ma, mb), p);
+        let x = div(&sum, &mul(sqrt_a, sqrt_b));
+        if kallen_vanishes(&sum, ma, mb) && !negative(&x.re) {
+            c.one_c.clone()
+        } else {
+            r_function(&x, c).0
+        }
     };
-    let (r34, _) = r_function(
-        &div(&sub(&add(mass_3, mass_4), p3), &mul(&sqrt_3, &sqrt_4)),
-        c,
-    );
+    let r23 = pair_r(p2, mass_2, mass_3, &sqrt_2, &sqrt_3);
+    let r24 = pair_r(p23, mass_2, mass_4, &sqrt_2, &sqrt_4);
+    let r34 = pair_r(p3, mass_3, mass_4, &sqrt_3, &sqrt_4);
     let [q13, q23, q24, q34] = [&r13, &r23, &r24, &r34].map(|r| Sheet::lower(r.clone()));
     let qproduct = q13.mul(&q23);
     let qsquare = qproduct.mul(&qproduct);

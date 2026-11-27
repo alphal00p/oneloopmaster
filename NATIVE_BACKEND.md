@@ -324,7 +324,7 @@ the fix in `box_series` itself. `tests/d0_infrared_relabelling.rs` checks the
 case in all 24 labellings on every route against the limit `s12 → 0` at 512
 bits, which COLLIER's COLI confirms.
 
-### The pseudo-threshold of the soft line's neighbours
+### The pseudo-thresholds of the massive pairs
 
 When the soft line's two massive neighbours sit at their pseudo-threshold,
 `x24 = 2` and `r24 = 1` is a double root. This happens, for example, with
@@ -336,6 +336,15 @@ significance. Both `box_three_masses_16` and `soft_box.rs` take `r24 = 1`
 exactly when the Källén function vanishes exactly and `x24` is not negative.
 `soft_box.rs` takes these points also when no channel vanishes, so its
 prefilter no longer asks for a vanishing invariant.
+
+Sector 16's other two massive pairs, a neighbour of the soft line and the
+opposite line, have the same double root `r23 = 1` or `r34 = 1` at their
+pseudo-thresholds (for example `p1² = (m0 - m1)²` with line 2 soft). There
+`Float` kept only about half its digits, and binary64 did too with all three
+pairs at their pseudo-thresholds. The rule applies to every pair now
+(`pair_r` in `box_three_masses_16`, the same closure in `soft_box.rs`), and
+`soft_line` accepts a soft three-mass box with any of its three pairs at the
+pseudo-threshold.
 
 ## Binary64 D0 next to a two-particle threshold (`native::d0_next_to_threshold`)
 

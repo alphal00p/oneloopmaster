@@ -4,6 +4,94 @@ This page preserves the September 8 development snapshot. See the
 [Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
 dependency setup and validation.
 
+## Soft three-mass boxes at the pseudo-thresholds of the other massive pairs (2026-11-27)
+
+Review remark 2 of #27. Sector 16 has two more r-functions over massive pairs:
+`r23` and `r34`, for a neighbour of the soft line and the opposite line,
+joined by a leg. At that pair's pseudo-threshold, for example `p1² = (m0 - m1)²`
+with line 2 soft between lines 1 and 3, they have the same double root 1 as
+`r24`. `box_three_masses_16` and `soft_box.rs` rounded them:
+- `Float` kept only about half its digits, through its significance tracking;
+- with all three pairs at their pseudo-thresholds, binary64 did too.
+
+Worst error over the 24 labellings on e2ad346 → this change, relative to the
+largest coefficient. The 66 boxes have dyadic inputs and `mu² = 4`, with line
+2 soft. Their masses have no exact square roots, except in the last row. 10
+boxes were chosen by hand, among them the review's
+`[2.5048828125, 40.078125, 17.8125, -28.078125, 4.453125, 46.53125;
+22.5439453125, 40.078125, 0, 17.8125]`; the other 56 are random.
+
+| pairs at their pseudo-thresholds | boxes | binary64 (native, SymJIT) | `Float` 128 | `Float` 256 | `Float` 512 | `Float` 1024 | interpreted `Float` 128 |
+|---|---|---|---|---|---|---|---|
+| a neighbour and the opposite line | 30 | 4.5e-15 → 1.8e-15 | 5.2e-20 → 1.1e-37 | 8.8e-39 → 7.1e-76 | 2.6e-77 → 1.9e-153 | 8.6e-155 → 1.7e-184 | 6.1e-20 → 1.1e-37 |
+| both such pairs | 9 | 1.0e-15 → 1.0e-15 | 1.7e-20 → 5.4e-38 | 1.2e-39 → 9.7e-77 | 2.1e-78 → 8.2e-154 | 3.4e-155 → 3.5e-185 | 1.7e-20 → 2.9e-38 |
+| one such pair and the neighbours | 9 | 6.9e-16 → 6.2e-16 | 8.8e-20 → 1.7e-38 | unchanged, 3.5e-77 | 4.9e-78 → 7.1e-154 | 2.3e-155 → 9.4e-184 | 2.1e-21 → 1.7e-38 |
+| all three pairs | 9 | 7.2e-9 → 4.2e-16 | 3.1e-20 → 1.1e-38 | 6.9e-41 → 3.9e-77 | unchanged, 1.9e-154 | 1.1e-157 → 2.4e-184 | 8.1e-20 → 5.9e-39 |
+| one such pair, masses exact squares | 9 | 9.1e-16 → 3.7e-15 | 9.4e-38 → 3.5e-38 | 1.7e-76 → 4.7e-76 | 3.0e-153 → 1.9e-153 | unchanged, 1.0e-184 | 1.6e-37 → 1.4e-37 |
+
+- The binary64 expression backend stays within 2.6e-15, and `DoubleFloat`
+  within 3.5e-31, on both revisions.
+- In the test's scaling (by 2.5e5), the box with all three pairs at their
+  pseudo-thresholds was 0.4 off at 128 bits on e2ad346, in every labelling,
+  on the expression routes (the evaluator built from the expressions, and the
+  interpreted `Float`).
+- With exact squares, `x = 2` is exact and the generated code was right
+  already. These boxes now take `soft_box.rs` too, whose binary64 rounding
+  differs.
+
+Changes:
+- `box_three_masses_16` takes `r = 1` exactly for each of its three pairs,
+  with the same rule as for `r24`: the pair's Källén function vanishes
+  exactly, and `x` is not negative (`pair_r`).
+- `soft_box.rs` does the same. `soft_line` now accepts a soft three-mass box
+  with any of the three pairs at its pseudo-threshold; the prefilter is
+  unchanged.
+
+Checks:
+- `tests/d0_infrared_relabelling.rs` gains four boxes, scaled by 2.5e5:
+  - each of the two pairs (the review's box, and lines 3 and 0);
+  - lines 0 and 1 together with the neighbours;
+  - all three pairs.
+
+  They pass in all 24 labellings on every route. On e2ad346, two of the three
+  tests fail, in 240 lanes, all of them in three of the new cases (`Float`
+  128 through the generated code, the expressions and the callbacks, and the
+  interpreted `Float`).
+- References: the mean of the pair's invariant moved by `±2^-300` at 1024
+  bits. It agrees with the mean of `±2^-200` to 2.2e-123 of the value. At the
+  exact point, `Float` 1024 with the fix agrees with it to 1.4e-183. The
+  review's box gives finite -1.9928878658971777e-3 and pole
+  -1.4361002508087465e-3, the review's values to their 16 digits.
+- COLLIER 1.2.9's COLI, as the mean of the invariant moved by `±1e-7`, agrees
+  within 6.3e-15 on the 41 boxes compared whose neighbours are not at their
+  pseudo-threshold. On the 16 whose neighbours are too, COLI is itself up to
+  6e-7 off, since their double root stays in its input. It stopped with a
+  fatal error (-10) on two of the 66 boxes.
+- Bit for bit against e2ad346: the 288 D0 rows of
+  `tests/data/ninja_master_rows.txt` and 2,880 soft boxes are identical on the
+  native binary64, `DoubleFloat`, `Float` 256 and SymJIT routes. The boxes,
+  each in all 24 labellings, are:
+  - the test's seven cases before #27;
+  - the three boxes of finding 1 in #25's review, and two of #26's points;
+  - 100 random soft three-mass boxes (a fifth with `s12 = 0`, a tenth with
+    `s23 = 0`);
+  - the review's box moved by `±2^-20` to `±2^-46`.
+
+  The binary64 expression backend moves by up to 2.4e-16 on 1,608 of the soft
+  boxes, as for #27.
+- Full release suite with `generated-evaluators`: 71 test binaries, 328
+  passed, 4 failed, 8 ignored, the same pre-existing failures as on e2ad346
+  with identical output.
+- Cost: retired instructions per binary64 `NativeEvaluator` call (`perf stat`,
+  12 passes minus 2, three repeats agreeing to one instruction):
+  - Ninja's 288 D0 rows: 103,895 → 103,896;
+  - 2,688 soft boxes outside the class (the sets above): 16,170 → 16,287
+    (+0.7 %), from the two further Källén tests;
+  - the class (66 boxes in 24 labellings): 13,492 → 6,234, since it now takes
+    the hand-written sector.
+- Next to a pseudo-threshold, where no exact test applies, the old behaviour
+  remains.
+
 ## Soft three-mass boxes at the pseudo-threshold of the soft line's neighbours (2026-11-27)
 
 Review finding 1 of #25: the two massive lines next to the soft line (lines 1
