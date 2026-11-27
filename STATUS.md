@@ -78,6 +78,67 @@ Checks:
   up to 7e-10 off, while `DoubleFloat` and `Float` are exact, as on
   a4b16f70.
 
+## Binary64 D0 next to a two-particle threshold (2026-11-27)
+
+Two boxes of a TIRust seven-point integral with two onia at threshold (two
+quark pairs of squared mass `M = 2.78515625` at `P/2` each, every momentum exact
+in binary64) sit exactly on the threshold `p² = 4M` of two of their
+propagators. Against 256 and 1024 bits:
+
+| box | binary64 (native, expression, SymJIT) | `DoubleFloat` |
+|---|---|---|
+| `D0(4M, M, -43.02734375, -32.34375, 29.50390625, -57.265625; M, M, 0, 0; mu² = 4)`, generated code | 5.3e-9 on every route | 1.4e-32 |
+| `D0(-3.203125, 4M, 4M, 15.859375, -12.875, 53.4375; 1, M, M, 1.47 M; mu² = 4)`, hand-written four masses | 4.0e-9, 3.4e-9, 3.4e-9 | 3.1e-32 |
+| the same with the last mass `M` (two thresholds) | 1.7e-8 | 3.2e-32 |
+
+In TIRust these errors reached the result through a denominator identity next
+to the other onium's threshold: binary64 lanes of the heptagon up to 6.4e-3 off
+at rank 2, through MadGraph's bridge options too.
+
+The sector formulas take the masses' square roots: `k = a / (√m_i √m_j)` with
+`a = m_i + m_j - p` (squared masses) and `√(k² - 4)`, or the contour's edge
+discriminants. For masses without exact square roots `k` is `-2 (1 ± u)` at the
+threshold, and `√(k² - 4)` about `√(8u)` instead of zero. Next to a threshold
+the binary64 kernels lose about `u |a| / √|λ|` (`λ = a² - 4 m_i m_j`, the
+Källén function), and the three-mass sectors about `u a² / |λ|`. A scan of 659
+boxes in 11 mass patterns with one invariant on or next to a threshold (real
+masses with exact square roots, relative distances 0 to 5e-5) found binary64 up
+to 3.0e-10 off in the two- and four-mass sectors and 2.2e-9 in the three-mass
+ones, `DoubleFloat` within 2e-25. At pseudo-thresholds (`a > 0`) binary64 stays
+within 2.4e-13: they are not singular on the physical sheet.
+
+The fix: binary64 D0 points with `Re a < 0` and `|λ| < 2^-12 |a|²` for a pair of
+massive propagators (an invariant within about 6e-5 of their threshold,
+relatively) take the native `DoubleFloat` kernels and are rounded once
+(`native::d0_next_to_threshold`). This holds on the native route (both kernel
+selections), at the SymJIT entry points (`ScalarEvaluator::evaluate` and
+`evaluate_batch`) and on the binary64 expression route. Every other point,
+pseudo-thresholds among them (such as equal masses next to a vanishing leg), is
+evaluated as before. A root-cause fix would form the r-functions'
+discriminants from `λ`, as the contour's edge polynomials already do at a
+pseudo-threshold beside a massless line (`tests/d0_contour_thresholds.rs`). The
+generated code would then have to be regenerated, which under the current
+Symbolica pin changes every family.
+
+Checks:
+- `tests/d0_normal_thresholds.rs`: the two boxes at their thresholds and
+  1e-15, 1e-12, 1e-9 and 1e-6 away on both sides, the box with two
+  thresholds, and two three-mass boxes 3.2e-9 and 4.2e-9 above a channel's
+  threshold (binary64 1.5e-11 and 2.2e-9 off before): on every binary64 route
+  within 1e-15 of 256 bits. Equal masses next to a vanishing leg keep their
+  binary64 kernels and stay within 1e-13. On a4b16f7 three of the four tests
+  fail.
+- `native::threshold_tests`: the point test keeps pseudo-thresholds, massless
+  members, points 1e-4 away and masses with a width.
+- Full release suite with `generated-evaluators`: 72 binaries, 328 passed,
+  4 failed, 8 ignored. The four failures are the pre-existing ones of the
+  entry below, with failure output identical to a4b16f7's.
+- Cost: binary64 `NativeEvaluator` over the 288 D0 rows of
+  `tests/data/ninja_master_rows.txt` (none of them next to a threshold),
+  103,886 retired instructions per call against 103,642 on a4b16f7 (+0.24 %,
+  the point test). A point next to a threshold costs a `DoubleFloat`
+  evaluation: the two onia boxes take 40 µs per call instead of 3.1 µs.
+
 ## Soft three-mass boxes with a light-like channel (2026-11-26)
 
 A unit-power box of a TIRust hexagon (huashengshao/TIRust#81) has line 2

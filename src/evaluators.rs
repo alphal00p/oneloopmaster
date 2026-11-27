@@ -378,11 +378,16 @@ impl ScalarEvaluator {
 /// exchanges their channels into the finite formula. So do those with the
 /// soft line's massive neighbours at their pseudo-threshold, where the asset
 /// splits the double root `r24 = 1`.
+/// Rows next to a
+/// two-particle threshold take the native double-double kernels, rounded
+/// (`native::threshold_d0`).
 fn soft_boxes(input: &[C], output: &mut [C]) {
     #[cfg(feature = "generated-evaluators")]
     for (point, values) in input.chunks_exact(11).zip(output.chunks_exact_mut(3)) {
-        if let Some(soft) = crate::native::soft_box_d0(point) {
-            values.clone_from_slice(&soft);
+        let repaired =
+            crate::native::soft_box_d0(point).or_else(|| crate::native::threshold_d0(point));
+        if let Some(repaired) = repaired {
+            values.clone_from_slice(&repaired);
         }
     }
     #[cfg(not(feature = "generated-evaluators"))]

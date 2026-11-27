@@ -337,6 +337,36 @@ exactly when the Källén function vanishes exactly and `x24` is not negative.
 `soft_box.rs` takes these points also when no channel vanishes, so its
 prefilter no longer asks for a vanishing invariant.
 
+## Binary64 D0 next to a two-particle threshold (`native::d0_next_to_threshold`)
+
+The D0 sector formulas take the masses' square roots: the r-functions of
+`k = (m_i + m_j - p) / (√m_i √m_j)` (squared masses) and `√(k² - 4)`, and the
+contour's edge discriminants. Next to a threshold `p = (√m_i + √m_j)²` of two
+massive propagators, binary64 loses about `u |a| / √|λ|` there, with
+`a = m_i + m_j - p` and `λ = a² - 4 m_i m_j`, and the three-mass sectors about
+`u a² / |λ|`. At a threshold of masses without exact square roots, `√(k² - 4)`
+comes out near `√(8u)` instead of zero: two onia at threshold (squared quark
+mass 2.78515625, every momentum exact) had boxes 4e-9 to 1.7e-8 off on every
+binary64 route. `DoubleFloat` is exact there (to 3e-32).
+
+Binary64 points with `Re a < 0` and `|λ| < 2^-12 |a|²` for one of the six pairs
+(the legs and the channels with the propagators they join) are therefore
+evaluated by the native `DoubleFloat` kernels and rounded once:
+- on the native route, with the evaluator's own kernel selection;
+- at the SymJIT entry points (`ScalarEvaluator::evaluate` and
+  `evaluate_batch`, next to the soft-box repair);
+- on the binary64 expression route.
+
+Where `DoubleFloat` is not finite, the binary64 kernels and their repair
+decide. Every other point is evaluated as before, pseudo-thresholds
+(`Re a > 0`, among them equal masses at a vanishing leg) included, since they
+are not singular on the physical sheet. The test costs about 240 retired
+instructions per binary64 D0 call (+0.24 % on the recorded Ninja streams). A
+point it takes costs a `DoubleFloat` evaluation, about 13 times a binary64
+one. `tests/d0_normal_thresholds.rs` checks the onia boxes, their
+neighbourhoods and two three-mass boxes next to a channel threshold on every
+binary64 route against 256 bits (within 1e-15).
+
 ## Numeric domains
 
 The generated functions are generic over `NativeFloat`, implemented for `f64`,

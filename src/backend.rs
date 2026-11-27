@@ -172,6 +172,14 @@ pub fn evaluate_batch_with_backend(
                 .chunks_exact(family.arity())
                 .zip(output.chunks_exact_mut(3))
             {
+                #[cfg(feature = "generated-evaluators")]
+                if family == ScalarIntegral::D0
+                    && let Some(wide) = crate::native::threshold_d0(point)
+                {
+                    // Next to a two-particle threshold, as on the other routes.
+                    values.clone_from_slice(&wide);
+                    continue;
+                }
                 let point = crate::labelling::regular_point(point, &mut relabelled);
                 value.evaluator.evaluate(point, values);
             }
