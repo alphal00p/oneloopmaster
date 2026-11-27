@@ -375,12 +375,10 @@ impl ScalarEvaluator {
 /// D0 rows (`input` row-major, `output` three coefficients per row) that are
 /// soft three-mass boxes with a vanishing channel take that sector from the
 /// native kernel: the prebuilt asset predates `box_series`' test for them and
-/// exchanges their channels into the finite formula. So do those with the
-/// soft line's massive neighbours at their pseudo-threshold, where the asset
-/// splits the double root `r24 = 1`.
-/// Rows next to a
-/// two-particle threshold take the native double-double kernels, rounded
-/// (`native::threshold_d0`).
+/// exchanges their channels into the finite formula. So do those with one of
+/// the sector's massive pairs at its pseudo-threshold, where the asset splits
+/// the double root `r = 1`. Rows next to a two-particle threshold take the
+/// native double-double kernels, rounded (`native::threshold_d0`).
 fn soft_boxes(input: &[C], output: &mut [C]) {
     #[cfg(feature = "generated-evaluators")]
     for (point, values) in input.chunks_exact(11).zip(output.chunks_exact_mut(3)) {

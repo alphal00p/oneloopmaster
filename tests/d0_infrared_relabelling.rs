@@ -25,10 +25,13 @@
 //! massive neighbours of the soft line sit at their pseudo-threshold (a double
 //! root r24 = 1: equal masses with a light-like channel between them, in the
 //! physical and the Euclidean region, three equal masses, unequal masses with
-//! a nonzero channel, and the light-like soft channel as well), two opposite
-//! massless lines with both or one of them soft, and two adjacent massless
-//! lines with a collinear leg and both soft (its double pole; PR #10 covered
-//! its labellings, now relabelled up front). Every route: hand-written,
+//! a nonzero channel, and the light-like soft channel as well), four whose
+//! other massive pairs (a neighbour and the opposite line) sit at theirs (r23
+//! or r34 = 1: each of the two pairs, one with the neighbours as well, one
+//! with all three pairs), two opposite massless lines with both or one of them
+//! soft, and two adjacent massless lines with a collinear leg and both soft
+//! (its double pole; PR #10 covered its labellings, now relabelled up front).
+//! Every route: hand-written,
 //! generated and interpreted binary64, SymJIT, DoubleFloat (generated and
 //! interpreted) and Float at 128 and 256 bits (generated and interpreted), and
 //! the public D0 master's numeric callbacks in binary64, DoubleFloat and
@@ -67,7 +70,7 @@ struct Case {
     reference: [[&'static str; 2]; 3],
 }
 
-const CASES: [Case; 12] = [
+const CASES: [Case; 16] = [
     Case {
         // gamma* -> H t t~: legs (H, t, t~, gamma*), lines (t, t, g, t). The
         // inputs 1299773111931/1562500, 1756052/5 and 976955119487/3125000
@@ -253,6 +256,83 @@ const CASES: [Case; 12] = [
                 "5.27214301321660028005001351853420781E-13",
             ],
             ["-7.87338383947600477669893581491012453E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // The pseudo-threshold of the sector's other massive pairs: line 0
+        // (opposite the soft line) and line 1, with m0² = (3/4)² m1² and
+        // p1² = (m1 - m0)², masses without exact square roots. The rounded
+        // double root r23 = 1 cost Float half its digits (2e-19 at 128 bits;
+        // alphal00p/oneloopmaster#27, review remark 2; scaled by 2.5e5).
+        name: "three-masses-pseudo-threshold-opposite-pair",
+        invariants: [
+            626220.703125,
+            10019531.25,
+            4453125.0,
+            -7019531.25,
+            1113281.25,
+            11632812.5,
+        ],
+        masses: [5635986.328125, 10019531.25, 0.0, 4453125.0],
+        reference: [
+            ["-3.18862058543548437812825457403314061E-14", "0"],
+            ["-2.29776040129399436894897400102254262E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // The same for lines 3 and 0, m0² = (9/8)² m3² and p4² = (m0 - m3)².
+        name: "three-masses-pseudo-threshold-other-opposite-pair",
+        invariants: [
+            -7019531.25,
+            10019531.25,
+            4453125.0,
+            69580.078125,
+            1113281.25,
+            11632812.5,
+        ],
+        masses: [5635986.328125, 10019531.25, 0.0, 4453125.0],
+        reference: [
+            ["-2.92830336363194529912026911857926170E-14", "0"],
+            ["-2.29776040129399436894897400102254262E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // Lines 0 and 1, and the soft line's neighbours (m1² = (3/2)² m3²,
+        // s23 = (m1 - m3)²), at their pseudo-thresholds.
+        name: "three-masses-pseudo-threshold-opposite-pair-and-neighbours",
+        invariants: [
+            626220.703125,
+            10019531.25,
+            4453125.0,
+            -7019531.25,
+            1113281.25,
+            1113281.25,
+        ],
+        masses: [5635986.328125, 10019531.25, 0.0, 4453125.0],
+        reference: [
+            ["-1.86500714276160959144014779685009248E-14", "0"],
+            ["-1.65506704232466005319190914758781795E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // All three massive pairs at their pseudo-thresholds.
+        name: "three-masses-pseudo-threshold-every-pair",
+        invariants: [
+            626220.703125,
+            10019531.25,
+            4453125.0,
+            69580.078125,
+            1113281.25,
+            1113281.25,
+        ],
+        masses: [5635986.328125, 10019531.25, 0.0, 4453125.0],
+        reference: [
+            ["-1.17667256405229862037016261772315368E-14", "0"],
+            ["-1.65506704232466005319190914758781795E-14", "0"],
             ["0", "0"],
         ],
     },

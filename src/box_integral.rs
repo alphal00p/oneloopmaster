@@ -1674,6 +1674,26 @@ pub(crate) fn box_two_opposite_ir(
     )
 }
 
+/// Sector 16's r-function `r + 1/r = x` of a massive pair, `x = sum / (√ma √mb)`
+/// with `sum = ma + mb - p` for the invariant `p` between them. At the pair's
+/// pseudo-threshold (its Källén function `sum² - 4 ma mb` vanishes and `x` is
+/// not negative, so `x = 2`) it is the double root 1 exactly. Rounding `x`
+/// would split it into `1 ± sqrt(rounding)`, and `Float` would lose half its
+/// digits through its significance tracking: all of them for `r24`, whose
+/// divided differences then have merging arguments. A pseudo-threshold is not
+/// singular on the physical sheet, so the double root gives the limit.
+fn pair_r(p: &Atom, mass_a: &Atom, mass_b: &Atom, sqrt_a: &Atom, sqrt_b: &Atom) -> Atom {
+    let sum = mass_a + mass_b - p;
+    let kallen = &sum * &sum - Atom::num(4) * mass_a * mass_b;
+    let x = &sum / (sqrt_a * sqrt_b);
+    let (rounded, _) = r_function(&x);
+    if_nonzero_else(
+        &kallen,
+        rounded.clone(),
+        if_nonzero_else(&negative(&re(&x)), rounded, Atom::num(1)),
+    )
+}
+
 #[allow(clippy::too_many_arguments)] // OneLOop sector 16's named invariants.
 pub(crate) fn box_three_masses_16(
     p2: &Atom,
@@ -1701,22 +1721,9 @@ pub(crate) fn box_three_masses_16(
     let sqrt_3 = physical_sqrt(mass_3);
     let sqrt_4 = physical_sqrt(&mass_4);
     let r13 = (mass_3 - p12) / (&mu * &sqrt_3);
-    let (r23, _) = r_function(&((mass_2.clone() + mass_3 - p2) / (&sqrt_2 * &sqrt_3)));
-    // At the pseudo-threshold of the massive endpoints (their Källén function
-    // vanishes, x24 = 2), r24 is the double root 1: rounding x24 would split
-    // it into 1 +- sqrt(rounding) and the merging divided differences below
-    // would lose half their digits.
-    let sum_24 = mass_2.clone() + &mass_4 - p23;
-    let kallen_24 = &sum_24 * &sum_24 - Atom::num(4) * &mass_2 * &mass_4;
-    let x24 = &sum_24 / (&sqrt_2 * &sqrt_4);
-    let (rounded_r24, _) = r_function(&x24);
-    let r24 = if_nonzero_else(
-        &kallen_24,
-        rounded_r24.clone(),
-        if_nonzero_else(&negative(&re(&x24)), rounded_r24, Atom::num(1)),
-    );
-    let r34_arg = (mass_3 + mass_4) - p3;
-    let (r34, _) = r_function(&(&r34_arg / (&sqrt_3 * &sqrt_4)));
+    let r23 = pair_r(&p2, &mass_2, mass_3, &sqrt_2, &sqrt_3);
+    let r24 = pair_r(p23, &mass_2, &mass_4, &sqrt_2, &sqrt_4);
+    let r34 = pair_r(&p3, mass_3, &mass_4, &sqrt_3, &sqrt_4);
     let [q13, q23, q24, q34] = [&r13, &r23, &r24, &r34].map(|r| Q::lower(r.clone()));
     let qproduct = &q13 * &q23;
     let qsquare = &qproduct * &qproduct;
