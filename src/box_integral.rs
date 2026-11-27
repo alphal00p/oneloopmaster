@@ -177,14 +177,14 @@ fn box_four_masses_dns(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
 /// multiple of the modified Cayley determinant), so with a real `r13` the
 /// roots are real exactly when `D >= 0`, and with `r13` on the unit circle
 /// (complex, or `-1` or `1` at a threshold) `R` is real when `D < 0` as well.
-fn box_four_masses_chart(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
+///
+/// `k` holds the r-function arguments `[k12, k13, k14, k23, k24, k34]`, which
+/// [box_finite_four_masses] forms with [chart_pair] (2 exactly at a
+/// pseudo-threshold, -2 at a threshold): as parameters, they are the values its
+/// selection tested.
+fn box_four_masses_chart(p: [&Atom; 6], m: [&Atom; 4], k: [&Atom; 6]) -> Atom {
     let roots = m.map(physical_sqrt);
-    let k12 = (m[0] + m[1] - p[0]) / (&roots[0] * &roots[1]);
-    let k13 = (m[0] + m[2] - p[4]) / (&roots[0] * &roots[2]);
-    let k14 = (m[0] + m[3] - p[3]) / (&roots[0] * &roots[3]);
-    let k23 = (m[1] + m[2] - p[1]) / (&roots[1] * &roots[2]);
-    let k24 = (m[1] + m[3] - p[5]) / (&roots[1] * &roots[3]);
-    let k34 = (m[2] + m[3] - p[2]) / (&roots[2] * &roots[3]);
+    let [k12, k13, k14, k23, k24, k34] = k.map(Atom::clone);
     let (r12, _) = r_function(&k12);
     let (r13, d13) = r_function(&k13);
     let (r14, _) = r_function(&k14);
@@ -315,22 +315,90 @@ pub(crate) const FOUR_MASS_CHART_ORDERS: [([usize; 6], [usize; 4]); 6] = [
     ([0, 4, 2, 5, 1, 3], [1, 0, 2, 3]),
 ];
 
+/// `(at the threshold or the pseudo-threshold, at the pseudo-threshold)`: 0 or 1
+/// each, for the invariant `p` between the massive lines `a` and `b`. Their
+/// Källén function vanishes exactly at both, `p = (√a ± √b)²`, and `a + b - p`
+/// is not negative at the pseudo-threshold.
+///
+/// The Källén function is tested as `(a - b)² - 2 p (a + b) + p²`. For binary64
+/// inputs with short mantissas every term is exact. Unlike
+/// `(a + b - p)² - 4 a b`, it does not lose a tiny invariant to the rounding of
+/// the sum (equal masses with `p = 2^-114`).
+fn pair_thresholds(p: &Atom, a: &Atom, b: &Atom) -> (Atom, Atom) {
+    let difference = grouped(&(a - b));
+    let kallen = &difference * &difference - Atom::num(2) * p * (a + b) + p * p;
+    let vanishing = 1 - any_nonzero([kallen]);
+    let pseudo = &vanishing * (1 - negative(&re(&(a + b - p))));
+    (vanishing, pseudo)
+}
+
+/// The argument `k = (a + b - p) / (√a √b)` of the r-function `r + 1/r = k` of
+/// the massive lines `a` and `b` that the invariant `p` joins, for
+/// [box_four_masses_chart], and whether the pair may take the chart's `p23` or
+/// `p12` slot.
+///
+/// At the pair's pseudo-threshold ([pair_thresholds]) `k` is 2 exactly and
+/// `r = 1` the exact double root, and at its threshold `k = -2` and `r = -1`
+/// (the chart's threshold branch for `r13`). Rounded, with masses without
+/// exact square roots, `k` came out on either side of 2 depending on the
+/// labelling. The root then split into `1 ± sqrt(rounding)`, real or on the unit circle,
+/// which costs `Float` half its digits. Worse, in the `p23` slot (the chart's
+/// `r24`, which must be real) and in the `p12` slot (whose `r13` the chart
+/// takes as real or on the unit circle by the sign of `k² - 4`), the chart was
+/// wrong in some labellings. The expression routes (the binary64 expression
+/// backend, SymJIT and the interpreted `Float`) returned values up to 130 times
+/// their size off. A pair at its pseudo-threshold is therefore `excluded` from
+/// both slots. At a threshold, a rounded `k13` likewise left `r13` next to -1
+/// instead of on the chart's threshold branch.
+///
+/// Returns `(k, excluded)`, with `excluded` 0 or 1.
+fn chart_pair(p: &Atom, a: &Atom, b: &Atom, sqrt_a: &Atom, sqrt_b: &Atom) -> (Atom, Atom) {
+    let rounded = (a + b - p) / (sqrt_a * sqrt_b);
+    let (vanishing, pseudo) = pair_thresholds(p, a, b);
+    let exact = if_nonzero_else(&pseudo, Atom::num(2), Atom::num(-2));
+    (if_nonzero_else(&vanishing, exact, rounded), pseudo)
+}
+
 pub(crate) fn box_finite_four_masses(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
     let roots = m.map(physical_sqrt);
     let real_masses = 1 - any_nonzero(m.map(sheet_exact::im));
     // The first invariant whose r-function is real and at least one (real
     // k >= 2, at or below its pseudo-threshold) takes the p23 slot of
-    // box_four_masses_chart; k is formed as the chart forms k24.
+    // box_four_masses_chart, except a pair excluded by [chart_pair]. The chart
+    // takes its six k from here: formed in its own body, the k24 that it
+    // evaluated did not always round as this test's did.
     let generic = FOUR_MASS_CHART_ORDERS.iter().rev().fold(
         box_four_masses_dns(p, m),
         |otherwise, (order, masses)| {
-            let k = (m[masses[1]] + m[masses[3]] - p[order[5]])
-                / (&roots[masses[1]] * &roots[masses[3]]);
-            let positive = &real_masses * (1 - negative(&(&k * &k - 4))) * (1 - negative(&k));
+            let pair = |slot: usize, i: usize, j: usize| {
+                let (i, j) = (masses[i], masses[j]);
+                chart_pair(p[order[slot]], m[i], m[j], &roots[i], &roots[j])
+            };
+            let [
+                (k12, _),
+                (k13, excluded13),
+                (k14, _),
+                (k23, _),
+                (k24, excluded24),
+                (k34, _),
+            ] = [
+                pair(0, 0, 1),
+                pair(4, 0, 2),
+                pair(3, 0, 3),
+                pair(1, 1, 2),
+                pair(5, 1, 3),
+                pair(2, 2, 3),
+            ];
+            let positive = &real_masses
+                * (1 - negative(&(&k24 * &k24 - 4)))
+                * (1 - negative(&k24))
+                * (1 - excluded24)
+                * (1 - excluded13);
             let args: Vec<Atom> = order
                 .map(|i| p[i].clone())
                 .into_iter()
                 .chain(masses.map(|i| m[i].clone()))
+                .chain([k12, k13, k14, k23, k24, k34])
                 .collect();
             if_nonzero_else(
                 &positive,
@@ -1973,12 +2041,18 @@ pub(crate) fn register_boxes(map: &mut FunctionMap) {
     // One definition for every relabelling of box_finite_four_masses. It binds
     // the sector parameters: new symbols would renumber later ones and reorder
     // the other families' evaluators.
+    // Its six r-function arguments are box_complex's parameters (registered
+    // before), so that no symbol is created here either.
+    let k_symbols: [Symbol; 6] =
+        core::array::from_fn(|i| symbolica::symbol!(format!("__olo_boxc_arg_{}", 11 + i)));
+    let k = k_symbols.map(Symbol::to_atom);
     map.add_function_with_options(
         box_four_masses_chart_symbol(),
-        symbols[..10].to_vec(),
+        symbols[..10].iter().chain(&k_symbols).copied().collect(),
         box_four_masses_chart(
             [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]],
             [&x[6], &x[7], &x[8], &x[9]],
+            k.each_ref(),
         ),
         native_function_options(),
     )
