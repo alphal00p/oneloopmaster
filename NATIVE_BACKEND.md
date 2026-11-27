@@ -316,13 +316,26 @@ points (`ScalarEvaluator::evaluate` and `evaluate_batch`) send these points to
   `NativeFloat` (binary64, `DoubleFloat`, `Float`), with the sheets of `Sheet`
   and the divided difference `dd`;
 - in the labelling `crate::labelling` selects;
-- after a test of a massless line and a vanishing invariant that leaves every
-  other point at once.
+- after a test of exactly one massless line and an invariant on the shell of
+  a massive line, which leaves every other point at once.
 
 The interpreted expressions and evaluators built from them at run time carry
 the fix in `box_series` itself. `tests/d0_infrared_relabelling.rs` checks the
 case in all 24 labellings on every route against the limit `s12 → 0` at 512
 bits, which COLLIER's COLI confirms.
+
+### The pseudo-threshold of the soft line's neighbours
+
+When the soft line's two massive neighbours sit at their pseudo-threshold,
+`x24 = 2` and `r24 = 1` is a double root. This happens, for example, with
+equal masses and a light-like channel between them, or more generally where
+their Källén function vanishes. Rounding splits the root into
+`1 ± sqrt(rounding)`, and the merging divided differences of sector 16 lose
+half their digits in binary64 and all of them in `Float`, which tracks
+significance. Both `box_three_masses_16` and `soft_box.rs` take `r24 = 1`
+exactly when the Källén function vanishes exactly and `x24` is not negative.
+`soft_box.rs` takes these points also when no channel vanishes, so its
+prefilter no longer asks for a vanishing invariant.
 
 ## Numeric domains
 

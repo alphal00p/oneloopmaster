@@ -1702,7 +1702,19 @@ pub(crate) fn box_three_masses_16(
     let sqrt_4 = physical_sqrt(&mass_4);
     let r13 = (mass_3 - p12) / (&mu * &sqrt_3);
     let (r23, _) = r_function(&((mass_2.clone() + mass_3 - p2) / (&sqrt_2 * &sqrt_3)));
-    let (r24, _) = r_function(&((mass_2 + mass_4.clone() - p23) / (&sqrt_2 * &sqrt_4)));
+    // At the pseudo-threshold of the massive endpoints (their Källén function
+    // vanishes, x24 = 2), r24 is the double root 1: rounding x24 would split
+    // it into 1 +- sqrt(rounding) and the merging divided differences below
+    // would lose half their digits.
+    let sum_24 = mass_2.clone() + &mass_4 - p23;
+    let kallen_24 = &sum_24 * &sum_24 - Atom::num(4) * &mass_2 * &mass_4;
+    let x24 = &sum_24 / (&sqrt_2 * &sqrt_4);
+    let (rounded_r24, _) = r_function(&x24);
+    let r24 = if_nonzero_else(
+        &kallen_24,
+        rounded_r24.clone(),
+        if_nonzero_else(&negative(&re(&x24)), rounded_r24, Atom::num(1)),
+    );
     let r34_arg = (mass_3 + mass_4) - p3;
     let (r34, _) = r_function(&(&r34_arg / (&sqrt_3 * &sqrt_4)));
     let [q13, q23, q24, q34] = [&r13, &r23, &r24, &r34].map(|r| Q::lower(r.clone()));

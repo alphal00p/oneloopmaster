@@ -21,21 +21,28 @@
 //! lines (8 labellings with a vanishing channel), the same with the soft
 //! line's channel to the opposite line light-like (a vanishing channel in
 //! every labelling with both pairs on the legs, which `box_series` keeps
-//! rather than exchanging it; huashengshao/TIRust#81), two opposite massless lines
-//! with both or one of them soft, and two adjacent massless lines with a
-//! collinear leg and both soft (its double pole; PR #10 covered its
-//! labellings, now relabelled up front). Every route: hand-written, generated
-//! and interpreted binary64, SymJIT, DoubleFloat (generated and interpreted)
-//! and Float at 128 and 256 bits (generated and interpreted), and the public
-//! D0 master's numeric callbacks in binary64, DoubleFloat and Float. References:
-//! OneLOop 3.6 in quadruple precision for the identical binary64 inputs in
-//! the cyclic labelling 0123, with all three Laurent coefficients [finite,
-//! 1/eps, 1/eps^2]. COLLIER 1.2.9 in quadruple precision (COLI and DD,
-//! DeltaIR1 and DeltaIR2 = 0, 1, finite part + pi^2/6 times the double pole)
-//! agrees in all 24 labellings (DD to 1e-18 and below, COLI to 5e-17, 2.4e-16
-//! for the double-pole case). The light-like soft channel, where OneLOop fails
-//! too, takes the limit s12 -> 0 instead (its entry), checked against COLLIER
-//! 1.2.9's COLI in double precision.
+//! rather than exchanging it; huashengshao/TIRust#81), five soft boxes whose
+//! massive neighbours of the soft line sit at their pseudo-threshold (a double
+//! root r24 = 1: equal masses with a light-like channel between them, in the
+//! physical and the Euclidean region, three equal masses, unequal masses with
+//! a nonzero channel, and the light-like soft channel as well), two opposite
+//! massless lines with both or one of them soft, and two adjacent massless
+//! lines with a collinear leg and both soft (its double pole; PR #10 covered
+//! its labellings, now relabelled up front). Every route: hand-written,
+//! generated and interpreted binary64, SymJIT, DoubleFloat (generated and
+//! interpreted) and Float at 128 and 256 bits (generated and interpreted), and
+//! the public D0 master's numeric callbacks in binary64, DoubleFloat and
+//! Float. References: OneLOop 3.6 in quadruple precision for the identical
+//! binary64 inputs in the cyclic labelling 0123, with all three Laurent
+//! coefficients [finite, 1/eps, 1/eps^2]. COLLIER 1.2.9 in quadruple
+//! precision (COLI and DD, DeltaIR1 and DeltaIR2 = 0, 1, finite part + pi^2/6
+//! times the double pole) agrees in all 24 labellings (DD to 1e-18 and below,
+//! COLI to 5e-17, 2.4e-16 for the double-pole case). The light-like soft
+//! channel, where OneLOop fails too, takes the limit s12 -> 0 instead (its
+//! entry), checked against COLLIER 1.2.9's COLI in double precision. So do the
+//! pseudo-threshold cases, where OneLOop 3.6 fails as well and COLI stops with
+//! a fatal error: the limit of the channel at 1024 bits (their entries),
+//! against COLI's mean of the channel moved by +-1e-7 to 3e-11 of the value.
 #![cfg(feature = "generated-evaluators")]
 use oneloop::{
     EvaluationBackend, NativeEvaluator, NativeFloat, OneLoopExpressions, PrecisionEvaluator,
@@ -60,7 +67,7 @@ struct Case {
     reference: [[&'static str; 2]; 3],
 }
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 12] = [
     Case {
         // gamma* -> H t t~: legs (H, t, t~, gamma*), lines (t, t, g, t). The
         // inputs 1299773111931/1562500, 1756052/5 and 976955119487/3125000
@@ -140,6 +147,112 @@ const CASES: [Case; 7] = [
         reference: [
             ["-3.68844815032443930075378605383714008E-10", "0"],
             ["-8.13642625824364612816020103648584122E-11", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // Line 2 soft between the equal-mass lines 1 and 3, whose channel is
+        // light-like (s23 = 0): their pseudo-threshold, where r24 = 1 is a
+        // double root. Rounding split it into 1 +- sqrt(rounding), and the
+        // divided differences of merging arguments returned round dyadic
+        // values in Float from 256 bits and in the interpreted Float
+        // (alphal00p/oneloopmaster#25, review finding 1; a physical point
+        // scaled by 2.5e5). Reference, as for the pseudo-threshold cases
+        // below: the mean of the channel moved by +-2^-100 at 1024 bits, where
+        // no exact test applies (+-2^-80 agrees to 2e-62 of the value).
+        name: "three-masses-pseudo-threshold",
+        invariants: [
+            38976562.5,
+            1378906.25,
+            1378906.25,
+            13113281.25,
+            21519531.25,
+            0.0,
+        ],
+        masses: [4605468.75, 1378906.25, 0.0, 1378906.25],
+        reference: [
+            [
+                "-5.86688429377488951065722170882624455E-17",
+                "-8.85339274610696334253393928466272836E-15",
+            ],
+            ["2.14381513781575280178476797362102467E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // The same in the Euclidean region, where the box is real.
+        name: "three-masses-pseudo-threshold-euclidean",
+        invariants: [
+            -10996093.75,
+            1800781.25,
+            1800781.25,
+            -1300781.25,
+            -6390625.0,
+            0.0,
+        ],
+        masses: [5417968.75, 1800781.25, 0.0, 1800781.25],
+        reference: [
+            ["2.90885565359446726579059532088926265E-15", "0"],
+            ["-2.35131525979780468325627886851563895E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // All three masses equal: binary64 was 8.3e-9 off in every labelling.
+        name: "three-equal-masses-pseudo-threshold",
+        invariants: [
+            28574218.75,
+            8386718.75,
+            8386718.75,
+            29781250.0,
+            20906250.0,
+            0.0,
+        ],
+        masses: [8386718.75, 8386718.75, 0.0, 8386718.75],
+        reference: [
+            [
+                "-3.91933371502444229988718362898399538E-14",
+                "2.99205605100990882573714651386152867E-14",
+            ],
+            ["4.76200510526243127042268462978854505E-15", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // Unequal neighbour masses m1² = 4 m3², with s23 = m3² at their
+        // pseudo-threshold and no vanishing channel: DoubleFloat was 10 times
+        // its size off, Float up to 1.2.
+        name: "three-masses-pseudo-threshold-unequal",
+        invariants: [
+            38976562.5,
+            5515625.0,
+            1378906.25,
+            13113281.25,
+            21519531.25,
+            1378906.25,
+        ],
+        masses: [4605468.75, 5515625.0, 0.0, 1378906.25],
+        reference: [
+            [
+                "-1.07392433879852214156398188794948621E-14",
+                "-1.08718606069580252355924619103892994E-14",
+            ],
+            ["1.07190756890787640089238398681051233E-14", "0"],
+            ["0", "0"],
+        ],
+    },
+    Case {
+        // The pseudo-threshold with the soft line's channel to line 0
+        // light-like as well (s12 = s23 = 0).
+        name: "three-masses-pseudo-threshold-light-like-soft-channel",
+        invariants: [38976562.5, 1378906.25, 1378906.25, 13113281.25, 0.0, 0.0],
+        masses: [4605468.75, 1378906.25, 0.0, 1378906.25],
+        reference: [
+            [
+                "-2.04634378256576711107862517464617006E-13",
+                "5.27214301321660028005001351853420781E-13",
+            ],
+            ["-7.87338383947600477669893581491012453E-14", "0"],
             ["0", "0"],
         ],
     },
