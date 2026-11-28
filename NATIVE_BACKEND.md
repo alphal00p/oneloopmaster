@@ -376,6 +376,54 @@ one. `tests/d0_normal_thresholds.rs` checks the onia boxes, their
 neighbourhoods and two three-mass boxes next to a channel threshold on every
 binary64 route against 256 bits (within 1e-15).
 
+## Four-mass boxes at a massive pair's pseudo-threshold (`box_integral::chart_pair`)
+
+At the pseudo-threshold `p = (√m_i - √m_j)²` of two massive propagators,
+`λ = 0` and `k = 2`, and the r-function has the double root `r = 1`. With
+masses without exact square roots, `k` rounds to either side of 2, depending
+on the labelling, and the root splits into `1 ± sqrt(rounding)`, real or on
+the unit circle. In `box_four_masses_chart` that pair is wrong in the `p23`
+slot (`r24` must be real) and in the `p12` slot (`r13` is taken as real or on
+the unit circle by the sign of `k² - 4`). The expression routes (the binary64
+expression backend, SymJIT and the interpreted `Float`) returned values up to
+130 times their size off in some labellings. So did a pair exactly at its
+threshold (`k = -2`), whose rounded `k13` missed the chart's threshold branch.
+
+`box_finite_four_masses` therefore forms the chart's six `k` itself, with
+`chart_pair`, and passes them as parameters. Formed again in the chart's body,
+`k24` did not always round as the selection's did.
+- **`k` is exact at the boundaries:** 2 at a pseudo-threshold and -2 at a
+  threshold, where the Källén function vanishes exactly. It is tested as
+  `(m_i - m_j)² - 2 p (m_i + m_j) + p²`, whose terms are exact for binary64
+  inputs with short mantissas and which keeps a tiny `p`.
+- **No chart order puts a pair at its pseudo-threshold in the `p23` slot.**
+  The `p12` slot takes it: with `k = 2` exactly, `r13 = 1` is both real and
+  on the unit circle. Excluded from it too, two physical boxes with
+  exact-square masses and two adjacent legs at their pseudo-thresholds had no
+  chart order left, and `box_four_masses_dns` was about 1 off in 16 of their
+  labellings.
+- **The DNS fallback keeps the rounded `k`.**
+- **The hand-written `boxes.rs` does the same.**
+
+SymJIT's prebuilt asset predates the change. Its entry points take four-mass
+points with a pair at an exact pseudo-threshold from the native kernels
+(`native::pseudo_threshold_d0`, after the soft-box and threshold repairs).
+
+Not changed:
+- **The native `Float` route** evaluates the generated code, which is not
+  regenerated (as above), and keeps about half its digits at these points.
+- **The three- and two-mass sectors** keep the rounded `k` too, and lose half
+  the digits in `Float`. Exact `k` written out there would roughly triple
+  their definitions, past the size budget of `tests/expression_construction.rs`.
+- **The contour box** keeps its Källén functions. Zero at an exact
+  pseudo-threshold, they recovered `Float`'s digits on its boxes, but broke
+  regressions of `tests/d0_contour_regressions.rs` (up to 0.14 off) and
+  `tests/d0_contour_thresholds.rs` (3.9e-9).
+
+`tests/d0_pseudo_thresholds.rs` checks eight four-mass boxes in all 24
+labellings on the binary64 routes, `DoubleFloat` and the interpreted `Float`,
+the two boxes above among them.
+
 ## Numeric domains
 
 The generated functions are generic over `NativeFloat`, implemented for `f64`,

@@ -68,6 +68,35 @@ fn root_lip_and_velocity<T: BoxReal>(x: Z<T>, a: Z<T>, b: Z<T>, [da, db, dc]: [Z
     (lip, if nz(slope) { dv(numerator, slope) } else { r(0.0) })
 }
 
+/// `(a - b)² - 2 p (a + b) + p²`, the Källén function as the exact test of
+/// `box_integral::pair_thresholds` forms it.
+#[inline]
+fn kallen_polynomial<T: BoxReal>(p: Z<T>, a: Z<T>, b: Z<T>) -> Z<T> {
+    let difference = a - b;
+    let sum = a + b;
+    difference * difference - (p * sum + p * sum) + p * p
+}
+
+/// `box_integral::chart_pair`: `k` of the massive pair that `momentum` joins, 2
+/// exactly at its pseudo-threshold and -2 at its threshold, and whether the pair
+/// is excluded from the chart's `p23` slot (at its pseudo-threshold).
+#[inline]
+fn chart_pair<T: BoxReal>(
+    momentum: Z<T>,
+    a: Z<T>,
+    b: Z<T>,
+    root_a: Z<T>,
+    root_b: Z<T>,
+) -> (Z<T>, bool) {
+    if nz(kallen_polynomial(momentum, a, b)) {
+        (dv(a + b - momentum, root_a * root_b), false)
+    } else if negative((a + b - momentum).re) {
+        (r(-2.0), false)
+    } else {
+        (r(2.0), true)
+    }
+}
+
 /// `box_four_masses_dns` (OneLOop boxf4, Denner-Nierste-Scharf) as it stands,
 /// for complex masses and for real masses without an invariant at or below its
 /// pseudo-threshold.
@@ -171,7 +200,7 @@ fn sign_or<T: BoxReal>(x: T, fallback: i32) -> i32 {
 /// `roots` are the masses' square roots and `k24` the selecting r-function
 /// argument, as [four_masses] formed them.
 fn four_masses_chart<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], roots: [Z<T>; 4], k24: Z<T>, k: &Constants<T>) -> Z<T> {
-    let kk = |mi: usize, mj: usize, momentum: Z<T>| dv(m[mi] + m[mj] - momentum, roots[mi] * roots[mj]);
+    let kk = |mi: usize, mj: usize, momentum: Z<T>| chart_pair(momentum, m[mi], m[mj], roots[mi], roots[mj]).0;
     let k12 = kk(0, 1, p[0]);
     let k13 = kk(0, 2, p[4]);
     let k14 = kk(0, 3, p[3]);
@@ -358,11 +387,13 @@ fn four_masses<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T>
     if m.iter().all(|x| x.im.is_fully_zero()) {
         let roots = m.map(|x| physical_sqrt(&x));
         for (order, masses) in crate::box_integral::FOUR_MASS_CHART_ORDERS {
-            let kv = dv(
-                m[masses[1]] + m[masses[3]] - p[order[5]],
-                roots[masses[1]] * roots[masses[3]],
-            );
-            if !negative(kv.re * kv.re - T::lit(4.0)) && !negative(kv.re) {
+            let pair = |slot: usize, i: usize, j: usize| {
+                let (i, j) = (masses[i], masses[j]);
+                chart_pair(p[order[slot]], m[i], m[j], roots[i], roots[j])
+            };
+            // The p23 slot's pair.
+            let (kv, excluded24) = pair(5, 1, 3);
+            if !negative(kv.re * kv.re - T::lit(4.0)) && !negative(kv.re) && !excluded24 {
                 let (p, m, roots) = (order.map(|i| p[i]), masses.map(|i| m[i]), masses.map(|i| roots[i]));
                 return four_masses_chart(p, m, roots, kv, k);
             }
