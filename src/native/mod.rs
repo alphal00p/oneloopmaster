@@ -20,6 +20,8 @@ mod simple;
 mod handwritten;
 #[cfg(feature = "generated-evaluators")]
 mod gram;
+#[cfg(feature = "generated-evaluators")]
+mod pseudo_triangle;
 // The emitter has its own stable formatting and mechanically named SSA locals.
 #[rustfmt::skip]
 #[allow(clippy::all)]
@@ -388,6 +390,7 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         // pseudo-threshold, takes the infrared sector directly
         // (handwritten::soft_box).
         ScalarIntegral::D0 => handwritten::soft_box::d0_any_labelling(input, &self.context.hand)
+            .or_else(|| pseudo_triangle::d0(input, self.bits))
             .or_else(|| simple::massless_onshell_box(input, &self.context.simple))
             .or_else(|| {
                 self.handwritten[1]
@@ -549,6 +552,23 @@ pub(crate) fn threshold_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
         }
         wide_d0(wide.as_ref()?, point)
     })
+}
+
+/// A binary64 D0 point with three massive propagators pairwise at their
+/// pseudo-thresholds (`pseudo_triangle`), for the SymJIT and expression entry
+/// points: the native closed form's value. `None` for every other point.
+#[cfg(feature = "generated-evaluators")]
+pub(crate) fn pseudo_triangle_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
+    pseudo_triangle::d0(point, 53)
+}
+
+/// [pseudo_triangle_d0] for the interpreted `Float` at `bits`.
+#[cfg(feature = "generated-evaluators")]
+pub(crate) fn pseudo_triangle_d0_float(
+    point: &[C<symbolica::domains::float::Float>],
+    bits: u32,
+) -> Option<[C<symbolica::domains::float::Float>; 3]> {
+    pseudo_triangle::d0(point, bits)
 }
 
 /// Shared domain contract for the explicit manual backends. Call only after

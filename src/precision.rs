@@ -219,6 +219,17 @@ impl PrecisionEvaluator {
                     }
                 }
                 if self.family == ScalarIntegral::D0 {
+                    // Three massive propagators pairwise at their
+                    // pseudo-thresholds take the native closed form, as on the
+                    // other routes.
+                    #[cfg(feature = "generated-evaluators")]
+                    if let Some(values) = crate::native::pseudo_triangle_d0_float(
+                        &self.arguments,
+                        self.binary_precision,
+                    ) {
+                        output.clone_from_slice(&values);
+                        return;
+                    }
                     crate::labelling::regular_d0_labelling(&mut self.arguments);
                 }
                 evaluator.evaluate(&self.arguments, output);

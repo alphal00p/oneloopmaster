@@ -4,6 +4,120 @@ This page preserves the September 8 development snapshot. See the
 [Symbolica main migration report](SYMBOLICA_3_MIGRATION.md) for the current
 dependency setup and validation.
 
+## Boxes with three massive lines pairwise at their pseudo-thresholds (2026-11-28)
+
+TIRust's replay of MadGraph's traces has 44 such boxes, in 72 calls at the
+stress points of `u u~ > z g g` and `u u~ > z z g g`. Two exactly collinear
+gluons on a b-quark loop give `p2² = p3² = s23 = 0` with four equal masses. On
+4499b48 every route was wrong in every labelling, also at 1024 bits:
+- the first of them is `-2.7362e-6 - 2.45e-10 i`;
+- `Float` 1024 gave about `1e77` for it;
+- binary64 was `3e10` times its size off.
+
+TIRust refused those calls, so MadGraph received none of these values.
+
+The class: three massive propagators whose invariants all sit at their
+pseudo-thresholds, `p_jk = (√m_j - √m_k)²`, equal masses at `p_jk = 0` among
+them. The fourth line may be massive, massless or complex. The modified
+Cayley matrix has a rank-one block and `det Y = 0`:
+- the four-mass chart and DNS forms meet double roots at `r = 1` and
+  dilogarithms at their branch points;
+- the contour box does not support a vanishing channel;
+- the three-mass sector does no better.
+
+They now take a closed form, `D0 = κ / (v_1 v_2 v_3) · Δ²[L B0(L; m_o, κ²)]`
+(NATIVE_BACKEND.md), on every route.
+
+Worst error over the 24 labellings of the twelve boxes of
+`tests/d0_pseudo_threshold_triangles.rs`, 4499b48 → this change, relative to
+the value. The binary64 column is the worst of the native hand-written and
+generated kernels, the expression backend and SymJIT. On this change
+`Float` 256 and 512 and the interpreted `Float` reach the references'
+36 digits.
+
+| fourth line, triangle (boxes) | binary64 | `DoubleFloat` | `Float` 256 | `Float` 512 | interpreted `Float` 128 |
+|---|---|---|---|---|---|
+| massive, equal masses (4: MadGraph's box, the same with equal legs, two more) | 3.2e10 → 6.0e-17 | 3.7e21 → 4.6e-33 | 5.2e39 → 1.1e-36 | inf → 1.1e-36 | inf → 1.1e-36 |
+| massless, equal masses (3: a three-mass box, also physical and with a leg on shell) | 1.7e-8 → 7.8e-17 | 1.2e-16 → 1.1e-32 | 1.6 → 2.1e-36 | 1.2 → 2.1e-36 | 0.25 → 2.1e-36 |
+| massive, unequal masses (3: Euclidean, physical, all three `L` equal) | inf → 4.3e-17 | inf → 6.3e-33 | inf → 2.9e-36 | inf → 2.9e-36 | inf → 2.9e-36 |
+| complex (1: a top quark with its width on a b-quark triangle) | 8.6e-8 → 7.9e-17 | 3.8e-14 → 4.6e-33 | 3.5 → 7.2e-37 | 0.88 → 7.2e-37 | 1.6 → 7.2e-37 |
+| all six pairs at their pseudo-thresholds (1) | 1.0 → 3.8e-17 | 1.0 → 3.1e-33 | 1.0 → 8.0e-37 | 1.0 → 8.0e-37 | 1.0 → 8.0e-37 |
+
+- **All six pairs** at their pseudo-thresholds give `F = (Σ_i v_i x_i)² > 0`
+  on the simplex: finite, `D0 = 1/(6 √(m_0 m_1 m_2 m_3))` (here 1/180), not a
+  Landau singularity.
+- **MadGraph's 44 boxes**, in all 24 labellings, against the 1024-bit limit
+  (the invariants moved by `±2^-300`), are within:
+  - 8.6e-17 in binary64 on every route;
+  - 7.2e-33 in `DoubleFloat`;
+  - 6.5e-78 at 256 bits, and 2.6e-39 on the interpreted `Float` 128.
+- **The physical three-pair box of the review of #31**,
+  `[0.537109375, 0.537109375, 116.703125, -21.203125, 0, 59.890625;
+  34.375, 26.318359375, 34.375, 13.427734375]`, `mu² = 4`, is such a
+  triangle (lines 0, 1 and 2). Every route now gives the 1024-bit limit:
+  - within 4.6e-17 in binary64 and 4.3e-78 at 256 bits;
+  - the closed form at 60 digits agrees: 4.6195932992657629e-4 +
+    8.8916053745010538e-4 i.
+
+  So of the review's references, the limit was right and COLI 2.8 off.
+
+Changes:
+- **`native/pseudo_triangle.rs`** decides the class by exact predicates on the
+  represented inputs, after a prefilter. It evaluates the bubbles with the
+  native `Float` kernels at `bits + 3 log2(scale / gap) + 64` bits and rounds
+  once.
+- **It serves every route:**
+  - `NativeEvaluator` for every carrier, after the soft-box sector;
+  - the SymJIT entry points;
+  - the binary64 expression route;
+  - the interpreted `Float`.
+
+Not changed:
+- **Points next to the class**, which no exact test applies to, keep the
+  sector code.
+- **Also left to the sector code:**
+  - a cluster of equal or nearly equal `L` next to a branch point of the
+    bubble;
+  - a complex fourth line with unequal triangle masses;
+  - an infrared-divergent box;
+  - the equal-mass vacuum box.
+- **The generated code, the SymJIT asset and the expressions are not
+  regenerated.**
+
+Checks:
+- **`tests/d0_pseudo_threshold_triangles.rs`** (new) checks the twelve boxes
+  in all 24 labellings on every route. Tolerances:
+  - 1e-15 in binary64;
+  - 1e-30 in `DoubleFloat`;
+  - 1e-35 in native and interpreted `Float` 128.
+
+  References: the closed form at 130 digits (mpmath, the bubbles by
+  quadrature, equal `L` spread by `±1e-35`). They agree with the direct
+  integral over the simplex where it converges, and with the 1024-bit limit
+  of the sector code (to 20 digits or more). On 4499b48 all three tests fail,
+  on every route.
+- **Full release suite with `generated-evaluators`:** 73 test binaries, 331
+  passed, 4 failed, 8 ignored. That is 4499b48's 328 and the three new tests;
+  the four failures are the known ones, with output identical to 4499b48's.
+- **Bit for bit against 4499b48**, on native binary64, `DoubleFloat`,
+  `Float` 256, the binary64 expression backend and SymJIT:
+  - identical on #31's comparison sets, each box in all 24 labellings:
+    Ninja's 288 D0 rows, #27's and #30's sets and soft boxes, #31's class and
+    its neighbourhood, and 100 random boxes with two, three and four massive
+    lines;
+  - of MadGraph's 35,315 distinct boxes with a massive pair at its
+    pseudo-threshold, only the 44 above change.
+- **clippy 1.97.1:** no warning on the changed lines. **rustfmt:** the changed
+  lines add no hunks.
+- **Cost:** retired instructions per binary64 D0 call (`perf stat`, 12 passes
+  minus 2, three repeats).
+  - **Native `NativeEvaluator`:**
+    - Ninja's 288 rows 103,896 → 104,163 (+0.26 %);
+    - the 2,400 random rows 72,982 → 73,186 (+0.28 %);
+    - the 44 boxes 21,458 → 2,134,281: three `Float` bubbles at about 192
+      bits.
+  - **SymJIT:** Ninja's rows +0.02 %, the random rows +0.06 %.
+
 ## Soft three-mass boxes at the pseudo-thresholds of the other massive pairs (2026-11-27)
 
 Review remark 2 of #27. Sector 16 has two more r-functions over massive pairs:
