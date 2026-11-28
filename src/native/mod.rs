@@ -571,6 +571,61 @@ pub(crate) fn pseudo_triangle_d0_float(
     pseudo_triangle::d0(point, bits)
 }
 
+/// Whether a binary64 D0 point has four real masses and a massive pair at its
+/// pseudo-threshold: an invariant `p` between lines `i` and `j` with
+/// `(m_i - m_j)² - 2 p (m_i + m_j) + p² = 0` exactly and `m_i + m_j - p` not
+/// negative (squared masses), the test of `box_integral::pair_thresholds`.
+#[cfg(feature = "generated-evaluators")]
+fn d0_four_masses_at_pseudo_threshold(point: &[C<f64>; 11]) -> bool {
+    // (invariant, propagator i, propagator j), as in d0_next_to_threshold.
+    const PAIRS: [(usize, usize, usize); 6] = [
+        (0, 0, 1),
+        (1, 1, 2),
+        (2, 2, 3),
+        (3, 3, 0),
+        (4, 0, 2),
+        (5, 1, 3),
+    ];
+    if point[6..10].iter().any(|m| m.im != 0.0 || m.re == 0.0) {
+        return false;
+    }
+    PAIRS.iter().any(|&(k, i, j)| {
+        let (mi, mj, p) = (point[6 + i].re, point[6 + j].re, point[k]);
+        let (difference, sum) = (mi - mj, mi + mj);
+        let kallen = difference * difference - 2.0 * p.re * sum + p.re * p.re;
+        p.im == 0.0 && kallen == 0.0 && sum - p.re >= 0.0
+    })
+}
+
+/// A binary64 D0 point with four real masses and a massive pair at its
+/// pseudo-threshold ([`d0_four_masses_at_pseudo_threshold`]), for the SymJIT
+/// entry points: the native kernels' values. The prebuilt asset predates
+/// `box_integral::chart_pair`: the rounding of the pair's `k` decided whether
+/// it takes the four-mass chart's `p23` or `p12` slot, and some labellings
+/// came out wrong. `None` for every other point.
+#[cfg(feature = "generated-evaluators")]
+pub(crate) fn pseudo_threshold_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
+    use std::cell::RefCell;
+    thread_local! {
+        static NATIVE: RefCell<Option<NativeEvaluator<f64>>> = const { RefCell::new(None) };
+    }
+    let point: &[C<f64>; 11] = point.try_into().ok()?;
+    if !d0_four_masses_at_pseudo_threshold(point) {
+        return None;
+    }
+    NATIVE.with(|cell| {
+        let mut native = cell.borrow_mut();
+        if native.is_none() {
+            *native = Some(NativeEvaluator::new(ScalarIntegral::D0).ok()?);
+        }
+        let values = native.as_ref()?.family_values(point);
+        values
+            .iter()
+            .all(|z| z.re.is_finite() && z.im.is_finite())
+            .then_some(values)
+    })
+}
+
 /// Shared domain contract for the explicit manual backends. Call only after
 /// checking shape, so every point has the family's complete argument list.
 pub(crate) fn validate_point<T: NativeFloat>(
