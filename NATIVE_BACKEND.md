@@ -407,7 +407,8 @@ threshold (`k = -2`), whose rounded `k13` missed the chart's threshold branch.
 
 SymJIT's prebuilt asset predates the change. Its entry points take four-mass
 points with a pair at an exact pseudo-threshold from the native kernels
-(`native::pseudo_threshold_d0`, after the soft-box and threshold repairs).
+(`native::pseudo_threshold_d0`, after the soft-box, pseudo-threshold-triangle
+and threshold repairs).
 
 Not changed:
 - **The native `Float` route** evaluates the generated code, which is not
@@ -423,6 +424,88 @@ Not changed:
 `tests/d0_pseudo_thresholds.rs` checks eight four-mass boxes in all 24
 labellings on the binary64 routes, `DoubleFloat` and the interpreted `Float`,
 the two boxes above among them.
+
+## Boxes with a pseudo-threshold triangle (`native/pseudo_triangle.rs`)
+
+Three massive propagators `j` (masses `m_j = v_j²`, real and positive) whose
+three invariants all sit at their pseudo-thresholds, `p_jk = (v_j - v_k)²`,
+give the modified Cayley matrix the rank-one block `Y_jk = 2 v_j v_k`. Equal
+masses at `p_jk = 0` are among them: two exactly collinear massless legs
+between equal-mass lines (MadGraph's stress points of `u u~ > z g g` and
+`u u~ > z z g g`, on a b-quark loop). `det Y = 0`, and every finite form of the
+sector code divides by a power of it:
+- the four-mass chart and DNS forms meet double roots at `r = 1`, and
+  dilogarithms at their branch points;
+- the contour box does not support a vanishing channel;
+- the generated code and the expressions follow the same forms.
+
+So these boxes were wrong on every route, also at 1024 bits (up to 1e77).
+
+They are evaluated in closed form. With `o` the fourth propagator (mass
+`m_o`: real, complex or zero), the projective weights
+`x_o + Σ_j (v_j/κ) x_j = 1` (Cheng-Wu, any `κ > 0`) and `z_j = v_j x_j / κ`,
+the Feynman-parameter denominator becomes `A(t) - t (1 - t) L(y)` on the
+triangle `z = (1 - t) y`. Here `A(t) = t m_o + (1 - t) κ²`, and `L` is linear
+with the values `L_j = (v_j - κ) (m_o / v_j - κ) + (κ / v_j) p_oj`.
+Hermite-Genocchi turns the triangle integral into a second divided
+difference, and the `t` integral of each term is a bubble:
+
+`D0 = κ / (v_1 v_2 v_3) · Δ²[L B0(L; m_o, κ²)](L_1, L_2, L_3)`
+
+The bubble is taken in its finite part: its constant and linear terms in `L`,
+the pole and `ln μ²` among them, drop out. `κ = max v_j`, so for equal masses
+`L_j = p_oj` and `D0 = Δ²[p B0(p; m_o, m)] / m`. With all six pairs at their
+pseudo-thresholds, `F = (Σ_i v_i x_i)²` and `D0 = 1/(6 v_0 v_1 v_2 v_3)`. This
+is finite, not a Landau singularity: `F > 0` on the simplex.
+
+The case is decided by exact predicates on the represented inputs
+(`NativeFloat::exact_rational`), after a prefilter:
+- three real positive masses;
+- `0 <= p <= max(a, b)` for each pair;
+- a rounded Källén function within `2^-40 (a + b + p)²`.
+
+The divided difference cancels by `(scale / gap)²` where two `L_j` are close:
+MadGraph's three `p_oj` agree to 1e-7. So the bubbles are evaluated by the
+native `Float` B0 kernels at `bits + 3 log2(scale / gap) + 64` bits. Numerica
+tracks the cancellation of each gap and that of the difference as lost
+precision, three times the gap's bits in all. The result is rounded once to
+the carrier: binary64, `DoubleFloat` or `Float`.
+
+`L_j` closer than `2^-(bits + 16)` of the scale (equal ones among them) are
+spread symmetrically about their mean to that distance. The divided difference
+is symmetric, so this changes it in second order, by `2^-(2 bits + 32)`.
+
+Left to the sector code:
+- a cluster within `2^-(bits/2 + 8)` of a branch point of the bubble,
+  `(√m_o ± κ)²`, where the difference is not smooth;
+- complex `L_j` (a complex `m_o` with unequal triangle masses), since B0
+  takes real invariants;
+- an infrared-divergent box (a massless `m_o` between two on-shell legs);
+- the equal-mass vacuum box, which it evaluates exactly.
+
+The closed form serves every route:
+- `NativeEvaluator` for every carrier, after the soft-box sector;
+- the SymJIT entry points, after the soft-box repair and before the threshold
+  repairs;
+- the binary64 expression route;
+- the interpreted `Float` (`PrecisionEvaluator` with the expression backend).
+
+The generated code, the SymJIT asset and the expressions are unchanged.
+
+Cost:
+- the prefilter costs about 270 retired instructions per binary64 D0 call
+  (+0.26 % on Ninja's rows);
+- a box it takes costs three `Float` bubbles at about 192 bits in binary64,
+  about 2.1 million instructions.
+
+`tests/d0_pseudo_threshold_triangles.rs` checks twelve such boxes in all 24
+labellings on every route against the closed form at 130 digits (mpmath). They
+cover:
+- distinct and equal `L`;
+- massive, massless and complex `o`;
+- equal and unequal masses;
+- the Euclidean and the physical region;
+- all six pairs.
 
 ## Numeric domains
 

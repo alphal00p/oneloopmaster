@@ -174,10 +174,12 @@ pub fn evaluate_batch_with_backend(
             {
                 #[cfg(feature = "generated-evaluators")]
                 if family == ScalarIntegral::D0
-                    && let Some(wide) = crate::native::threshold_d0(point)
+                    && let Some(repaired) = crate::native::pseudo_triangle_d0(point)
+                        .or_else(|| crate::native::threshold_d0(point))
                 {
-                    // Next to a two-particle threshold, as on the other routes.
-                    values.clone_from_slice(&wide);
+                    // A pseudo-threshold triangle, or next to a two-particle
+                    // threshold, as on the other routes.
+                    values.clone_from_slice(&repaired);
                     continue;
                 }
                 let point = crate::labelling::regular_point(point, &mut relabelled);
