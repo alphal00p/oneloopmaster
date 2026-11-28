@@ -12,15 +12,21 @@
 //! interpreted `Float`) returned values up to 126 times their size off in some
 //! labellings (alphal00p/oneloopmaster#30, review). `box_integral::chart_pair`
 //! takes `k = 2` exactly and keeps the pair out of the four-mass chart's `p23`
-//! and `p12` slots, and SymJIT takes these four-mass points from the native
-//! kernels.
+//! slot, and SymJIT takes these four-mass points from the native kernels. Kept
+//! out of the `p12` slot as well, the two physical boxes with exact-square
+//! masses below had no chart order left, and `box_four_masses_dns` was about 1
+//! off in 16 of their labellings (the review of #31).
 //!
 //! Cases: dyadic squared masses `a² m` with `m` not a square, so that the
 //! pseudo-thresholds are exact in binary64; four massive lines with a leg, a
 //! channel, or both at their pseudo-threshold (the review's box among them),
-//! in the Euclidean and the physical region.
+//! in the Euclidean and the physical region; and two physical boxes with
+//! exact-square masses and two adjacent legs at their pseudo-thresholds (the
+//! review of #31).
 //! References: the mean of the invariants at their pseudo-thresholds moved by
-//! `±2^-300` at 1024 bits (`±2^-200` agrees to 1e-122 of the value). The
+//! `±2^-300` at 1024 bits (`±2^-200` agrees to 1e-122 of the value; for the
+//! two boxes of the review of #31, `±2^-400`, which agrees with `±2^-300` to
+//! 1e-185). They are the values of main, COLLIER and the review. The
 //! native `Float` route evaluates the generated code, which is not
 //! regenerated and keeps about half its digits here; it is not checked. Nor
 //! are three- and two-mass boxes and the contour box, which keep the rounded
@@ -43,7 +49,7 @@ struct Case {
     finite: [&'static str; 2],
 }
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 8] = [
     Case {
         // Lines 0 and 1 (p1) at their pseudo-threshold, Euclidean: the
         // expression backend and the interpreted Float were 3.8 off in three
@@ -106,6 +112,31 @@ const CASES: [Case; 6] = [
         masses: [0.5126953125, 2.953125, 0.5126953125, 2.05078125],
         mu_squared: 4.0,
         finite: ["4.17487846559143050477294811528511928E-03", "0"],
+    },
+    Case {
+        // Lines 0 and 1 (p1) and lines 1 and 2 (p2), exact squares, physical:
+        // excluded from the p12 slot as well, this box fell to
+        // box_four_masses_dns, about 1 off in 16 labellings (P2qp-00417 of
+        // the review of #31).
+        name: "four-masses-two-legs-squares",
+        invariants: [0.4306640625, 0.31640625, -13.5, -7.65625, 118.0, 62.546875],
+        masses: [0.7119140625, 2.25, 0.87890625, 2.25],
+        mu_squared: 4.0,
+        finite: [
+            "-1.75675804604812323084863019226765251E-03",
+            "-6.87688313549687693497191974173259040E-03",
+        ],
+    },
+    Case {
+        // Lines 1 and 2 (p2) and lines 2 and 3 (p3), likewise (Xsap-00023).
+        name: "four-masses-two-other-legs-squares",
+        invariants: [-7.015625, 0.25, 0.25, -14.046875, 43.75, 65.28125],
+        masses: [2.25, 1.0, 2.25, 1.0],
+        mu_squared: 4.0,
+        finite: [
+            "-8.65060339288653005344610983648077191E-03",
+            "-1.49900715846161850993258977752275881E-02",
+        ],
     },
 ];
 

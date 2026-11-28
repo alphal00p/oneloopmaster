@@ -79,7 +79,7 @@ fn kallen_polynomial<T: BoxReal>(p: Z<T>, a: Z<T>, b: Z<T>) -> Z<T> {
 
 /// `box_integral::chart_pair`: `k` of the massive pair that `momentum` joins, 2
 /// exactly at its pseudo-threshold and -2 at its threshold, and whether the pair
-/// is excluded from the chart's `p23` and `p12` slots (at its pseudo-threshold).
+/// is excluded from the chart's `p23` slot (at its pseudo-threshold).
 #[inline]
 fn chart_pair<T: BoxReal>(
     momentum: Z<T>,
@@ -391,13 +391,9 @@ fn four_masses<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T>
                 let (i, j) = (masses[i], masses[j]);
                 chart_pair(p[order[slot]], m[i], m[j], roots[i], roots[j])
             };
-            // The p23 slot's pair, and the p12 slot's (the chart's r13).
-            let ((kv, excluded24), (_, excluded13)) = (pair(5, 1, 3), pair(4, 0, 2));
-            if !negative(kv.re * kv.re - T::lit(4.0))
-                && !negative(kv.re)
-                && !excluded24
-                && !excluded13
-            {
+            // The p23 slot's pair.
+            let (kv, excluded24) = pair(5, 1, 3);
+            if !negative(kv.re * kv.re - T::lit(4.0)) && !negative(kv.re) && !excluded24 {
                 let (p, m, roots) = (order.map(|i| p[i]), masses.map(|i| m[i]), masses.map(|i| roots[i]));
                 return four_masses_chart(p, m, roots, kv, k);
             }

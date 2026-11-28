@@ -558,8 +558,14 @@ pub(crate) fn threshold_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
 #[cfg(feature = "generated-evaluators")]
 fn d0_four_masses_at_pseudo_threshold(point: &[C<f64>; 11]) -> bool {
     // (invariant, propagator i, propagator j), as in d0_next_to_threshold.
-    const PAIRS: [(usize, usize, usize); 6] =
-        [(0, 0, 1), (1, 1, 2), (2, 2, 3), (3, 3, 0), (4, 0, 2), (5, 1, 3)];
+    const PAIRS: [(usize, usize, usize); 6] = [
+        (0, 0, 1),
+        (1, 1, 2),
+        (2, 2, 3),
+        (3, 3, 0),
+        (4, 0, 2),
+        (5, 1, 3),
+    ];
     if point[6..10].iter().any(|m| m.im != 0.0 || m.re == 0.0) {
         return false;
     }
@@ -593,7 +599,10 @@ pub(crate) fn pseudo_threshold_d0(point: &[C<f64>]) -> Option<[C<f64>; 3]> {
             *native = Some(NativeEvaluator::new(ScalarIntegral::D0).ok()?);
         }
         let values = native.as_ref()?.family_values(point);
-        values.iter().all(|z| z.re.is_finite() && z.im.is_finite()).then_some(values)
+        values
+            .iter()
+            .all(|z| z.re.is_finite() && z.im.is_finite())
+            .then_some(values)
     })
 }
 

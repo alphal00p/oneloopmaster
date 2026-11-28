@@ -396,8 +396,12 @@ threshold (`k = -2`), whose rounded `k13` missed the chart's threshold branch.
   threshold, where the Källén function vanishes exactly. It is tested as
   `(m_i - m_j)² - 2 p (m_i + m_j) + p²`, whose terms are exact for binary64
   inputs with short mantissas and which keeps a tiny `p`.
-- **No chart order puts a pair at its pseudo-threshold in the `p23` or `p12`
-  slot.**
+- **No chart order puts a pair at its pseudo-threshold in the `p23` slot.**
+  The `p12` slot takes it: with `k = 2` exactly, `r13 = 1` is both real and
+  on the unit circle. Excluded from it too, two physical boxes with
+  exact-square masses and two adjacent legs at their pseudo-thresholds had no
+  chart order left, and `box_four_masses_dns` was about 1 off in 16 of their
+  labellings.
 - **The DNS fallback keeps the rounded `k`.**
 - **The hand-written `boxes.rs` does the same.**
 
@@ -416,8 +420,9 @@ Not changed:
   regressions of `tests/d0_contour_regressions.rs` (up to 0.14 off) and
   `tests/d0_contour_thresholds.rs` (3.9e-9).
 
-`tests/d0_pseudo_thresholds.rs` checks six four-mass boxes in all 24
-labellings on the binary64 routes, `DoubleFloat` and the interpreted `Float`.
+`tests/d0_pseudo_thresholds.rs` checks eight four-mass boxes in all 24
+labellings on the binary64 routes, `DoubleFloat` and the interpreted `Float`,
+the two boxes above among them.
 
 ## Numeric domains
 

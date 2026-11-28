@@ -31,12 +31,14 @@ review's `[1.0048828125, -52.609375, -2.984375, -35.5, -47.265625, 3.65625;
 
 | massive lines (boxes) | binary64 expression backend | SymJIT | interpreted `Float` 128 |
 |---|---|---|---|
-| four (33) | 32 (7) → 9.5e-14 | 32 (4) → 1.9e-13 | 130 (16) → 1.2e-19 |
+| four (33) | 32 (7) → 1.0e-13 | 32 (4) → 1.9e-13 | 130 (16) → 1.2e-19 |
 | three, the massless line's legs off shell (24) | 1.5e-13, unchanged | 1.5e-13, unchanged | 6.5e-20, unchanged |
 | two, adjacent or opposite (16) | 4.6e-15, unchanged | 4.8e-15, unchanged | 1.0e-20, unchanged |
 
-- **Unchanged on every class:** native binary64 (hand-written and generated,
-  within 1.9e-13) and `DoubleFloat` (within 3.5e-29).
+- **Native binary64 (hand-written and generated, within 1.9e-13) and
+  `DoubleFloat` (within 3.5e-29) keep their accuracy on every class.** Where
+  a pair at its pseudo-threshold now takes the chart's `p12` slot with
+  `k = 2` exactly, their bits move.
 - **Native `Float` is unchanged too.** It evaluates the generated code, which is
   not regenerated (as for #25), and keeps about half its digits: up to 2.4e-17
   at 128 bits, 1.9e-36 at 256, 4.4e-75 at 512 and 2.7e-152 at 1024.
@@ -55,8 +57,20 @@ Changes:
     binary64 inputs with short mantissas.
   - Unlike `(mi + mj - p)² - 4 mi mj`, it keeps a tiny `p`: equal masses with
     `p = 2^-114` (`tests/d0_tiny_invariant.rs`).
-- **No chart order puts a pair at its pseudo-threshold in the `p23` or `p12`
-  slot.** The DNS fallback keeps the rounded `k`.
+- **No chart order puts a pair at its pseudo-threshold in the `p23` slot.**
+  The DNS fallback keeps the rounded `k`.
+- **The `p12` slot takes such a pair.** With `k = 2` exactly, `r13 = 1` is
+  both real and on the unit circle, and the chart is right there. In the
+  first version of this change the pair was excluded from it as well. Two
+  physical boxes from the review of #31 then had no chart order left:
+  `[0.4306640625, 0.31640625, -13.5, -7.65625, 118.0, 62.546875;
+  0.7119140625, 2.25, 0.87890625, 2.25]` and `[-7.015625, 0.25, 0.25,
+  -14.046875, 43.75, 65.28125; 2.25, 1.0, 2.25, 1.0]`, `mu² = 4`, with
+  exact-square masses and two adjacent legs at their pseudo-thresholds.
+  `box_four_masses_dns` gave a real part about 1 off in 16 of their
+  labellings, on native binary64, `DoubleFloat` and the expression routes.
+  They are now right on every route in all 24 labellings, to 3.3e-14 in
+  binary64.
 - **The hand-written `boxes.rs` does the same.**
 - **SymJIT's entry points** take four-mass points with a pair at an exact
   pseudo-threshold from the native kernels (`native::pseudo_threshold_d0`).
@@ -74,15 +88,21 @@ Not changed:
 - **The native `Float` route** (above).
 
 Checks:
-- **`tests/d0_pseudo_thresholds.rs` (new)** checks six of the four-mass boxes
-  in all 24 labellings.
+- **`tests/d0_pseudo_thresholds.rs` (new)** checks eight of the four-mass
+  boxes in all 24 labellings: six of the class and the two boxes of the
+  review of #31.
   - Routes: native binary64 (hand-written and generated), the binary64
     expression backend, SymJIT, `DoubleFloat` and the interpreted `Float` 128,
     at 1e-12, 1e-26 and 1e-30.
-  - On 4499b48 two of its three tests fail, in 100 lanes, up to 126 times
-    their size off.
+  - On 4499b48 two of its three tests fail, in 64 lanes, up to 126 times
+    their size off. With the first version of this change (the `p12` slot
+    excluded) all three fail, in the 160 lanes of the review's two boxes, up
+    to 0.97 off.
 - **References:** the mean of the invariants at their pseudo-thresholds moved
   by `±2^-300` at 1024 bits, against `±2^-200` (within 1e-122 of the value).
+  For the review's two boxes `±2^-400`, which agrees with `±2^-300` to
+  1e-185. They are the review's values (the limit, COLLIER and a deformed
+  contour) and main's.
 - **`tests/d0_four_mass_orderings.rs`: images agree to 2e-30 instead of 1e-30.**
   - Its row 16 has a pair exactly at its threshold (`s23 = 4 m` with `m` not a
     square) and one at its pseudo-threshold (`p1 = 0` with equal masses).
@@ -110,11 +130,10 @@ Checks:
   output identical to 4499b48's.
 - **Cost:** retired instructions per D0 call (`perf stat`, 12 passes minus 2,
   three repeats).
-  - **Native binary64:** Ninja's 288 rows 103,896 → 103,996 (+0.10 %), 100
-    random finite boxes +0.12 %, the class +0.03 %, the soft boxes unchanged.
-  - **SymJIT row by row:** +3.3 % on Ninja's rows and +5.4 % on the class,
-    which now also take the native kernels; +0.01 % on the random and the
-    soft boxes.
+  - **Native binary64:** Ninja's 288 rows 103,896 → 103,957 (+0.06 %), 100
+    random finite boxes +0.07 %, the class -0.06 %.
+  - **SymJIT row by row:** +3.2 % on Ninja's rows and +5.4 % on the class,
+    which now also take the native kernels; +0.01 % on the random boxes.
 
 ## Soft three-mass boxes at the pseudo-thresholds of the other massive pairs (2026-11-27)
 

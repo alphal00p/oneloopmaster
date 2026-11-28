@@ -334,8 +334,8 @@ fn pair_thresholds(p: &Atom, a: &Atom, b: &Atom) -> (Atom, Atom) {
 
 /// The argument `k = (a + b - p) / (√a √b)` of the r-function `r + 1/r = k` of
 /// the massive lines `a` and `b` that the invariant `p` joins, for
-/// [box_four_masses_chart], and whether the pair may take the chart's `p23` or
-/// `p12` slot.
+/// [box_four_masses_chart], and whether the pair may take the chart's `p23`
+/// slot.
 ///
 /// At the pair's pseudo-threshold ([pair_thresholds]) `k` is 2 exactly and
 /// `r = 1` the exact double root, and at its threshold `k = -2` and `r = -1`
@@ -348,8 +348,13 @@ fn pair_thresholds(p: &Atom, a: &Atom, b: &Atom) -> (Atom, Atom) {
 /// wrong in some labellings. The expression routes (the binary64 expression
 /// backend, SymJIT and the interpreted `Float`) returned values up to 130 times
 /// their size off. A pair at its pseudo-threshold is therefore `excluded` from
-/// both slots. At a threshold, a rounded `k13` likewise left `r13` next to -1
-/// instead of on the chart's threshold branch.
+/// the `p23` slot. In the `p12` slot the exact `k = 2` makes `r13 = 1` both
+/// real and on the unit circle, and the chart is right: excluded from it as
+/// well, two physical boxes with exact-square masses and two pairs at their
+/// pseudo-thresholds had no chart order left, and `box_four_masses_dns` was
+/// about 1 off in 16 of their labellings (the review of #31). At a threshold,
+/// a rounded `k13` likewise left `r13` next to -1 instead of on the chart's
+/// threshold branch.
 ///
 /// Returns `(k, excluded)`, with `excluded` 0 or 1.
 fn chart_pair(p: &Atom, a: &Atom, b: &Atom, sqrt_a: &Atom, sqrt_b: &Atom) -> (Atom, Atom) {
@@ -376,7 +381,7 @@ pub(crate) fn box_finite_four_masses(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
             };
             let [
                 (k12, _),
-                (k13, excluded13),
+                (k13, _),
                 (k14, _),
                 (k23, _),
                 (k24, excluded24),
@@ -392,8 +397,7 @@ pub(crate) fn box_finite_four_masses(p: [&Atom; 6], m: [&Atom; 4]) -> Atom {
             let positive = &real_masses
                 * (1 - negative(&(&k24 * &k24 - 4)))
                 * (1 - negative(&k24))
-                * (1 - excluded24)
-                * (1 - excluded13);
+                * (1 - excluded24);
             let args: Vec<Atom> = order
                 .map(|i| p[i].clone())
                 .into_iter()

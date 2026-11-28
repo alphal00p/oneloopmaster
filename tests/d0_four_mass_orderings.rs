@@ -28,8 +28,9 @@ type C = Complex<f64>;
 /// digits in binary64. At 128 bits every route and image matches to 1e-15, and
 /// all 24 images agree with each other to 2e-30. Row 16 has a pair exactly at
 /// its threshold (`s23 = 4 m` with `m` not a square), where the four-mass chart
-/// now takes `k = -2` exactly, and two of its images agree to 1.3e-30. Before, they agreed to 1e-30 by the rounding of `k`,
-/// which left two of them 6.4 off in native `Float` at 1024 bits.
+/// now takes `k = -2` exactly, and two of its images agree to 1.3e-30. Before,
+/// they agreed to 1e-30 by the rounding of `k`, which left two of them 6.4 off
+/// in native `Float` at 1024 bits.
 const TOLERANCE: f64 = 5e-11;
 const PRECISE: f64 = 1e-15;
 const IMAGE_AGREEMENT: f64 = 2e-30;
